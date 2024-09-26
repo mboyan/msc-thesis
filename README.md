@@ -13,7 +13,7 @@ Includes materials for Master's Thesis Project
 - Contrast - difference between bright and dark pixels;
 - Elongation - ?
 - Granularity - ?
-- ThinnedLength - ?
+- ThinnedLength - length beyond circular region (so length of hypha);
 - XPosition - centroid X coordinate;
 - YPosition - centroid Y coordinate.
 
