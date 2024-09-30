@@ -1,6 +1,9 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## Alternative sources of data
+- "Synchrotron radiation-based microcomputed tomography for three-dimensional growth analysis of Aspergillus niger pellets" (data available here: https://mediatum.ub.tum.de/1700656)
+
 ## oCelloscope measurements
 
 - ScanArea - probably well ID?
