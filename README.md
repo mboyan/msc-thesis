@@ -1,6 +1,18 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## Notes of meeting with Jaap 02.10.2024
+- Better to focus on species that has been most extensively sequenced / researched, rather than based on its relevance.
+- Handling data can take a lot of time (bottleneck) - be very careful with re-visiting microscopic imagery, can be a topic on its own;
+- Narrow down to single species;
+- Pathways in carbon sequencing can be a topic on its own;
+- 3D data - cool and relevant, can be used, but can be computationally intense!
+- Sigmoid curves come up all the time in biology;
+- PDEs better than ABM;
+- less asumptions in 3D modelling;
+- reduce, reduce, reduce - MVP should be simple and explainable;
+- discuss publication with Han.
+
 ## Alternative sources of data
 - "Synchrotron radiation-based microcomputed tomography for three-dimensional growth analysis of Aspergillus niger pellets" (data available here: https://mediatum.ub.tum.de/1700656)
 
