@@ -6,6 +6,7 @@ Includes materials for Master's Thesis Project
 - Approx. volume of data per experiment? Does it fit on a normal computer?
 - Are the discarded overlapping objects not present in any of the .csv's?
 - Is the data after the 15th hour still present in the .csv's?
+- Was spore agglomeration observed in the experiments? Were agglomerations discarded due to overlap?
 
 ## Notes of meeting with Jaap 02.10.2024
 - Better to focus on species that has been most extensively sequenced / researched, rather than based on its relevance.
