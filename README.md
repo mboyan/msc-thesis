@@ -1,6 +1,30 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## Notes from meeting with Han 25.10.2024
+- Hypothesis: there is a diffusible signalling molecule between conidia.
+- When conidia are closer signal is high. More spores -> more concentration of inhibitor.
+- There is a threshold of inhibitor concentration needed for germination (e.g. $10\times$ of own concentration of spore).
+- Can start with known diffusion coefficient of glucose in water.
+- How fast is the inhibitor distributed homogeneously in the well plate?
+- Tests in lab can be performed to confirm/reject the model.
+- Improved model: add external source of inhibitor, find diffusion coefficient of unknown unhibitor (e.g. 1-octen-3-ol)?
+- Spore - has a certain volume, can only fit a certain volume of inhibitor, produces inhibitor _in itself_.
+- Start with 1 spore with inhibitor -> then 10 spores (checkerboard pattern?) -> then more complex distributions.
+- Example: in mushrooms 1-octen-3-ol is too high for germination, only when the spores are dispersed can they germinate.
+- Knowns:
+  - dimensions of well;
+  - volume of medium;
+  - dimensions of spore;
+- Setups:
+  - threshold of $10\times$, $100\times$, $1000\times$ concentration of inhibitor in spore;
+  - instant vs gradual release?
+- Variables:
+  - concentration of inhibitor in spore;
+  - rate of release in time.
+- cAMP can be looked at later;
+- OK with working towards publication.
+
 ## Questions for Maryam 04.10.2024
 - Which of the oCelloscope measurements were saved in .csv data?
 - Approx. volume of data per experiment? Does it fit on a normal computer?
