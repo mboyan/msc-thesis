@@ -3,6 +3,9 @@ Includes materials for Master's Thesis Project
 
 ## Questions for meeting with Han 01.11.2024
 - How would physical signaling between spores work? Is there further evidence for this?
+- Physical experiment - spores won't be washed?
+- If the inhibitor is still present even after being washed off, does it mean it is continuously produced? Or just that it is present in very large quantities?
+- How long would a laboratory experiment take?
 
 ## Notes from meeting with Han 25.10.2024
 - Hypothesis: there is a diffusible signalling molecule between conidia.
