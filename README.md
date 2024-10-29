@@ -1,6 +1,9 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## Questions for meeting with Han 01.11.2024
+- How would physical signaling between spores work? Is there further evidence for this?
+
 ## Notes from meeting with Han 25.10.2024
 - Hypothesis: there is a diffusible signalling molecule between conidia.
 - When conidia are closer signal is high. More spores -> more concentration of inhibitor.
