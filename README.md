@@ -9,7 +9,7 @@ Includes materials for Master's Thesis Project
 - How fast is the inhibitor distributed homogeneously in the well plate?
 - Tests in lab can be performed to confirm/reject the model.
 - Improved model: add external source of inhibitor, find diffusion coefficient of unknown unhibitor (e.g. 1-octen-3-ol)?
-- Spore - has a certain volume, can only fit a certain volume of inhibitor, produces inhibitor _in itself_.
+- Spore - has a certain volume, can only fit a certain volume of inhibitor, produces limited quantity of inhibitor _in itself_.
 - Start with 1 spore with inhibitor -> then 10 spores (checkerboard pattern?) -> then more complex distributions.
 - Example: in mushrooms 1-octen-3-ol is too high for germination, only when the spores are dispersed can they germinate.
 - Knowns:
