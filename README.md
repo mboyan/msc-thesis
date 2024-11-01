@@ -6,6 +6,7 @@ Includes materials for Master's Thesis Project
 - Physical experiment - spores won't be washed?
 - If the inhibitor is still present even after being washed off, does it mean it is continuously produced? Or just that it is present in very large quantities?
 - How long would a laboratory experiment take?
+- Inhibitor is released through membrane. Disregard role of permeability of membrane in diffusion?
 
 ## Notes from meeting with Han 25.10.2024
 - Hypothesis: there is a diffusible signalling molecule between conidia.
