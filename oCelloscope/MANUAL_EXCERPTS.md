@@ -181,3 +181,37 @@ Figure 41 illustrates some of the standard geometric figures calculated.
 | **EllipseRatio** | The 'EllipseRatio' algorithm measures the ratio between the minor axis length and major axis length of the ellipse with its center at the particle’s centroid and the same geometrical moments as the original particle. <br><br>An ellipse whose 'EllipseRatio' is 0 is a circle, while an ellipse whose 'EllipseRatio' is 1 is a line segment. <br><br>![Image](ISO 9276-6) | General use monitoring straight-rod cell elongation                   |
 | **Elongation**   | The 'Elongation' algorithm measures stretching of objects by calculating the ratio between 'AvgThickness' and 'LongestPath'. <br><br>![Image](ISO 9276-6)                                                                                                                                                                                           | Useful for monitoring of fungi and hyphae growth                      |
 | **EQPC**         | The 'EQPC' algorithm measures the diameter of a circle having the same projection area as the object. The 'EQPC' value is measured in pixels. <br><br>![Image](ISO 9276-6)                                                                                                                                                                          | Evaluation of particles with different sizes of a non-spherical particle |
+| **Feret Diameters (Feret min, Feret max, Feret mean)** | The Feret diameters are a group of diameters derived from the distance of two tangents to the contour of the object in all angles. If a particle has an irregular shape, the Feret diameter varies more than with regularly shaped objects. The maximum Feret diameter is always larger than the diameter of the equivalent circle ‘EQPC’. <br><br> The ‘FeretMin’ algorithm measures the minimum distance between two parallel tangents of the object at an arbitrary angle. <br> The ‘FeretMax’ algorithm measures the maximum distance between two parallel tangents of the object at an arbitrary angle. <br> The ‘FeretMean’ algorithm measures the angle-average Feret diameter of the object. <br><br> **Reference**: ISO 9276-6 | General use |
+| **IntensityMax** | The ‘IntensityMax’ algorithm measures the difference between the maximum object intensity and the mean background intensity. ‘IntensityMax’ values are computed for individual objects by subtracting the mean background intensity from the highest object intensity value. <br><br> **Limitations**: The ‘IntensityMax’ algorithm is sensitive to pixel noise. | Useful for differentiation between objects based on their intensity pattern. |
+| **IntensityMin** | The ‘IntensityMin’ algorithm measures the difference between the minimum object intensity and the mean background intensity. ‘IntensityMin’ values are computed for individual objects by subtracting the mean background intensity from the lowest object intensity value. <br><br> **Limitations**: The ‘IntensityMin’ algorithm is sensitive to pixel noise. | Useful for differentiation between objects based on their intensity pattern. |
+| **Irregularity** | The ‘Irregularity’ algorithm measures the relationship between the diameter of the maximum inscribed circle and the minimum circumscribed circle of an object. <br><br> **Reference**: ISO 9276-6 | General use |
+| **LongestPath** | The ‘LongestPath’ algorithm measures the length of the longest geodesic path of elongated objects such as fungi hyphae or fibers. <br><br> The ‘LongestPath’ of a fungi hypha is defined as the direct connection between its opposite ends; this is the longest direct path from one end to another within the object. Direct means without loops or deviations. If a hypha has branches, the algorithm selects the longest one (red in figure). <br><br> **Reference**: ISO 9276-6 | Useful for monitoring of fungi and hyphae growth |
+| **Perimeter** | The ‘Perimeter’ algorithm measures the total number of pixels in the object border. <br><br> The object shape will affect ‘Perimeter’ value in cases of objects possessing identical areas; e.g., a circular object has a lower value than objects with any other shape. <br><br> **Reference**: ISO 9276-6 | General use |
+| **TotalLength** | The ‘TotalLength’ algorithm measures the total geodesic length of elongated objects such as fungi hyphae or fibers. <br><br> The ‘TotalLength’ is measured in pixels and is calculated as a sum of all object components including length of branches (red in figure). <br><br> **Reference**: ISO 9276-6 | Useful for monitoring of fungi and hyphae growth |
+
+When the segmentation features are selected, press the "Next" button.
+
+## 5.2.2 Segmentation Setup
+
+When features have been selected and "Next" pressed, a pre-scan will be performed on the first scan area. UniExplorer will choose the layer with the best focus, but you can change this by selecting another layer as indicated by the red box in Figure 42.
+
+![Figure 42: The Segmentation Setup window.](#)
+
+The Segmentation setup window is used to tune the segmentation to detect the right objects. This is done by selecting the relevant segmentation algorithm and tuning various parameters, and it is possible to test if the right objects are detected. Settings can be changed until you are satisfied with the detection results.
+
+In the Segmentation setup window, the first option is to choose the algorithm to use for identifying the objects:
+
+- **Hmin (default)**  
+  This algorithm detects objects based on contrast differences.  
+  Use this algorithm for compact objects like bacteria and blood cells.
+
+- **FungiHmin**  
+  This algorithm detects objects similar to Hmin but is used with fungi which can be bright/transparent.
+
+- **Gradient**  
+  This algorithm detects objects based on edge magnitudes.  
+  Use this algorithm for phase objects like yeast cells and clusters.
+
+When the algorithm has been selected you should test the effect of the current settings by pressing the "Test Settings" button (see Figure 43). The currently detected objects are marked with red borders.
+
+You can zoom the image by scrolling the mouse wheel, and you can pan the image (when zoomed) by holding down the right mouse button.
