@@ -1,6 +1,11 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## Links on permeability and diffusion
+- https://bio.libretexts.org/Bookshelves/Biochemistry/Fundamentals_of_Biochemistry_(Jakubowski_and_Flatt)/01:_Unit_I-_Structure_and_Catalysis/11:_Biological_Membranes_and_Transport/11.02:_Diffusion_Across_a_Membrane_-_Passive_and_Facilitated_Diffusion
+- https://legacy.nimbios.org/~gross/bioed/webmodules/diffusion.htm
+- https://bio.libretexts.org/Bookshelves/Biochemistry/Fundamentals_of_Biochemistry_(Jakubowski_and_Flatt)/01%3A_Unit_I-_Structure_and_Catalysis/10%3A_Lipids/10.03%3A_Membrane_Bilayer_and_Monolayer_Assemblies_-_Structures_and_Dynamics
+
 ## Questions for meeting with Han 01.11.2024
 - How would physical signaling between spores work? Is there further evidence for this?
 - Physical experiment - spores won't be washed?
