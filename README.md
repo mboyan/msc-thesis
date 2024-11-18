@@ -1,6 +1,16 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## Notes for presentation on first experiments (from meeting on 15.11.2024)
+- Present all assumptions as bullet points
+- Diagrams of experiment setups
+- Present different threshold percentages in graphs
+- Compare to real(istic) values
+- Compare analytical vs numerical results
+- Compute volume of cell wall
+- Include references for everything
+- Future experiments
+
 ## Links on permeability and diffusion
 - https://bio.libretexts.org/Bookshelves/Biochemistry/Fundamentals_of_Biochemistry_(Jakubowski_and_Flatt)/01:_Unit_I-_Structure_and_Catalysis/11:_Biological_Membranes_and_Transport/11.02:_Diffusion_Across_a_Membrane_-_Passive_and_Facilitated_Diffusion
 - https://legacy.nimbios.org/~gross/bioed/webmodules/diffusion.htm
