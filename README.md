@@ -18,6 +18,8 @@ Includes materials for Master's Thesis Project
 - https://bio.libretexts.org/Bookshelves/Cell_and_Molecular_Biology/Book:_Cells_-_Molecules_and_Mechanisms_(Wong)/04:_Membranes_-_Structure_Properties_and_Function/4.02:_Membrane_Permeability
 - https://book.bionumbers.org/what-are-the-rates-of-membrane-transporters/
 - https://book.bionumbers.org/what-is-the-permeability-of-the-cell-membrane/
+- https://books.gw-project.org/flux-equations-for-gas-diffusion-in-porous-media/chapter/effective-molecular-diffusion-coefficient/
+- https://perminc.com/resources/fundamentals-of-fluid-flow-in-porous-media/chapter-3-molecular-diffusion/diffusion-coefficient/effective-diffusion-coefficient/
 
 ## Questions for meeting with Han 01.11.2024
 - How would physical signaling between spores work? Is there further evidence for this?
