@@ -1,6 +1,11 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## Notes on assumptions re-evaluation (09.12.2024)
+- The analytical solution of the permeating spore should incorporate $P_s$, not $D'$!
+- In the numerical solution, the factor was appearing because if you set $J=-D\nabla{c}=-P_s\Delta{c}$, you get $D=P_s*\delta{x}$.
+- However, perhaps the flux term $J=-P_s\Delta{c}$ should be used in the numerical scheme derivation?
+
 ## Notes for presentation on first experiments (from meeting on 15.11.2024)
 - Present all assumptions as bullet points
 - Diagrams of experiment setups
