@@ -48,6 +48,128 @@ def compute_permeation_constant(c_in, c_out, c_0, t, A, V, alpha=1.0):
 
 
 # ===== NUMERICAL SOLUTIONS =====
+def diffusion_time_dependent_sequential(c_init, t_max, D=1.0, Dm=1.0, dt=0.001, dx=0.005, n_save_frames=100, spore_idx=(None, None, None), c_thresholds=None):
+    """
+    Compute the evolution of a square lattice of concentration scalars
+    based on the time-dependent diffusion equation, using a single point source.
+    Uses vectorized operations.
+    inputs:
+        c_init (numpy.ndarray) - the initial state of the lattice;
+        t_max (int) - a maximum number of iterations;
+        D (float) - the diffusion constant; defaults to 1;
+        dt (float) - timestep; defaults to 0.001;
+        dx (float) - spatial increment; defaults to 0.005;
+        n_save_frames (int) - determines the number of frames to save during the simulation; detaults to 100;
+        c_thresholds (float) - threshold values for the concentration; defaults to None.
+    outputs:
+        u_evolotion (numpy.ndarray) - the states of the lattice at all moments in time.
+    """
+
+    assert c_init.ndim == 3, 'input array must be 2-dimensional'
+    assert c_init.shape[0] == c_init.shape[1] == c_init.shape[2], 'lattice must have equal size along each dimension'
+
+    # Determine number of lattice rows/columns
+    N = c_init.shape[0]
+
+    # Save update factor
+    Ddtdx2 = D * dt / (dx ** 2)
+    Dmdtdx2 = Dm * dt / (dx ** 2)
+
+    if  Ddtdx2 > 0.5:
+        print("Warning: inappropriate scaling of dx and dt, may result in an unstable simulation.")
+
+    # Determine number of frames
+    n_frames = int(np.floor(t_max / dt))
+    print(f"Simulation running for {n_frames} steps on a lattice of size {np.array(c_init.shape) * dx} mm.")
+
+    # Array for storing lattice states
+    c_evolution = np.zeros((n_save_frames + 1, N, N, N))
+    times = np.zeros(n_save_frames + 1)
+    save_interval = max(np.floor(n_frames / n_save_frames), 1)
+    save_ct = 0
+
+    # Array for storing times at which thresholds are reached
+    if type(c_thresholds) == np.ndarray:
+        times_thresh = np.zeros(c_thresholds.shape)
+    else:
+        times_thresh = None
+    thresh_ct = 0
+
+    # Initialise current state
+    c_curr = np.array(c_init)
+
+    for t in range(n_frames):
+
+        print(f"Frame {t} of {n_frames}", end="\r")
+
+        # Save frame
+        if t % save_interval == 0:
+            c_evolution[save_ct] = np.array(c_curr)
+            times[save_ct] = t * dt
+            save_ct += 1
+
+        # Compute next state
+        c_curr_bottom = np.roll(c_curr, -1, axis=0)
+        c_curr_top = np.roll(c_curr, 1, axis=0)
+        c_curr_left = np.roll(c_curr, -1, axis=1)
+        c_curr_right = np.roll(c_curr, 1, axis=1)
+        c_curr_front = np.roll(c_curr, -1, axis=2)
+        c_curr_back = np.roll(c_curr, 1, axis=2)
+        
+        # General update
+        c_next = Ddtdx2 * (c_curr_bottom + c_curr_top + c_curr_left + c_curr_right + c_curr_front + c_curr_back - 6 * c_curr) + c_curr
+
+        # Update around spore
+        if spore_idx[0] is not None:
+            c_next[spore_idx] = Dmdtdx2 * (c_curr_bottom[spore_idx] + c_curr_top[spore_idx] + c_curr_left[spore_idx] + c_curr_right[spore_idx] + c_curr_front[spore_idx] + c_curr_back[spore_idx] - 6 * c_curr[spore_idx]) + c_curr[spore_idx]
+            
+            idx_bottom_spore = (spore_idx[0] + 1, spore_idx[1], spore_idx[2])
+            idx_top_spore = (spore_idx[0] - 1, spore_idx[1], spore_idx[2])
+            idx_left_spore = (spore_idx[0], spore_idx[1] + 1, spore_idx[2])
+            idx_right_spore = (spore_idx[0], spore_idx[1] - 1, spore_idx[2])
+            idx_front_spore = (spore_idx[0], spore_idx[1], spore_idx[2] + 1)
+            idx_back_spore = (spore_idx[0], spore_idx[1], spore_idx[2] - 1)
+            
+            diff1 = Dmdtdx2 * (c_curr_top[idx_bottom_spore] - c_curr[idx_bottom_spore])
+            diff2 = Ddtdx2 * (c_curr_bottom[idx_bottom_spore] + c_curr_left[idx_bottom_spore] + c_curr_right[idx_bottom_spore] + c_curr_front[idx_bottom_spore] + c_curr_bottom[idx_bottom_spore] - 5*c_curr[idx_bottom_spore])
+            c_next[idx_bottom_spore] = diff1 + diff2 + c_curr[idx_bottom_spore]
+
+            diff1 = Dmdtdx2 * (c_curr_bottom[idx_top_spore] - c_curr[idx_top_spore])
+            diff2 = Ddtdx2 * (c_curr_top[idx_top_spore] + c_curr_left[idx_top_spore] + c_curr_right[idx_top_spore] + c_curr_front[idx_top_spore] + c_curr_back[idx_top_spore] - 5*c_curr[idx_top_spore])
+            c_next[idx_top_spore] = diff1 + diff2 + c_curr[idx_top_spore]
+
+            diff1 = Dmdtdx2 * (c_curr_right[idx_left_spore] - c_curr[idx_left_spore])
+            diff2 = Ddtdx2 * (c_curr_bottom[idx_left_spore] + c_curr_top[idx_left_spore] + c_curr_left[idx_left_spore] + c_curr_front[idx_left_spore] + c_curr_back[idx_left_spore] - 5*c_curr[idx_left_spore])
+            c_next[idx_left_spore] = diff1 + diff2 + c_curr[idx_left_spore]
+
+            diff1 = Dmdtdx2 * (c_curr_left[idx_right_spore] - c_curr[idx_right_spore])
+            diff2 = Ddtdx2 * (c_curr_bottom[idx_right_spore] + c_curr_top[idx_right_spore] + c_curr_right[idx_right_spore] + c_curr_front[idx_right_spore] + c_curr_back[idx_right_spore] - 5*c_curr[idx_right_spore])
+            c_next[idx_right_spore] = diff1 + diff2 + c_curr[idx_right_spore]
+
+            diff1 = Dmdtdx2 * (c_curr_back[idx_front_spore] - c_curr[idx_front_spore])
+            diff2 = Ddtdx2 * (c_curr_bottom[idx_front_spore] + c_curr_top[idx_front_spore] + c_curr_left[idx_front_spore] + c_curr_right[idx_front_spore] + c_curr_front[idx_front_spore] - 5*c_curr[idx_front_spore])
+            c_next[idx_front_spore] = diff1 + diff2 + c_curr[idx_front_spore]
+
+            diff1 = Dmdtdx2 * (c_curr_front[idx_back_spore] - c_curr[idx_back_spore])
+            diff2 = Ddtdx2 * (c_curr_bottom[idx_back_spore] + c_curr_top[idx_back_spore] + c_curr_left[idx_back_spore] + c_curr_right[idx_back_spore] + c_curr_back[idx_back_spore] - 5*c_curr[idx_back_spore])
+            c_next[idx_back_spore] = diff1 + diff2 + c_curr[idx_back_spore]
+
+        
+        # Update current array
+        c_curr = np.array(c_next)
+
+        # Save time if threshold is reached
+        if c_thresholds is not None:
+            if thresh_ct < times_thresh.shape[0] and c_thresholds[thresh_ct] == 0 and np.max(c_curr) < c_thresholds[thresh_ct]:
+                times_thresh[thresh_ct] = t * dt
+                thresh_ct += 1
+
+    # Save final frame
+    c_evolution[-1] = np.array(c_curr)
+    times[-1] = t_max
+
+    return c_evolution, times, times_thresh
+
 def invoke_smart_kernel(size, threads_per_block=(8, 8, 8)):
     """
     Invoke a kernel with the appropriate number of blocks and threads per block.
@@ -60,6 +182,7 @@ def invoke_smart_kernel(size, threads_per_block=(8, 8, 8)):
 def update_GPU(c_old, c_new, N, dtdx2, D, Db, spore_idx):
     """
     Update the concentration of a lattice point based on the time-dependent diffusion equation with a periodic boundary.
+    Uses CUDA to parallelize the computation.
     inputs:
         c_old (DeviceNDArray) - the current state of the lattice;
         c_new (DeviceNDArray) - the next state of the lattice;
