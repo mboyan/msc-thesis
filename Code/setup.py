@@ -29,20 +29,23 @@ def populate_spore_grid_coords(N, dx, spore_density, bottom_only=False):
         bottom_only (bool): whether to only populate the bottom layer of the lattice
     """
 
+    N = N + 1
+
     # Calculate the number of spores to place
     V_grid = N**3 * dx**3
     n_spores = spore_density * V_grid
     if bottom_only:
         V_occupied = N**2 * dx**3
-        assert np.sqrt(n_spores) % 1 == 0, "number of spores must be a perfect square if bottom_only is True"
-        n_spores_1D = np.sqrt(n_spores)
+        # assert np.sqrt(int(n_spores)) % 1 == 0, "number of spores must be a perfect square if bottom_only is True"
+        n_spores_1D = int(np.sqrt(n_spores))
+        print(f"Effective density: {n_spores / V_occupied} spores/micrometer^3")
     else:
         V_occupied = V_grid
-        assert np.cbrt(n_spores) % 1 == 0, "number of spores must be a perfect cube if bottom_only is False"
-        n_spores_1D = np.cbrt(n_spores)
+        # assert np.cbrt(int(n_spores)) % 1 == 0, "number of spores must be a perfect cube if bottom_only is False"
+        n_spores_1D = int(np.cbrt(n_spores))
+        print(f"Effective density: {n_spores / V_occupied} spores/micrometer^3")
 
     L = N * dx
-    print(L)
     spore_spacing = L / n_spores_1D
 
     print(f"Populating volume of {V_occupied} micrometers^3 with {n_spores} spores, {n_spores_1D} spores per dimension")
@@ -51,6 +54,12 @@ def populate_spore_grid_coords(N, dx, spore_density, bottom_only=False):
     # Generate the spore grid coordinates
     spores_x = np.arange(0, N+1, spore_spacing / dx)
     spores_y = np.arange(0, N+1, spore_spacing / dx)
-    spores_z = np.arange(0, N+1, spore_spacing / dx)
+    if bottom_only:
+        spores_z = np.array([0])
+    else:
+        spores_z = np.arange(0, N+1, spore_spacing / dx)
+
+    # Crete a meshgrid of the spore coordinates
+    spores_x, spores_y, spores_z = np.meshgrid(spores_x, spores_y, spores_z, indexing='ij')
 
     return spores_x, spores_y, spores_z
