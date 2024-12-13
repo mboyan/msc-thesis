@@ -1,6 +1,35 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## Notes from meeting with Han 13.12.2024
+- Correct all initial concentrations, use mol/L!
+- Mark spores in diffusion heat maps;
+- Structure experiments as follows:
+  - Experiment 1: superficial release
+    - 2D, D of glucose/water;
+    - 3D, D of glucose/water;
+    - 2D, D' of glucose/cellulose;
+    - 3D, D' of glucose/cellulose
+  - Experiment 2: release through barrier
+    - 2D, Ps of lipid bilayer membrane, spore volume;
+    - 3D, Ps of lipid bilayer membrane, spore volume;
+    - 2D, Ps of rodlet layer, cell wall volume;
+    - 2D, Ps of rodlet layer, cell wall volume;
+  - Experiment 3: estimation of the diffusion constant
+  - Experiment 4: spore densities
+- More informative graphics
+  - Illustrating main ideas;
+  - Round spore illustrations along with boxy ones;
+  - Indicate better when we're switching from _assumption_ of parameters to _derivation_ of parameters;
+  - Picture like in slide 7 but for permeation.
+- Derive double-D system numerical update (and analytical solution?)
+- For multi-spore experiments - use medium height & mL from article.
+- Goals for next meeting:
+  - corrections of concentrations;
+  - remake graphs from Experiments 1 and 2;
+  - reproduce multi-spore setup from article, get some statistics (e.g. distances between spores);
+  - maybe try triangular grid arrangement, see if 10^9 spores/mL fit in a plane
+
 ## Notes on assumptions re-evaluation (09.12.2024)
 - The analytical solution of the permeating spore should incorporate $P_s$, not $D'$!
 - In the numerical solution, the factor was appearing because if you set $J=-D\nabla{c}=-P_s\Delta{c}$, you get $D=P_s*\delta{x}$.
