@@ -94,6 +94,7 @@ def plot_experiment_results(expID, select_sim=None, semilogy=False, target_thres
         times_thresh = [x for x in times_thresh if x > 0]
         axA.vlines(times_thresh, 0, c_thresh, colors='r', color=palette(ax_ct), linestyles='dotted')
         axA.hlines(c_thresh, 0, times_thresh, colors='r', color=palette(ax_ct), linestyles='dotted')
+        axA.set_ylim(1e-12, 1.1*np.max(sim_results_data['c_numerical']))
         
         # Get concentration frames
         L = sim_params['N'] * sim_params['dx']
@@ -125,7 +126,7 @@ def plot_experiment_results(expID, select_sim=None, semilogy=False, target_thres
     if target_thresh is not None:
         axA.axhline(y=target_thresh, color='r', linestyle='dotted', label='Target threshold')
 
-    axA.legend()
+    axA.legend(fontsize='small')
     
     plt.tight_layout()
     plt.show()
