@@ -18,7 +18,7 @@ def permeation_time_dependent_analytical(c_in, c_out, t, Ps, A, V, alpha=1.0):
     c = c_out - (c_out - c_in) * np.exp(-t / tau)
     return c
 
-def diffusion_time_dependent_analytical_src(c_init, D, time, vol):
+def diffusion_time_dependent_analytical_src(c_init, D, time, vol, dims=3):
     """
     Compute the analytical solution of the time-dependent diffusion equation at the source.
     inputs:
@@ -27,7 +27,12 @@ def diffusion_time_dependent_analytical_src(c_init, D, time, vol):
         time (float) - the time at which the concentration is to be computed;
         vol (float) - the volume of the initial concentration cell.
     """
-    return vol * c_init / np.power(4*np.pi*D*time, 1.5)
+    if dims == 2:
+        result = np.power(vol * c_init, 2/3) / (4*np.pi*D*time)
+    elif dims == 3:
+        result = vol * c_init / np.power(4*np.pi*D*time, 1.5)
+    result[0] = c_init
+    return result
 
 def compute_permeation_constant(c_in, c_out, c_0, t, A, V, alpha=1.0):
     """
@@ -48,7 +53,7 @@ def compute_permeation_constant(c_in, c_out, c_0, t, A, V, alpha=1.0):
 
 
 # ===== NUMERICAL SOLUTIONS =====
-def diffusion_time_dependent_sequential(c_init, t_max, D=1.0, Dm=1.0, dt=0.001, dx=0.005, n_save_frames=100, spore_idx=(None, None, None), c_thresholds=None):
+def diffusion_time_dependent_sequential(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.001, dx=0.005, n_save_frames=100, spore_idx=(None, None, None), c_thresholds=None):
     """
     Compute the evolution of a square lattice of concentration scalars
     based on the time-dependent diffusion equation, using a single point source.
@@ -57,6 +62,8 @@ def diffusion_time_dependent_sequential(c_init, t_max, D=1.0, Dm=1.0, dt=0.001, 
         c_init (numpy.ndarray) - the initial state of the lattice;
         t_max (int) - a maximum number of iterations;
         D (float) - the diffusion constant; defaults to 1;
+        Db (float) - the diffusion constant through the spore; defaults to 1;
+        Ps (float) - the permeation constant through the spore barrier; defaults to 1;
         dt (float) - timestep; defaults to 0.001;
         dx (float) - spatial increment; defaults to 0.005;
         n_save_frames (int) - determines the number of frames to save during the simulation; detaults to 100;
@@ -65,15 +72,24 @@ def diffusion_time_dependent_sequential(c_init, t_max, D=1.0, Dm=1.0, dt=0.001, 
         u_evolotion (numpy.ndarray) - the states of the lattice at all moments in time.
     """
 
-    assert c_init.ndim == 3, 'input array must be 2-dimensional'
-    assert c_init.shape[0] == c_init.shape[1] == c_init.shape[2], 'lattice must have equal size along each dimension'
+    assert c_init.ndim == 2 or c_init.ndim == 3, 'input array must be 2- or 3-dimensional'
+    # assert c_init.shape[0] == c_init.shape[1] == c_init.shape[2], 'lattice must have equal size along each dimension'
+
+    dims = c_init.ndim
 
     # Determine number of lattice rows/columns
     N = c_init.shape[0]
 
     # Save update factor
     Ddtdx2 = D * dt / (dx ** 2)
-    Dmdtdx2 = Dm * dt / (dx ** 2)
+    Dbdtdx2 = Db * dt / (dx ** 2)
+
+    # Correction factor for permeation
+    if Db is None:
+        if dims == 2:
+            Db = Ps
+        else:
+            Db = Ps * dx
 
     if  Ddtdx2 > 0.5:
         print("Warning: inappropriate scaling of dx and dt, may result in an unstable simulation.")
@@ -83,7 +99,10 @@ def diffusion_time_dependent_sequential(c_init, t_max, D=1.0, Dm=1.0, dt=0.001, 
     print(f"Simulation running for {n_frames} steps on a lattice of size {np.array(c_init.shape) * dx} mm.")
 
     # Array for storing lattice states
-    c_evolution = np.zeros((n_save_frames + 1, N, N, N))
+    if dims == 2:
+        c_evolution = np.zeros((n_save_frames + 1, N, N))
+    else:
+        c_evolution = np.zeros((n_save_frames + 1, N, N, N))
     times = np.zeros(n_save_frames + 1)
     save_interval = max(np.floor(n_frames / n_save_frames), 1)
     save_ct = 0
@@ -121,7 +140,7 @@ def diffusion_time_dependent_sequential(c_init, t_max, D=1.0, Dm=1.0, dt=0.001, 
 
         # Update around spore
         if spore_idx[0] is not None:
-            c_next[spore_idx] = Dmdtdx2 * (c_curr_bottom[spore_idx] + c_curr_top[spore_idx] + c_curr_left[spore_idx] + c_curr_right[spore_idx] + c_curr_front[spore_idx] + c_curr_back[spore_idx] - 6 * c_curr[spore_idx]) + c_curr[spore_idx]
+            c_next[spore_idx] = Dbdtdx2 * (c_curr_bottom[spore_idx] + c_curr_top[spore_idx] + c_curr_left[spore_idx] + c_curr_right[spore_idx] + c_curr_front[spore_idx] + c_curr_back[spore_idx] - 6 * c_curr[spore_idx]) + c_curr[spore_idx]
             
             idx_bottom_spore = (spore_idx[0] + 1, spore_idx[1], spore_idx[2])
             idx_top_spore = (spore_idx[0] - 1, spore_idx[1], spore_idx[2])
@@ -130,27 +149,27 @@ def diffusion_time_dependent_sequential(c_init, t_max, D=1.0, Dm=1.0, dt=0.001, 
             idx_front_spore = (spore_idx[0], spore_idx[1], spore_idx[2] + 1)
             idx_back_spore = (spore_idx[0], spore_idx[1], spore_idx[2] - 1)
             
-            diff1 = Dmdtdx2 * (c_curr_top[idx_bottom_spore] - c_curr[idx_bottom_spore])
+            diff1 = Dbdtdx2 * (c_curr_top[idx_bottom_spore] - c_curr[idx_bottom_spore])
             diff2 = Ddtdx2 * (c_curr_bottom[idx_bottom_spore] + c_curr_left[idx_bottom_spore] + c_curr_right[idx_bottom_spore] + c_curr_front[idx_bottom_spore] + c_curr_bottom[idx_bottom_spore] - 5*c_curr[idx_bottom_spore])
             c_next[idx_bottom_spore] = diff1 + diff2 + c_curr[idx_bottom_spore]
 
-            diff1 = Dmdtdx2 * (c_curr_bottom[idx_top_spore] - c_curr[idx_top_spore])
+            diff1 = Dbdtdx2 * (c_curr_bottom[idx_top_spore] - c_curr[idx_top_spore])
             diff2 = Ddtdx2 * (c_curr_top[idx_top_spore] + c_curr_left[idx_top_spore] + c_curr_right[idx_top_spore] + c_curr_front[idx_top_spore] + c_curr_back[idx_top_spore] - 5*c_curr[idx_top_spore])
             c_next[idx_top_spore] = diff1 + diff2 + c_curr[idx_top_spore]
 
-            diff1 = Dmdtdx2 * (c_curr_right[idx_left_spore] - c_curr[idx_left_spore])
+            diff1 = Dbdtdx2 * (c_curr_right[idx_left_spore] - c_curr[idx_left_spore])
             diff2 = Ddtdx2 * (c_curr_bottom[idx_left_spore] + c_curr_top[idx_left_spore] + c_curr_left[idx_left_spore] + c_curr_front[idx_left_spore] + c_curr_back[idx_left_spore] - 5*c_curr[idx_left_spore])
             c_next[idx_left_spore] = diff1 + diff2 + c_curr[idx_left_spore]
 
-            diff1 = Dmdtdx2 * (c_curr_left[idx_right_spore] - c_curr[idx_right_spore])
+            diff1 = Dbdtdx2 * (c_curr_left[idx_right_spore] - c_curr[idx_right_spore])
             diff2 = Ddtdx2 * (c_curr_bottom[idx_right_spore] + c_curr_top[idx_right_spore] + c_curr_right[idx_right_spore] + c_curr_front[idx_right_spore] + c_curr_back[idx_right_spore] - 5*c_curr[idx_right_spore])
             c_next[idx_right_spore] = diff1 + diff2 + c_curr[idx_right_spore]
 
-            diff1 = Dmdtdx2 * (c_curr_back[idx_front_spore] - c_curr[idx_front_spore])
+            diff1 = Dbdtdx2 * (c_curr_back[idx_front_spore] - c_curr[idx_front_spore])
             diff2 = Ddtdx2 * (c_curr_bottom[idx_front_spore] + c_curr_top[idx_front_spore] + c_curr_left[idx_front_spore] + c_curr_right[idx_front_spore] + c_curr_front[idx_front_spore] - 5*c_curr[idx_front_spore])
             c_next[idx_front_spore] = diff1 + diff2 + c_curr[idx_front_spore]
 
-            diff1 = Dmdtdx2 * (c_curr_front[idx_back_spore] - c_curr[idx_back_spore])
+            diff1 = Dbdtdx2 * (c_curr_front[idx_back_spore] - c_curr[idx_back_spore])
             diff2 = Ddtdx2 * (c_curr_bottom[idx_back_spore] + c_curr_top[idx_back_spore] + c_curr_left[idx_back_spore] + c_curr_right[idx_back_spore] + c_curr_back[idx_back_spore] - 5*c_curr[idx_back_spore])
             c_next[idx_back_spore] = diff1 + diff2 + c_curr[idx_back_spore]
 
@@ -170,7 +189,16 @@ def diffusion_time_dependent_sequential(c_init, t_max, D=1.0, Dm=1.0, dt=0.001, 
 
     return c_evolution, times, times_thresh
 
-def invoke_smart_kernel(size, threads_per_block=(8, 8, 8)):
+
+def invoke_smart_kernel_2D(size, threads_per_block=(16, 16)):
+    """
+    Invoke a kernel with the appropriate number of blocks and threads per block.
+    """
+    blocks_per_grid = [(size + (tpb - 1)) // tpb for tpb in threads_per_block]
+    return tuple(blocks_per_grid), tuple(threads_per_block)
+
+
+def invoke_smart_kernel_3D(size, threads_per_block=(8, 8, 8)):
     """
     Invoke a kernel with the appropriate number of blocks and threads per block.
     """
@@ -179,9 +207,56 @@ def invoke_smart_kernel(size, threads_per_block=(8, 8, 8)):
 
 
 @cuda.jit()
-def update_GPU(c_old, c_new, N, dtdx2, D, Db, spore_idx):
+def update_GPU_2D(c_old, c_new, N, dtdx2, D, Db, spore_idx):
     """
-    Update the concentration of a lattice point based on the time-dependent diffusion equation with a periodic boundary.
+    Update the concentration of a 2D lattice point based on the time-dependent diffusion equation with a periodic boundary.
+    Uses CUDA to parallelize the computation.
+    inputs:
+        c_old (DeviceNDArray) - the current state of the lattice;
+        c_new (DeviceNDArray) - the next state of the lattice;
+        dtdx2 (float) - the update factor;
+        D (float) - the diffusion constant through the medium;
+        Db (float) - the diffusion constant through the spore barrier;
+        spore_idx (tuple) - the indices of the spore location.
+    """
+    i, j = cuda.grid(2)
+
+    if i >= c_old.shape[0] or j >= c_old.shape[1]:
+        return
+
+    center = c_old[i, j]
+    bottom = c_old[(i - 1) % N, j]
+    top = c_old[(i + 1) % N, j]
+    left = c_old[i, (j - 1) % N]
+    right = c_old[i, (j + 1) % N]
+
+    Ddtdx20 = D * dtdx2
+    Ddtdx21 = D * dtdx2
+    Ddtdx22 = D * dtdx2
+    Ddtdx23 = D * dtdx2
+    
+    if i == spore_idx[0] and j == spore_idx[1]:
+        Ddtdx20 = Db * dtdx2
+        Ddtdx21 = Db * dtdx2
+        Ddtdx22 = Db * dtdx2
+        Ddtdx23 = Db * dtdx2
+    elif i == spore_idx[0] - 1 and j == spore_idx[1]:
+        Ddtdx21 = Db * dtdx2
+    elif i == spore_idx[0] + 1 and j == spore_idx[1]:
+        Ddtdx20 = Db * dtdx2
+    elif i == spore_idx[0] and j == spore_idx[1] - 1:
+        Ddtdx23 = Db * dtdx2
+    elif i == spore_idx[0] and j == spore_idx[1] + 1:
+        Ddtdx22 = Db * dtdx2
+
+    diff_sum = Ddtdx20 * bottom + Ddtdx21 * top + Ddtdx22 * left + Ddtdx23 * right
+    c_new[i, j] = center + diff_sum - (Ddtdx20 + Ddtdx21 + Ddtdx22 + Ddtdx23) * center
+
+
+@cuda.jit()
+def update_GPU_3D(c_old, c_new, N, dtdx2, D, Db, spore_idx):
+    """
+    Update the concentration of a 3D lattice point based on the time-dependent diffusion equation with a periodic boundary.
     Uses CUDA to parallelize the computation.
     inputs:
         c_old (DeviceNDArray) - the current state of the lattice;
@@ -196,8 +271,8 @@ def update_GPU(c_old, c_new, N, dtdx2, D, Db, spore_idx):
     if i >= c_old.shape[0] or j >= c_old.shape[1] or k >= c_old.shape[2]:
         return
     
-    if k == 0 or k == c_old.shape[2] - 1:
-        return
+    # if k == 0 or k == c_old.shape[2] - 1:
+    #     return=
 
     center = c_old[i, j, k]
     bottom = c_old[(i - 1) % N, j, k]
@@ -206,6 +281,12 @@ def update_GPU(c_old, c_new, N, dtdx2, D, Db, spore_idx):
     right = c_old[i, (j + 1) % N, k]
     front = c_old[i, j, (k - 1) % N]
     back = c_old[i, j, (k + 1) % N]
+
+    # Neumann boundary at top and bottom
+    if k == 0:
+        front = c_old[i, j, 1]
+    elif k == c_old.shape[2] - 1:
+        back = c_old[i, j, c_old.shape[2] - 2]
 
     Ddtdx20 = D * dtdx2
     Ddtdx21 = D * dtdx2
@@ -236,7 +317,31 @@ def update_GPU(c_old, c_new, N, dtdx2, D, Db, spore_idx):
 
     diff_sum = Ddtdx20 * bottom + Ddtdx21 * top + Ddtdx22 * left + Ddtdx23 * right + Ddtdx24 * front + Ddtdx25 * back
     c_new[i, j, k] = center + diff_sum - (Ddtdx20 + Ddtdx21 + Ddtdx22 + Ddtdx23 + Ddtdx24 + Ddtdx25) * center
-    
+
+
+# FOR DEBUGGING
+# @cuda.jit()
+# def update_GPU(c_old, c_new, N, dtdx2, D, Db, spore_idx):
+#     """
+#     Update the concentration of a lattice point based on the time-dependent diffusion equation with a periodic boundary.
+#     inputs:
+#         c_old (numpy.ndarray) - the current state of the lattice;
+#         c_new (numpy.ndarray) - the next state of the lattice;
+#         Ddtdx2 (float) - the update factor.
+#     """
+#     i, j = cuda.grid(2)
+
+#     if i >= c_old.shape[0] or j >= c_old.shape[1]:
+#         return
+
+#     center = c_old[i, j]
+#     bottom = c_old[(i + 1) % c_old.shape[0], j]
+#     top = c_old[(i - 1) % c_old.shape[0], j]
+#     left = c_old[i, (j - 1) % c_old.shape[1]]
+#     right = c_old[i, (j + 1) % c_old.shape[1]]
+
+#     c_new[i, j] = D * dtdx2 * (bottom + top + left + right - 4 * center) + center
+
 
 @cuda.reduce
 def max_reduce(a, b):
@@ -249,7 +354,7 @@ def max_reduce(a, b):
         return b
 
 
-def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Ps=1.0, dt=0.001, dx=0.005, n_save_frames=100, spore_idx=(None, None, None), c_thresholds=None):
+def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.001, dx=0.005, n_save_frames=100, spore_idx=(None, None, None), c_thresholds=None, update_func=update_GPU_3D):
     """
     Compute the evolution of a square lattice of concentration scalars
     based on the time-dependent diffusion equation.
@@ -257,25 +362,39 @@ def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Ps=1.0, dt=0.001, dx=0.00
         c_init (numpy.ndarray) - the initial state of the lattice;
         t_max (int) - a maximum number of iterations;
         D (float) - the diffusion constant; defaults to 1;
+        Db (float) - the diffusion constant through the spore; defaults to 1;
         Ps (float) - the permeation constant through the spore barrier; defaults to 1;
         dt (float) - timestep; defaults to 0.001;
         dx (float) - spatial increment; defaults to 0.005;
         n_save_frames (int) - determines the number of frames to save during the simulation; detaults to 100;
         spore_idx (tuple) - the indices of the spore location; defaults to (None, None);
-        c_thresholds (float) - threshold values for the concentration; defaults to None.
+        c_thresholds (float) - threshold values for the concentration; defaults to None;
+        update_func (function) - the function to use for updating the lattice; defaults to update_GPU_3D.
     outputs:
         u_evolotion (numpy.ndarray) - the states of the lattice at all moments in time.
     """
 
-    assert c_init.ndim == 3, 'input array must be 3-dimensional'
-    assert c_init.shape[0] == c_init.shape[1] == c_init.shape[2], 'lattice must have equal size along each dimension'
+    assert c_init.ndim == 2 or c_init.ndim == 3, 'input array must be 2- or 3-dimensional'
+    # assert c_init.shape[0] == c_init.shape[1] == c_init.shape[2], 'lattice must have equal size along each dimension'
+
+    # Determine dimensionality of the lattice
+    dims = c_init.ndim
 
     # Determine number of lattice rows/columns
     N = c_init.shape[0]
 
     # Save update factor
     dtdx2 = dt / (dx ** 2)
-    Db = Ps * dx
+    
+    # Correction factor for permeation
+    if Db is None:
+        if dims == 2:
+            Db = Ps
+        else:
+            Db = Ps * dx
+    # elif dims == 3:
+    #     Db *= dx
+    # print(f"Using D = {D}, Db = {Db}, Ps = {Ps}")
 
     if  D * dtdx2 > 0.5:
         print("Warning: inappropriate scaling of dx and dt due to D, may result in an unstable simulation.")
@@ -288,7 +407,10 @@ def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Ps=1.0, dt=0.001, dx=0.00
     print(f"Simulation running for {n_frames} steps on a lattice of size {np.array(c_init.shape) * dx} microns.")
 
     # Array for storing lattice states
-    c_evolution = np.zeros((n_save_frames + 1, N, N, N))
+    if dims == 2:
+        c_evolution = np.zeros((n_save_frames + 1, N, N))
+    else:
+        c_evolution = np.zeros((n_save_frames + 1, N, N, N))
     times = np.zeros(n_save_frames + 1)
     save_interval = np.floor(n_frames / n_save_frames)
     save_ct = 0
@@ -304,11 +426,14 @@ def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Ps=1.0, dt=0.001, dx=0.00
     c_A_gpu = cuda.to_device(c_init)
     c_B_gpu = cuda.to_device(np.zeros_like(c_init))
 
-    kernel_blocks, kernel_threads = invoke_smart_kernel(N)
+    if dims == 2:
+        kernel_blocks, kernel_threads = invoke_smart_kernel_2D(N)
+    else:
+        kernel_blocks, kernel_threads = invoke_smart_kernel_3D(N)
 
     for t in range(n_frames):
 
-        print(f"Frame {t} of {n_frames}", end="\r")
+        # print(f"Frame {t} of {n_frames}", end="\r")
 
         # Save frame
         if t % save_interval == 0:
@@ -316,7 +441,7 @@ def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Ps=1.0, dt=0.001, dx=0.00
             times[save_ct] = t * dt
             save_ct += 1
         
-        update_GPU[kernel_blocks, kernel_threads](c_A_gpu, c_B_gpu, N, dtdx2, D, Db, spore_idx)
+        update_func[kernel_blocks, kernel_threads](c_A_gpu, c_B_gpu, N, dtdx2, D, Db, spore_idx)
 
         # Synchronize the GPU to ensure the kernel has finished
         cuda.synchronize()
@@ -330,7 +455,7 @@ def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Ps=1.0, dt=0.001, dx=0.00
                 thresh_ct += 1
 
     # Save final frame
-    c_evolution[save_ct, :, :, :] = c_A_gpu.copy_to_host()
+    c_evolution[(save_ct, ...)] = c_A_gpu.copy_to_host()
     times[save_ct] = t_max
 
     return c_evolution, times, times_thresh
