@@ -28,3 +28,23 @@ def inverse_mL_to_micrometers_cubed(mL_inv):
     print(f"Conversion: {result} micrometers^-3")
 
     return np.float32(result)
+
+def convert_D_to_Ps(D, K, d):
+    """
+    Convert diffusion coefficient to permeability.
+    inputs:
+        D (float): diffusion coefficient in micrometers squared per second
+        K (float): partition coefficient
+        d (float): thickness of the membrane in micrometers
+    """
+    return D * K / d
+
+def convert_Ps_to_D(Ps, K, d):
+    """
+    Convert permeability to diffusion coefficient.
+    inputs:
+        Ps (float): permeability in micrometers per second
+        K (float): partition coefficient
+        d (float): thickness of the membrane in micrometers
+    """
+    return Ps * d / K

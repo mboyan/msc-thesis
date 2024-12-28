@@ -1,6 +1,17 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## Notes from meeting with Han 20.12.2024
+- Check experiment compilation - does everything make sense?
+- Be consistent with 3D experiments - spore in center, periodic z bounds;
+- Consider rodlet layer AND melanin in diffusion coefficient;
+- Reference spore densities are for cultivation - use 5000-40000 mentioned in paper;
+- Sinking time of spores?
+- Start with homogeneous distribution, then do 2D arrangement on bottom.
+- Start looking into spore clustering (see reference paper);
+- Limit of spore aggregation (and its heterogeneity) on diffusion - good milestone for publication;
+- Should eventually look into globular spores;
+
 ## Notes from meeting with Han 13.12.2024
 - Correct all initial concentrations, use mol/L!
 - Mark spores in diffusion heat maps;
@@ -25,7 +36,7 @@ Includes materials for Master's Thesis Project
 - Derive double-D system numerical update (and analytical solution?)
 - For multi-spore experiments - use medium height & mL from article.
 - Goals for next meeting:
-  - corrections of concentrations;
+  - ~corrections of concentrations;~
   - remake graphs from Experiments 1 and 2;
   - reproduce multi-spore setup from article, get some statistics (e.g. distances between spores);
   - maybe try triangular grid arrangement, see if 10^9 spores/mL fit in a plane
