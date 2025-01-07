@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 # import plotly.graph_objects as go
 import pandas as pd
-import ast
+import h5py
 
 def plot_spore_positions(N, H, spores_x, spores_y, spores_z, dx, title=None, top_view=False):
     """
@@ -93,14 +93,16 @@ def plot_experiment_results(expID, select_sims=None, semilogy=False, target_thre
         c_thresh = sim_results_data['c_thresh'].iloc[-1].strip('[]')
         c_thresh = [float(x) for i, x in enumerate(c_thresh.split()) if times_thresh[i] > 0]
         times_thresh = [x for x in times_thresh if x > 0]
-        axA.vlines(times_thresh, 0, c_thresh, colors='r', color=palette(ax_ct), linestyles='dotted', linewidth=0.75)
-        axA.hlines(c_thresh, 0, times_thresh, colors='r', color=palette(ax_ct), linestyles='dotted', linewidth=0.75)
+        axA.vlines(times_thresh, 0, c_thresh, colors='r', color=palette(ax_ct), linestyles='dotted', linewidth=1)
+        axA.hlines(c_thresh, 0, times_thresh, colors='r', color=palette(ax_ct), linestyles='dotted', linewidth=1)
         axA.set_ylim(1e-12, 1.2*np.max(sim_results_data['c_numerical']))
         # axA.set_xlim(0, 1000)
         
         # Get concentration frames
-        L = sim_params['N'] * sim_params['dx']
-        c_lattice = np.load(f"Data/{expID}_{simID}_frames.npy")
+        # L = sim_params['N'] * sim_params['dx']
+        # c_lattice = np.load(f"Data/{expID}_{simID}_frames.npy")
+        with h5py.File(f"Data/{expID}_frames.h5", 'r') as f:
+            c_lattice = f[simID][:]
         if sim_params['dims'] == 2:
             c_start = c_lattice[0, ...]
             c_final = c_lattice[-1, ...]

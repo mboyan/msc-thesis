@@ -153,6 +153,10 @@ def run_diffusion_experiments(exp_params, t_max, N, dt, dx, n_save_frames, V_spo
     if not os.path.exists('Data'):
         os.makedirs('Data')
 
+    # Delete any existing results file
+    if os.path.exists(f'Data/{exp_id}_frames.h5'):
+        os.remove(f'Data/{exp_id}_frames.h5')
+
     for i, params in enumerate(exp_params):
 
         exp_id = params['expID']
@@ -205,10 +209,11 @@ def run_diffusion_experiments(exp_params, t_max, N, dt, dx, n_save_frames, V_spo
         #     print("foo")
         #     Ps = conv.convert_D_to_Ps(Db, 1, 1)
         #     c_analytical = diff.permeation_time_dependent_analytical(c_spore_init, 0, times, Ps, A_spore, V_spore)
-        
+
         # Save results
-        np.save(f"Data/{exp_id}_{sim_id}_frames.npy", c_evolution)
-        
+        # np.save(f"Data/{exp_id}_{sim_id}_frames.npy", c_evolution)
+        with h5py.File(f'Data/{exp_id}_frames.h5', 'a') as f:
+            f.create_dataset(sim_id, data=c_evolution, compression="gzip")
         sim_results = pd.DataFrame({'time': times, 'c_numerical': c_numerical*c0, 'c_analytical': c_analytical*c0})
 
         # Add column for ID and threshold times

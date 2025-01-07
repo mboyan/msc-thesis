@@ -334,7 +334,48 @@ def update_GPU_3D_periodic_spores(c_old, c_new, N, dtdx2, D, Db, spore_spacing):
         spore_spacing (int) - the spacing between spores.
     """
 
+    i, j, k = cuda.grid(3)
+
+    if i >= c_old.shape[0] or j >= c_old.shape[1] or k >= c_old.shape[2]:
+        return
     
+    center = c_old[i, j, k]
+    bottom = c_old[(i - 1) % N, j, k]
+    top = c_old[(i + 1) % N, j, k]
+    left = c_old[i, (j - 1) % N, k]
+    right = c_old[i, (j + 1) % N, k]
+    front = c_old[i, j, (k - 1) % N]
+    back = c_old[i, j, (k + 1) % N]
+
+    Ddtdx20 = D * dtdx2
+    Ddtdx21 = D * dtdx2
+    Ddtdx22 = D * dtdx2
+    Ddtdx23 = D * dtdx2
+    Ddtdx24 = D * dtdx2
+    Ddtdx25 = D * dtdx2
+
+    if i % spore_spacing == 0 and j % spore_spacing == 0 and k % spore_spacing == 0:
+        Ddtdx20 = Db * dtdx2
+        Ddtdx21 = Db * dtdx2
+        Ddtdx22 = Db * dtdx2
+        Ddtdx23 = Db * dtdx2
+        Ddtdx24 = Db * dtdx2
+        Ddtdx25 = Db * dtdx2
+    elif i % spore_spacing == spore_spacing - 1 and j % spore_spacing == 0 and k % spore_spacing == 0:
+        Ddtdx21 = Db * dtdx2
+    elif i % spore_spacing == 1 and j % spore_spacing == 0 and k % spore_spacing == 0:
+        Ddtdx20 = Db * dtdx2
+    elif i % spore_spacing == 0 and j % spore_spacing == spore_spacing - 1 and k % spore_spacing == 0:
+        Ddtdx23 = Db * dtdx2
+    elif i % spore_spacing == 0 and j % spore_spacing == 1 and k % spore_spacing == 0:
+        Ddtdx22 = Db * dtdx2
+    elif i % spore_spacing == 0 and j % spore_spacing == 0 and k % spore_spacing == spore_spacing - 1:
+        Ddtdx25 = Db * dtdx2
+    elif i % spore_spacing == 0 and j % spore_spacing == 0 and k % spore_spacing == 1:
+        Ddtdx24 = Db * dtdx2
+
+    diff_sum = Ddtdx20 * bottom + Ddtdx21 * top + Ddtdx22 * left + Ddtdx23 * right + Ddtdx24 * front + Ddtdx25 * back
+    c_new[i, j, k] = center + diff_sum - (Ddtdx20 + Ddtdx21 + Ddtdx22 + Ddtdx23 + Ddtdx24 + Ddtdx25) * center
 
 # FOR DEBUGGING
 # @cuda.jit()
