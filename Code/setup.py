@@ -3,6 +3,7 @@ import conversions as conv
 import diffusion as diff
 import pandas as pd
 import os
+import h5py
 
 def setup_lattice(N, H, spores_x, spores_y, spores_z, c_spore_init=1):
     """
@@ -23,7 +24,7 @@ def setup_lattice(N, H, spores_x, spores_y, spores_z, c_spore_init=1):
 
     return c_lattice
 
-def populate_spore_grid_coords(N, dx, spore_density, H=None, start_height=20):
+def populate_spore_grid_coords(N, dx, spore_density, H=None, start_height=1):
     """
     Generate spore grid coordinates for a given spore density.
     inputs:
@@ -174,7 +175,7 @@ def run_diffusion_experiments(exp_params, t_max, N, dt, dx, n_save_frames, V_spo
             A_spore = np.cbrt(V_spore) * 4
         elif dims == 3:
             c_lattice = np.zeros((N+1, N+1, N+1), dtype=np.float64)
-            spore_idx = (N // 2, N // 2, 4)
+            spore_idx = (N // 2, N // 2, N // 2)
             kernel_func = diff.update_GPU_3D
             A_spore = (np.cbrt(V_spore) ** 2) * 6
         
@@ -207,6 +208,7 @@ def run_diffusion_experiments(exp_params, t_max, N, dt, dx, n_save_frames, V_spo
         
         # Save results
         np.save(f"Data/{exp_id}_{sim_id}_frames.npy", c_evolution)
+        
         sim_results = pd.DataFrame({'time': times, 'c_numerical': c_numerical*c0, 'c_analytical': c_analytical*c0})
 
         # Add column for ID and threshold times

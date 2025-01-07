@@ -272,7 +272,7 @@ def update_GPU_3D(c_old, c_new, N, dtdx2, D, Db, spore_idx):
         return
     
     # if k == 0 or k == c_old.shape[2] - 1:
-    #     return=
+    #     return
 
     center = c_old[i, j, k]
     bottom = c_old[(i - 1) % N, j, k]
@@ -283,10 +283,10 @@ def update_GPU_3D(c_old, c_new, N, dtdx2, D, Db, spore_idx):
     back = c_old[i, j, (k + 1) % N]
 
     # Neumann boundary at top and bottom
-    if k == 0:
-        front = c_old[i, j, 1]
-    elif k == c_old.shape[2] - 1:
-        back = c_old[i, j, c_old.shape[2] - 2]
+    # if k == 0:
+    #     front = c_old[i, j, 1]
+    # elif k == c_old.shape[2] - 1:
+    #     back = c_old[i, j, c_old.shape[2] - 2]
 
     Ddtdx20 = D * dtdx2
     Ddtdx21 = D * dtdx2
@@ -318,6 +318,23 @@ def update_GPU_3D(c_old, c_new, N, dtdx2, D, Db, spore_idx):
     diff_sum = Ddtdx20 * bottom + Ddtdx21 * top + Ddtdx22 * left + Ddtdx23 * right + Ddtdx24 * front + Ddtdx25 * back
     c_new[i, j, k] = center + diff_sum - (Ddtdx20 + Ddtdx21 + Ddtdx22 + Ddtdx23 + Ddtdx24 + Ddtdx25) * center
 
+
+@cuda.jit()
+def update_GPU_3D_periodic_spores(c_old, c_new, N, dtdx2, D, Db, spore_spacing):
+    """
+    Update the concentration of a 3D lattice point based on the time-dependent diffusion equation
+    with a periodic boundary and spores spaced regularly in all dimensions.
+    Uses CUDA to parallelize the computation.
+    inputs:
+        c_old (DeviceNDArray) - the current state of the lattice;
+        c_new (DeviceNDArray) - the next state of the lattice;
+        dtdx2 (float) - the update factor;
+        D (float) - the diffusion constant through the medium;
+        Db (float) - the diffusion constant through the spore barrier;
+        spore_spacing (int) - the spacing between spores.
+    """
+
+    
 
 # FOR DEBUGGING
 # @cuda.jit()
@@ -394,7 +411,7 @@ def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.001,
             Db = Ps * dx
     # elif dims == 3:
     #     Db *= dx
-    # print(f"Using D = {D}, Db = {Db}, Ps = {Ps}")
+    print(f"Using D = {D}, Db = {Db}, Ps = {Ps}")
 
     if  D * dtdx2 > 0.5:
         print("Warning: inappropriate scaling of dx and dt due to D, may result in an unstable simulation.")

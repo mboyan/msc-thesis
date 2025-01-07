@@ -28,12 +28,12 @@ def plot_spore_positions(N, H, spores_x, spores_y, spores_z, dx, title=None, top
     
     ax.set_xlim(0, N * dx)
     ax.set_ylim(0, N * dx)
-    ax.set_xlabel('$x$ $[\mu m]$')
-    ax.set_ylabel('$y$ $[\mu m]$')
+    ax.set_xlabel('$x$ $[\\ m]$')
+    ax.set_ylabel('$y$ $[\\mu m]$')
 
     if not top_view:
         ax.set_zlim(0, H * dx)
-        ax.set_zlabel('$z$ $[\mu m]$')
+        ax.set_zlabel('$z$ $[\\mu m]$')
 
     if title:
         ax.set_title(title)
@@ -41,12 +41,12 @@ def plot_spore_positions(N, H, spores_x, spores_y, spores_z, dx, title=None, top
     plt.show()
 
 
-def plot_experiment_results(expID, select_sim=None, semilogy=False, target_thresh=None):
+def plot_experiment_results(expID, select_sims=None, semilogy=False, target_thresh=None):
     """
     Plot the results of an experiment.
     inputs:
         expID (int): the ID of the experiment
-        select_sim (int): the ID of the simulation to plot
+        select_sim (list of int): the IDs of the simulations to plot
         semilogy (bool): whether to plot the y-axis in log scale
         target_thresh (float): the target threshold
     """
@@ -54,8 +54,8 @@ def plot_experiment_results(expID, select_sim=None, semilogy=False, target_thres
     exp_params = pd.read_csv(f"Data/{expID}_exp_params.csv")
     sim_results = pd.read_csv(f"Data/{expID}_sim_results.csv")
 
-    if select_sim is not None:
-        unique_simIDs = [select_sim]
+    if select_sims is not None:
+        unique_simIDs = select_sims
     else:
         unique_simIDs = exp_params['simID'].unique()
 
@@ -69,8 +69,7 @@ def plot_experiment_results(expID, select_sim=None, semilogy=False, target_thres
     axA.grid()
 
     # Color palette
-    palette = plt.get_cmap('tab10')
-
+    palette = plt.get_cmap('tab20')
     # Create figure for final concentration
     nrows = np.ceil(len(unique_simIDs) / 2).astype(int)
     figB, axsB = plt.subplots(nrows, 2, figsize=(5, nrows*2.5))
@@ -82,6 +81,8 @@ def plot_experiment_results(expID, select_sim=None, semilogy=False, target_thres
 
         label = sim_results_data['label'].iloc[0]
 
+        print(f"Plotting simulation {simID}: {label}")
+
         # Plot the concentration evolution
         axA.plot(sim_results_data['time'], sim_results_data['c_numerical'], label=label, color=palette(ax_ct))
         axA.plot(sim_results_data['time'], sim_results_data['c_analytical'], color=palette(ax_ct), linestyle='dashed')
@@ -92,9 +93,10 @@ def plot_experiment_results(expID, select_sim=None, semilogy=False, target_thres
         c_thresh = sim_results_data['c_thresh'].iloc[-1].strip('[]')
         c_thresh = [float(x) for i, x in enumerate(c_thresh.split()) if times_thresh[i] > 0]
         times_thresh = [x for x in times_thresh if x > 0]
-        axA.vlines(times_thresh, 0, c_thresh, colors='r', color=palette(ax_ct), linestyles='dotted')
-        axA.hlines(c_thresh, 0, times_thresh, colors='r', color=palette(ax_ct), linestyles='dotted')
-        axA.set_ylim(1e-12, 1.1*np.max(sim_results_data['c_numerical']))
+        axA.vlines(times_thresh, 0, c_thresh, colors='r', color=palette(ax_ct), linestyles='dotted', linewidth=0.75)
+        axA.hlines(c_thresh, 0, times_thresh, colors='r', color=palette(ax_ct), linestyles='dotted', linewidth=0.75)
+        axA.set_ylim(1e-12, 1.2*np.max(sim_results_data['c_numerical']))
+        # axA.set_xlim(0, 1000)
         
         # Get concentration frames
         L = sim_params['N'] * sim_params['dx']
@@ -114,17 +116,18 @@ def plot_experiment_results(expID, select_sim=None, semilogy=False, target_thres
         if nrows > 1:
             axsB[np.floor(ax_ct / 2).astype(int), ax_ct % 2].imshow(c_final, cmap='viridis', origin='lower')
             axsB[np.floor(ax_ct / 2).astype(int), ax_ct % 2].set_title(label)
+            # Mark spore with a red circle
+            axsB[np.floor(ax_ct / 2).astype(int), ax_ct % 2].scatter(spore_idx[0], spore_idx[1], color='r', marker='o', facecolors='none')
         else:
             axsB[ax_ct].imshow(c_final, cmap='viridis', origin='lower')
             axsB[ax_ct].set_title(label)
+            # Mark spore with a red circle
+            axsB[ax_ct].scatter(spore_idx[0], spore_idx[1], color='r', marker='o', facecolors='none')
         
-        # Mark spore with a red circle
-        axsB[np.floor(ax_ct / 2).astype(int), ax_ct % 2].scatter(spore_idx[0], spore_idx[1], color='r', marker='o', facecolors='none')
-
         ax_ct += 1
     
     if target_thresh is not None:
-        axA.axhline(y=target_thresh, color='r', linestyle='dotted', label='Target threshold')
+        axA.axhline(y=target_thresh, color='r', linestyle='-.', label='Target threshold')
 
     axA.legend(fontsize='small')
     
