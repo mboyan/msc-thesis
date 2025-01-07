@@ -28,12 +28,12 @@ def plot_spore_positions(N, H, spores_x, spores_y, spores_z, dx, title=None, top
     
     ax.set_xlim(0, N * dx)
     ax.set_ylim(0, N * dx)
-    ax.set_xlabel('$x$ $[\\ m]$')
-    ax.set_ylabel('$y$ $[\\mu m]$')
+    ax.set_xlabel('$x$ [$\mu$m]')
+    ax.set_ylabel('$y$ [$\mu$m]')
 
     if not top_view:
         ax.set_zlim(0, H * dx)
-        ax.set_zlabel('$z$ $[\\mu m]$')
+        ax.set_zlabel('$z$ [$\mu$m]')
 
     if title:
         ax.set_title(title)

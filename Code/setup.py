@@ -81,7 +81,9 @@ def populate_spore_grid_coords(N, dx, spore_density, H=None, start_height=1):
 
     return [spores_x.flatten(), spores_y.flatten(), spores_z.flatten()], spore_spacing
 
+
 def populate_spore_tri_coords(N, H, dx, spore_density, start_height=20):
+    # DOESN'T WORK YET
     """
     Generate spore coordinates in a triangular grid at the bottom of a lattice.
     inputs:
@@ -123,9 +125,9 @@ def populate_spore_tri_coords(N, H, dx, spore_density, start_height=20):
     return coords, spore_spacing
 
 
-def run_diffusion_experiments(exp_params, t_max, N, dt, dx, n_save_frames, V_spore, c_thresh_factors=None):
+def run_diffusion_experiments_single_spore(exp_params, t_max, N, dt, dx, n_save_frames, V_spore, c_thresh_factors=None):
     """
-    Run diffusion experiments with the given parameters.
+    Run diffusion experiments with a single spore source.
     inputs:
         exp_params (dict): the parameters of the experiment
         t_max (float): the maximum time of the experiment
@@ -134,7 +136,6 @@ def run_diffusion_experiments(exp_params, t_max, N, dt, dx, n_save_frames, V_spo
         dx (float): the lattice spacing in micrometers
         n_save_frames (int): the number of frames to save
         V_spore (float): the volume of the spore in micrometers^3
-        A_spore (float): the surface area of the spore in micrometers^2
         c_thresh_factors (list): concentration reduction factor thresholds to save times at
     """
 
@@ -154,6 +155,7 @@ def run_diffusion_experiments(exp_params, t_max, N, dt, dx, n_save_frames, V_spo
         os.makedirs('Data')
 
     # Delete any existing results file
+    exp_id = exp_params[0]['expID']
     if os.path.exists(f'Data/{exp_id}_frames.h5'):
         os.remove(f'Data/{exp_id}_frames.h5')
 
@@ -174,13 +176,10 @@ def run_diffusion_experiments(exp_params, t_max, N, dt, dx, n_save_frames, V_spo
         if dims == 2:
             c_lattice = np.zeros((N+1, N+1), dtype=np.float64)
             spore_idx = (N // 2, N // 2)
-            # kernel_func = diff.update_GPU
-            kernel_func = diff.update_GPU_2D
             A_spore = np.cbrt(V_spore) * 4
         elif dims == 3:
             c_lattice = np.zeros((N+1, N+1, N+1), dtype=np.float64)
             spore_idx = (N // 2, N // 2, N // 2)
-            kernel_func = diff.update_GPU_3D
             A_spore = (np.cbrt(V_spore) ** 2) * 6
         
         exp_params_data.loc[i, 'A_spore'] = A_spore
@@ -195,7 +194,7 @@ def run_diffusion_experiments(exp_params, t_max, N, dt, dx, n_save_frames, V_spo
         c_thresholds = c_thresh_factors * c_spore_init
 
         # Run numerical experiment
-        c_evolution, times, times_thresh = diff.diffusion_time_dependent_GPU(c_lattice, t_max, D, Db, Ps, dt, dx, n_save_frames, spore_idx, c_thresholds, kernel_func)
+        c_evolution, times, times_thresh = diff.diffusion_time_dependent_GPU(c_lattice, t_max, D, Db, Ps, dt, dx, n_save_frames, spore_idx, None, c_thresholds)
         c_numerical = c_evolution[:, spore_idx[0], spore_idx[1]] if dims == 2 else c_evolution[:, spore_idx[0], spore_idx[1], spore_idx[2]]
 
         # Compute analytical solution
@@ -229,3 +228,71 @@ def run_diffusion_experiments(exp_params, t_max, N, dt, dx, n_save_frames, V_spo
     # Write parameters and results to file
     exp_params_data.to_csv(f'Data/{exp_params[0]['expID']}_exp_params.csv')
     sim_results_global.to_csv(f'Data/{exp_params[0]['expID']}_sim_results.csv')
+
+
+def run_diffusion_experiments_multi_spore(exp_params, t_max, N, dt, dx, n_save_frames, V_spore, c_thresh_factors=None):
+    """
+    Run diffusion experiments with multiple uniformly spaced spore sources
+    on a 3D lattice with periodic boundaries.
+    inputs:
+        exp_params (dict): the parameters of the experiment
+        t_max (float): the maximum time of the experiment
+        N (int): the size of the lattice in each dimension
+        dt (float): the time step of the simulation
+        dx (float): the lattice spacing in micrometers
+        n_save_frames (int): the number of frames to save
+        V_spore (float): the volume of the spore in micrometers^3
+        c_thresh_factors (list): concentration reduction factor thresholds to save times at
+    """
+
+    sim_results_global = pd.DataFrame()
+    sim_results_list = []
+    exp_params_data = pd.DataFrame(exp_params)
+
+    # Add new parameters
+    exp_params_data['N'] = N
+    exp_params_data['dt'] = dt
+    exp_params_data['dx'] = dx
+    exp_params_data['A_spore'] = None
+    exp_params_data['V_spore'] = V_spore
+
+    # Create folder for data
+    if not os.path.exists('Data'):
+        os.makedirs('Data')
+
+    # Delete any existing results file
+    exp_id = exp_params[0]['expID']
+    if os.path.exists(f'Data/{exp_id}_frames.h5'):
+        os.remove(f'Data/{exp_id}_frames.h5')
+    
+    for i, params in enumerate(exp_params):
+
+        exp_id = params['expID']
+        sim_id = params['simID']
+        label = params['label']
+        Db = params['D']
+        Ps = params['Ps']
+        c0 = params['c0']
+        spore_spacing = params['spore_spacing']
+
+        print(f"{sim_id}: Running simulation {label}")
+
+        # Compute spore area
+        A_spore = (np.cbrt(V_spore) ** 2) * 6
+        exp_params_data.loc[i, 'A_spore'] = A_spore
+
+        # Default D in medium
+        D = 600 # micrometers^2/s
+
+        # Initialise concentration at spores
+        c_spore_init = 1
+        spores, spore_spacing = populate_spore_grid_coords(N, dx, spore_spacing, H=None)
+        c_lattice = setup_lattice(N, N, *spores, c_spore_init)
+        c_thresholds = c_thresh_factors * c_spore_init
+
+        # Reference spores for measurements
+        spore_idx_ref = (int(spore_spacing), int(spore_spacing), int(spore_spacing))
+        spore_idx_ref_2 = (int(spore_spacing*2), int(spore_spacing*2), int(spore_spacing*2))
+
+        # Run numerical experiment
+        c_evolution, times, times_thresh = diff.diffusion_time_dependent_GPU(c_lattice, t_max, D, Db, Ps, dt, dx, n_save_frames, None, spore_spacing, c_thresholds)
