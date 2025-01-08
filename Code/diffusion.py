@@ -413,7 +413,7 @@ def max_reduce(a, b):
 
 
 def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.001, dx=0.005, n_save_frames=100,
-                                 spore_idx=(None, None, None), spore_spacing=None, c_thresholds=None):
+                                 spore_idx=(None, None, None), spore_idx_spacing=None, c_thresholds=None):
     """
     Compute the evolution of a square lattice of concentration scalars
     based on the time-dependent diffusion equation.
@@ -427,7 +427,7 @@ def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.001,
         dx (float) - spatial increment; defaults to 0.005;
         n_save_frames (int) - determines the number of frames to save during the simulation; detaults to 100;
         spore_idx (tuple) - the indices of the spore location; defaults to (None, None);
-        spore_spacing (int) - the spacing between spores along each dimension; defaults to None; if used, spore_idx is ignored;
+        spore_spacing (int) - the spacing between spore indices along each dimension; defaults to None; if used, spore_idx is ignored;
         c_thresholds (float) - threshold values for the concentration; defaults to None.
     outputs:
         u_evolotion (numpy.ndarray) - the states of the lattice at all moments in time.
@@ -441,12 +441,15 @@ def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.001,
     if dims == 2:
         update_func = update_GPU_2D
         spore_pos_ref = spore_idx
-    elif spore_spacing is not None:
+        print("2D simulation")
+    elif spore_idx_spacing is not None:
         update_func = update_GPU_3D_periodic_spores
-        spore_pos_ref = spore_spacing
+        spore_pos_ref = spore_idx_spacing
+        print("3D simulation with periodic spores")
     else:
         update_func = update_GPU_3D
         spore_pos_ref = spore_idx
+        print("3D simulation")
 
     # Determine number of lattice rows/columns
     N = c_init.shape[0]
