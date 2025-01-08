@@ -1,6 +1,13 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## To include in presentation for 10.01.2025
+- Recap of previous experiments;
+- Assumptions on density - what spacing distances does it translate to;
+- Assumptions on periodicity - how are spores arranged in volume, how is the simulation executed;
+- Preliminary results;
+- Measures for comparison with existing data?
+
 ## Notes from meeting with Han 20.12.2024
 - Check experiment compilation - does everything make sense?
 - Be consistent with 3D experiments - spore in center, periodic z bounds;
