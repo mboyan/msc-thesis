@@ -80,7 +80,7 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
 
     # Create figure for final concentration
     nrows = np.ceil(len(unique_simIDs) / 2).astype(int)
-    figB, axsB = plt.subplots(nrows, 2, figsize=(5, nrows*2.5))
+    figB, axsB = plt.subplots(nrows, 2, figsize=(4, nrows*2))
     ax_ct = 0
 
     for simID in unique_simIDs:
@@ -105,7 +105,8 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
         # Plot the concentration thresholds
         axA.vlines(times_thresh, 0, c_thresh, colors='r', color=palette(ax_ct), linestyles='dotted', linewidth=1)
         axA.hlines(c_thresh, 0, times_thresh, colors='r', color=palette(ax_ct), linestyles='dotted', linewidth=1)
-        axA.set_ylim(max(1e-12, np.min(sim_results_data['c_numerical'])), 1.2*np.max(sim_results_data['c_numerical']))
+        # axA.set_ylim(max(1e-12, np.min(sim_results_data['c_numerical'])), 1.2*np.max(sim_results_data['c_numerical']))
+        axA.set_ylim(1e-12, 1.2*np.max(sim_results_data['c_numerical']))
         # axA.set_xlim(0, 1000)
 
         # Identify spore location
