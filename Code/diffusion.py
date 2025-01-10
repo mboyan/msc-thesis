@@ -412,7 +412,8 @@ def max_reduce(a, b):
         return b
 
 
-def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.001, dx=0.005, n_save_frames=100, spore_idx=(None, None, None), c_thresholds=None, update_func=update_GPU_3D):
+def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.001, dx=0.005, n_save_frames=100,
+                                 spore_idx=(None, None, None), spore_idx_spacing=None, c_thresholds=None):
     """
     Compute the evolution of a square lattice of concentration scalars
     based on the time-dependent diffusion equation.
@@ -426,8 +427,8 @@ def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.001,
         dx (float) - spatial increment; defaults to 0.005;
         n_save_frames (int) - determines the number of frames to save during the simulation; detaults to 100;
         spore_idx (tuple) - the indices of the spore location; defaults to (None, None);
-        c_thresholds (float) - threshold values for the concentration; defaults to None;
-        update_func (function) - the function to use for updating the lattice; defaults to update_GPU_3D.
+        spore_spacing (int) - the spacing between spore indices along each dimension; defaults to None; if used, spore_idx is ignored;
+        c_thresholds (float) - threshold values for the concentration; defaults to None.
     outputs:
         u_evolotion (numpy.ndarray) - the states of the lattice at all moments in time.
     """
@@ -437,6 +438,18 @@ def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.001,
 
     # Determine dimensionality of the lattice
     dims = c_init.ndim
+    if dims == 2:
+        update_func = update_GPU_2D
+        spore_pos_ref = spore_idx
+        print("2D simulation")
+    elif spore_idx_spacing is not None:
+        update_func = update_GPU_3D_periodic_spores
+        spore_pos_ref = spore_idx_spacing
+        print("3D simulation with periodic spores")
+    else:
+        update_func = update_GPU_3D
+        spore_pos_ref = spore_idx
+        print("3D simulation")
 
     # Determine number of lattice rows/columns
     N = c_init.shape[0]
@@ -499,7 +512,7 @@ def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.001,
             times[save_ct] = t * dt
             save_ct += 1
         
-        update_func[kernel_blocks, kernel_threads](c_A_gpu, c_B_gpu, N, dtdx2, D, Db, spore_idx)
+        update_func[kernel_blocks, kernel_threads](c_A_gpu, c_B_gpu, N, dtdx2, D, Db, spore_pos_ref)
 
         # Synchronize the GPU to ensure the kernel has finished
         cuda.synchronize()
