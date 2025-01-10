@@ -157,7 +157,9 @@ def populate_spore_grid_coords(N, dx, spore_density, H=None, start_height=1):
     # Crete a meshgrid of the spore coordinates
     spores_x, spores_y, spores_z = np.meshgrid(spores_x, spores_y, spores_z, indexing='ij')
 
-    return [spores_x.flatten(), spores_y.flatten(), spores_z.flatten()], spore_spacing
+    spore_coords = np.array([spores_x.flatten(), spores_y.flatten(), spores_z.flatten()]).T
+
+    return spore_coords, spore_spacing
 
 
 def populate_spore_tri_coords(N, H, dx, spore_density, start_height=20):

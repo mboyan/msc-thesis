@@ -5,39 +5,48 @@ import matplotlib.gridspec as gridspec
 import pandas as pd
 import h5py
 
-def plot_spore_positions(N, H, spores_x, spores_y, spores_z, dx, title=None, top_view=False):
+def plot_spore_positions(Ns, Hs, spore_arrangements, dx, titles=None, top_view=False):
     """
     Plot the spore positions in 3D.
     inputs:
-        N (int): the size of the bottom of the lattice
-        H (int): the height of the lattice
-        spores_x (numpy array): the x coordinates of the spores
-        spores_y (numpy array): the y coordinates of the spores
-        spores_z (numpy array): the z coordinates of the spores
+        Ns (list of int): the sizes of the bottom of the lattice for each arrangement
+        Hs (list of int): the heights of the lattice for each arrangement
+        spore_arrangements (list of numpy arrays): the coordinates of the spores for each arrangement,
+            each numpy array should have shape (n_spores, 3) where the columns are the x, y, and z coordinates
         dx (float): the lattice spacing in micrometers
         title (str): the title of the plot
         top_view (bool): whether to plot in 2D
     """
-    
+
+    assert len(Ns) == len(Hs) == len(spore_arrangements), "The number of spore arrangements must match the number of lattice sizes and heights"
+    if titles is not None:
+        assert len(titles) == len(spore_arrangements), "The number of titles must match the number of spore arrangements"
+
     if top_view:
-        fig, ax = plt.subplots(figsize=(4, 4))
-        ax.scatter(spores_x * dx, spores_y * dx, marker='.', s=1)
+        fig, ax = plt.subplots(1, len(spore_arrangements), figsize=(4*len(spore_arrangements), 4))
     else:
-        fig, ax = plt.subplots(subplot_kw={'projection': '3d'})
-        ax.scatter(spores_x * dx, spores_y * dx, spores_z * dx, marker='.')
+        fig, ax = plt.subplots(1, len(spore_arrangements), subplot_kw={'projection': '3d'}, figsize=(4*len(spore_arrangements), 4))
     
-    ax.set_xlim(0, N * dx)
-    ax.set_ylim(0, N * dx)
-    ax.set_xlabel('$x$ [$\mu$m]')
-    ax.set_ylabel('$y$ [$\mu$m]')
+    for i, spore_coords in enumerate(spore_arrangements):
+        
+        if top_view:
+            ax[i].scatter(spore_coords[:, 0] * dx, spore_coords[:, 1] * dx, marker='.', s=1)
+        else:
+            ax[i].scatter(spore_coords[:, 0] * dx, spore_coords[:, 1] * dx, spore_coords[:, 2] * dx, marker='.')
+    
+        ax[i].set_xlim(0, Ns[i] * dx)
+        ax[i].set_ylim(0, Ns[i] * dx)
+        ax[i].set_xlabel('$x$ [$\mu$m]')
+        ax[i].set_ylabel('$y$ [$\mu$m]')
 
-    if not top_view:
-        ax.set_zlim(0, H * dx)
-        ax.set_zlabel('$z$ [$\mu$m]')
+        if not top_view:
+            ax[i].set_zlim(0, Hs[i] * dx)
+            ax[i].set_zlabel('$z$ [$\mu$m]')
 
-    if title:
-        ax.set_title(title)
-    plt.tight_layout()
+        if titles:
+            ax[i].set_title(titles[i])
+    
+    plt.tight_layout(pad=2)
     plt.show()
 
 
