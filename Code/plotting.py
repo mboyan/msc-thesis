@@ -43,7 +43,7 @@ def plot_spore_positions(Ns, Hs, spore_arrangements, dx, titles=None, top_view=F
             ax[i].set_zlim(0, Hs[i] * dx)
             ax[i].set_zlabel('$z$ [$\mu$m]')
 
-        if titles:
+        if titles is not None:
             ax[i].set_title(titles[i])
     
     plt.tight_layout(pad=2)

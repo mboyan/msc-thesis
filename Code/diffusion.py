@@ -212,12 +212,13 @@ def update_GPU_2D(c_old, c_new, N, dtdx2, D, Db, spore_idx):
     Update the concentration of a 2D lattice point based on the time-dependent diffusion equation with a periodic boundary.
     Uses CUDA to parallelize the computation.
     inputs:
-        c_old (DeviceNDArray) - the current state of the lattice;
-        c_new (DeviceNDArray) - the next state of the lattice;
-        dtdx2 (float) - the update factor;
-        D (float) - the diffusion constant through the medium;
-        Db (float) - the diffusion constant through the spore barrier;
-        spore_idx (tuple) - the indices of the spore location.
+        c_old (DeviceNDArray) - the current state of the lattice
+        c_new (DeviceNDArray) - the next state of the lattice
+        N (int) - the size of the lattice
+        dtdx2 (float) - the update factor
+        D (float) - the diffusion constant through the medium
+        Db (float) - the diffusion constant through the spore barrier
+        spore_idx (tuple) - the indices of the spore location
     """
     i, j = cuda.grid(2)
 
@@ -259,12 +260,13 @@ def update_GPU_3D(c_old, c_new, N, dtdx2, D, Db, spore_idx):
     Update the concentration of a 3D lattice point based on the time-dependent diffusion equation with a periodic boundary.
     Uses CUDA to parallelize the computation.
     inputs:
-        c_old (DeviceNDArray) - the current state of the lattice;
-        c_new (DeviceNDArray) - the next state of the lattice;
-        dtdx2 (float) - the update factor;
-        D (float) - the diffusion constant through the medium;
-        Db (float) - the diffusion constant through the spore barrier;
-        spore_idx (tuple) - the indices of the spore location.
+        c_old (DeviceNDArray) - the current state of the lattice
+        c_new (DeviceNDArray) - the next state of the lattice
+        N (int) - the size of the lattice
+        dtdx2 (float) - the update factor
+        D (float) - the diffusion constant through the medium
+        Db (float) - the diffusion constant through the spore barrier
+        spore_idx (tuple) - the indices of the spore location
     """
     i, j, k = cuda.grid(3)
 
@@ -326,12 +328,13 @@ def update_GPU_3D_periodic_spores(c_old, c_new, N, dtdx2, D, Db, spore_spacing):
     with a periodic boundary and spores spaced regularly in all dimensions.
     Uses CUDA to parallelize the computation.
     inputs:
-        c_old (DeviceNDArray) - the current state of the lattice;
-        c_new (DeviceNDArray) - the next state of the lattice;
-        dtdx2 (float) - the update factor;
-        D (float) - the diffusion constant through the medium;
-        Db (float) - the diffusion constant through the spore barrier;
-        spore_spacing (int) - the spacing between spores.
+        c_old (DeviceNDArray) - the current state of the lattice
+        c_new (DeviceNDArray) - the next state of the lattice
+        N (int) - the size of the lattice
+        dtdx2 (float) - the update factor
+        D (float) - the diffusion constant through the medium
+        Db (float) - the diffusion constant through the spore barrier
+        spore_spacing (int) - the spacing between spores
     """
 
     i, j, k = cuda.grid(3)
@@ -377,28 +380,72 @@ def update_GPU_3D_periodic_spores(c_old, c_new, N, dtdx2, D, Db, spore_spacing):
     diff_sum = Ddtdx20 * bottom + Ddtdx21 * top + Ddtdx22 * left + Ddtdx23 * right + Ddtdx24 * front + Ddtdx25 * back
     c_new[i, j, k] = center + diff_sum - (Ddtdx20 + Ddtdx21 + Ddtdx22 + Ddtdx23 + Ddtdx24 + Ddtdx25) * center
 
-# FOR DEBUGGING
-# @cuda.jit()
-# def update_GPU(c_old, c_new, N, dtdx2, D, Db, spore_idx):
-#     """
-#     Update the concentration of a lattice point based on the time-dependent diffusion equation with a periodic boundary.
-#     inputs:
-#         c_old (numpy.ndarray) - the current state of the lattice;
-#         c_new (numpy.ndarray) - the next state of the lattice;
-#         Ddtdx2 (float) - the update factor.
-#     """
-#     i, j = cuda.grid(2)
 
-#     if i >= c_old.shape[0] or j >= c_old.shape[1]:
-#         return
+@cuda.jit()
+def update_GPU_3D_periodic_spores_bottom(c_old, c_new, N, H, dtdx2, D, Db, spore_spacing):
+    """
+    Update the concentration of a 3D lattice point based on the time-dependent diffusion equation
+    with a periodic boundary and spores spaced regularly in all dimensions.
+    Uses CUDA to parallelize the computation.
+    inputs:
+        c_old (DeviceNDArray) - the current state of the lattice
+        c_new (DeviceNDArray) - the next state of the lattice
+        N (int) - the size of the lattice
+        H (int) - the height of the lattice
+        dtdx2 (float) - the update factor
+        D (float) - the diffusion constant through the medium
+        Db (float) - the diffusion constant through the spore barrier
+        spore_spacing (int) - the spacing between spores
+    """
 
-#     center = c_old[i, j]
-#     bottom = c_old[(i + 1) % c_old.shape[0], j]
-#     top = c_old[(i - 1) % c_old.shape[0], j]
-#     left = c_old[i, (j - 1) % c_old.shape[1]]
-#     right = c_old[i, (j + 1) % c_old.shape[1]]
+    i, j, k = cuda.grid(3)
 
-#     c_new[i, j] = D * dtdx2 * (bottom + top + left + right - 4 * center) + center
+    if i >= c_old.shape[0] or j >= c_old.shape[1] or k >= c_old.shape[2]:
+        return
+    
+    center = c_old[i, j, k]
+    bottom = c_old[(i - 1) % N, j, k]
+    top = c_old[(i + 1) % N, j, k]
+    left = c_old[i, (j - 1) % N, k]
+    right = c_old[i, (j + 1) % N, k]
+    front = c_old[i, j, (k - 1) % H]
+    back = c_old[i, j, (k + 1) % H]
+
+    # Neumann boundary at top and bottom
+    if k == 0:
+        front = c_old[i, j, 1]
+    elif k == H - 1:
+        back = c_old[i, j, H - 2]
+
+    Ddtdx20 = D * dtdx2
+    Ddtdx21 = D * dtdx2
+    Ddtdx22 = D * dtdx2
+    Ddtdx23 = D * dtdx2
+    Ddtdx24 = D * dtdx2
+    Ddtdx25 = D * dtdx2
+
+    if i % spore_spacing == 0 and j % spore_spacing == 0 and k % spore_spacing == 0:
+        Ddtdx20 = Db * dtdx2
+        Ddtdx21 = Db * dtdx2
+        Ddtdx22 = Db * dtdx2
+        Ddtdx23 = Db * dtdx2
+        Ddtdx24 = Db * dtdx2
+        Ddtdx25 = Db * dtdx2
+    elif i % spore_spacing == spore_spacing - 1 and j % spore_spacing == 0 and k % spore_spacing == 0:
+        Ddtdx21 = Db * dtdx2
+    elif i % spore_spacing == 1 and j % spore_spacing == 0 and k % spore_spacing == 0:
+        Ddtdx20 = Db * dtdx2
+    elif i % spore_spacing == 0 and j % spore_spacing == spore_spacing - 1 and k % spore_spacing == 0:
+        Ddtdx23 = Db * dtdx2
+    elif i % spore_spacing == 0 and j % spore_spacing == 1 and k % spore_spacing == 0:
+        Ddtdx22 = Db * dtdx2
+    elif i % spore_spacing == 0 and j % spore_spacing == 0 and k % spore_spacing == spore_spacing - 1:
+        Ddtdx25 = Db * dtdx2
+    elif i % spore_spacing == 0 and j % spore_spacing == 0 and k % spore_spacing == 1:
+        Ddtdx24 = Db * dtdx2
+
+    diff_sum = Ddtdx20 * bottom + Ddtdx21 * top + Ddtdx22 * left + Ddtdx23 * right + Ddtdx24 * front + Ddtdx25 * back
+    c_new[i, j, k] = center + diff_sum - (Ddtdx20 + Ddtdx21 + Ddtdx22 + Ddtdx23 + Ddtdx24 + Ddtdx25) * center
 
 
 @cuda.reduce
@@ -413,28 +460,28 @@ def max_reduce(a, b):
 
 
 def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.001, dx=0.005, n_save_frames=100,
-                                 spore_idx=(None, None, None), spore_idx_spacing=None, c_thresholds=None):
+                                 spore_idx=(None, None, None), spore_idx_spacing=None, c_thresholds=None, bottom_arrangement=False):
     """
     Compute the evolution of a square lattice of concentration scalars
     based on the time-dependent diffusion equation.
     inputs:
-        c_init (numpy.ndarray) - the initial state of the lattice;
-        t_max (int) - a maximum number of iterations;
-        D (float) - the diffusion constant; defaults to 1;
-        Db (float) - the diffusion constant through the spore; defaults to 1;
-        Ps (float) - the permeation constant through the spore barrier; defaults to 1;
-        dt (float) - timestep; defaults to 0.001;
-        dx (float) - spatial increment; defaults to 0.005;
-        n_save_frames (int) - determines the number of frames to save during the simulation; detaults to 100;
-        spore_idx (tuple) - the indices of the spore location; defaults to (None, None);
-        spore_spacing (int) - the spacing between spore indices along each dimension; defaults to None; if used, spore_idx is ignored;
-        c_thresholds (float) - threshold values for the concentration; defaults to None.
+        c_init (numpy.ndarray) - the initial state of the lattice
+        t_max (int) - a maximum number of iterations
+        D (float) - the diffusion constant; defaults to 1
+        Db (float) - the diffusion constant through the spore; defaults to 1
+        Ps (float) - the permeation constant through the spore barrier; defaults to 1
+        dt (float) - timestep; defaults to 0.001
+        dx (float) - spatial increment; defaults to 0.005
+        n_save_frames (int) - determines the number of frames to save during the simulation; detaults to 100
+        spore_idx (tuple) - the indices of the spore location; defaults to (None, None)
+        spore_spacing (int) - the spacing between spore indices along each dimension; defaults to None; if used, spore_idx is ignored
+        c_thresholds (float) - threshold values for the concentration; defaults to None
+        bottom_arrangement (bool) - whether the spores are arranged at the bottom of the lattice; defaults to False
     outputs:
-        u_evolotion (numpy.ndarray) - the states of the lattice at all moments in time.
+        u_evolotion (numpy.ndarray) - the states of the lattice at all moments in time
     """
 
     assert c_init.ndim == 2 or c_init.ndim == 3, 'input array must be 2- or 3-dimensional'
-    # assert c_init.shape[0] == c_init.shape[1] == c_init.shape[2], 'lattice must have equal size along each dimension'
 
     # Determine dimensionality of the lattice
     dims = c_init.ndim
@@ -443,9 +490,14 @@ def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.001,
         spore_pos_ref = spore_idx
         print("2D simulation")
     elif spore_idx_spacing is not None:
-        update_func = update_GPU_3D_periodic_spores
-        spore_pos_ref = spore_idx_spacing
-        print("3D simulation with periodic spores")
+        if bottom_arrangement:
+            update_func = update_GPU_3D_periodic_spores_bottom
+            spore_pos_ref = spore_idx_spacing
+            print("3D simulation with 2D periodic spores")
+        else:
+            update_func = update_GPU_3D_periodic_spores
+            spore_pos_ref = spore_idx_spacing
+            print("3D simulation with 3D periodic spores")
     else:
         update_func = update_GPU_3D
         spore_pos_ref = spore_idx
@@ -453,6 +505,7 @@ def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.001,
 
     # Determine number of lattice rows/columns
     N = c_init.shape[0]
+    H = c_init.shape[2] if dims == 3 else 0
 
     # Save update factor
     dtdx2 = dt / (dx ** 2)
@@ -481,7 +534,7 @@ def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.001,
     if dims == 2:
         c_evolution = np.zeros((n_save_frames + 1, N, N))
     else:
-        c_evolution = np.zeros((n_save_frames + 1, N, N, N))
+        c_evolution = np.zeros((n_save_frames + 1, N, N, H))
     times = np.zeros(n_save_frames + 1)
     save_interval = np.floor(n_frames / n_save_frames)
     save_ct = 0

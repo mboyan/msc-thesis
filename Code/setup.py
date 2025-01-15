@@ -3,7 +3,6 @@ import conversions as conv
 import diffusion as diff
 import pandas as pd
 import os
-# import h5py
 
 def setup_lattice(N, H, spores_x, spores_y, spores_z, c_spore_init=1):
     """
@@ -15,6 +14,8 @@ def setup_lattice(N, H, spores_x, spores_y, spores_z, c_spore_init=1):
         spores_y (numpy array): the y coordinates of the spores
         spores_z (numpy array): the z coordinates of the spores
         c_spore_init (float): the initial concentration at the spores
+    outputs:
+        c_lattice (numpy array): the initial concentration lattice
     """
 
     assert spores_x.size == spores_y.size == spores_z.size, "spores_x, spores_y, and spores_z must have the same size"
@@ -25,82 +26,25 @@ def setup_lattice(N, H, spores_x, spores_y, spores_z, c_spore_init=1):
     return c_lattice
 
 
-# def setup_lattice_periodic_c0(N, H, spore_idx_spacing, c_spore_init):
-#     """
-#     Set the initial concentrations at regularly repeating spore sites.
-#     inputs:
-#         N (int): the size of the bottom of the lattice
-#         H (int): the height of the lattice
-#         spore_idx_spacing (int): the spacing of the spore indices in each dimension
-#         c_spore_init (float): the initial concentration at the spores
-#     """
-
-#     c_lattice = np.zeros((N+1, N+1, H+1), dtype=np.float64)
-#     c_lattice = np.where((np.arange(N+1)[:, None, None] % spore_idx_spacing < 0.5) & 
-#                          (np.arange(N+1)[None, :, None] % spore_idx_spacing < 0.5) & 
-#                          (np.arange(H+1)[None, None, :] % spore_idx_spacing < 0.5), c_spore_init, c_lattice)
-
-#     return c_lattice
-
-
-def lattice_size_from_density(spore_density, dx):
+def lattice_size_from_density(spore_density, dx, H=None):
     """
     Compute the lattice size from the spore density.
     inputs:
         spore_density (float): the density of spores in micrometers^-3
         dx (float): the lattice spacing in micrometers
+        H (int): the height of the lattice; if specified, only the bottom is populated
+    outputs:
+        N (int): the size of the lattice in each dimension
     """
 
-    L = np.cbrt(1 / spore_density)
-    N = int(np.ceil(L / dx))
+    if H is not None:
+        L = np.cbrt(1 / spore_density)
+        N = int(np.ceil(L / dx))
+    else:
+        L = np.sqrt(1 / (dx * spore_density))
+        N = int(np.ceil(L / dx))
 
     return N
-
-
-# def compute_spore_spacing(N, dx, spore_density, H=None, start_height=1):
-#     """
-#     Compute the spore spacing for a given spore density.
-#     inputs:
-#         N (int): the size of the bottom of the lattice
-#         dx (float): the lattice spacing in micrometers
-#         spore_density (float): the density of spores in micrometers^-3
-#         H (int): the height of the lattice; if specified, only the bottom is populated
-#         start_height (int): the distance of the spores from the bottom (if only the bottom is populated)
-#     """
-    
-#     N = N + 1
-
-#     if H is None:
-#         bottom_only = False
-#     else:
-#         bottom_only = True
-    
-#     if bottom_only:
-
-#         # Calculate the number of spores to place
-#         V_grid = N**2 * H * dx**3
-#         n_spores = spore_density * V_grid
-
-#         V_occupied = N**2 * dx**3
-#         n_spores_1D = int(np.sqrt(n_spores))
-#         print(f"Effective density: {n_spores / V_occupied} spores/micrometer^3")
-#     else:
-
-#         # Calculate the number of spores to place
-#         V_grid = N**3 * dx**3
-#         n_spores = spore_density * V_grid
-
-#         V_occupied = V_grid
-#         n_spores_1D = int(np.cbrt(n_spores))
-#         print(f"Effective density: {n_spores / V_occupied} spores/micrometer^3")
-
-#     L = N * dx
-#     spore_spacing = L / n_spores_1D
-
-#     print(f"Populating volume of {V_occupied} micrometers^3 with {n_spores} spores, {n_spores_1D} spores per dimension")
-#     print(f"Spore spacing: {spore_spacing} micrometers")
-
-#     return spore_spacing
 
 
 def populate_spore_grid_coords(N, dx, spore_density, H=None, start_height=1):
@@ -112,6 +56,9 @@ def populate_spore_grid_coords(N, dx, spore_density, H=None, start_height=1):
         spore_density (float): the density of spores in micrometers^-3
         H (int): the height of the lattice; if specified, only the bottom is populated
         start_height (int): the distance of the spores from the bottom (if only the bottom is populated)
+    outputs:
+        spore_coords (numpy array): the coordinates of the spores
+        spore_spacing (float): the spacing between spores in micrometers
     """
 
     N = N + 1
@@ -162,49 +109,6 @@ def populate_spore_grid_coords(N, dx, spore_density, H=None, start_height=1):
     return spore_coords, spore_spacing
 
 
-def populate_spore_tri_coords(N, H, dx, spore_density, start_height=20):
-    # DOESN'T WORK YET
-    """
-    Generate spore coordinates in a triangular grid at the bottom of a lattice.
-    inputs:
-        N (int): the size of the bottom of the lattice
-        dx (float): the lattice spacing in micrometers
-        spore_density (float): the density of spores in micrometers^-3
-        H (int): the height of the lattice
-        start_height (int): the distance of the spores from the bottom
-    """
-
-    # Calculate the number of spores to place
-    V_grid = N**2 * H * dx**3
-    n_spores = spore_density * V_grid
-    
-    # Calculate the number of spores per bottom area
-    spore_area_density = n_spores / (N**2)
-
-    # Grid spacing
-    d = np.sqrt(2 / (np.sqrt(3) * spore_area_density))
-    Nx = int(N*dx / d)
-    Ny = int(N*dx / (d * np.sqrt(3) / 2))
-
-    # Generate the spore grid coordinates
-    coords = []
-    for i in range(Nx):
-        for j in range(Ny):
-            x = i * d
-            y = j * d * np.sqrt(3) / 2
-            z = start_height
-            if x < N and y < N:
-                coords.append([x, y, z])
-    
-    coords = np.array(coords)
-    coords = coords.reshape(-1, 3).T
-
-    spore_spacing = d
-
-    print(f"Effective density: {coords.shape[0] / V_grid} spores/micrometer^3")
-    return coords, spore_spacing
-
-
 def run_diffusion_experiments_single_spore(exp_params, t_max, N, dt, dx, n_save_frames, V_spore, c_thresh_factors=None):
     """
     Run diffusion experiments with a single spore source.
@@ -233,11 +137,6 @@ def run_diffusion_experiments_single_spore(exp_params, t_max, N, dt, dx, n_save_
     # Create folder for data
     if not os.path.exists('Data'):
         os.makedirs('Data')
-
-    # Delete any existing results file
-    # exp_id = exp_params[0]['expID']
-    # if os.path.exists(f'Data/{exp_id}_frames.h5'):
-    #     os.remove(f'Data/{exp_id}_frames.h5')
 
     for i, params in enumerate(exp_params):
 
@@ -291,8 +190,6 @@ def run_diffusion_experiments_single_spore(exp_params, t_max, N, dt, dx, n_save_
 
         # Save results
         np.save(f"Data/{exp_id}_{sim_id}_frames.npy", c_evolution)
-        # with h5py.File(f'Data/{exp_id}_frames.h5', 'a') as f:
-        #     f.create_dataset(sim_id, data=c_evolution, compression="gzip")
         sim_results = pd.DataFrame({'time': times, 'c_numerical': c_numerical*c0, 'c_analytical': c_analytical*c0, 'spore_idx': [spore_idx] * len(times)})
 
         # Add column for ID and threshold times
@@ -339,11 +236,6 @@ def run_diffusion_experiments_multi_spore(exp_params, t_max, dt, dx, n_save_fram
     # Create folder for data
     if not os.path.exists('Data'):
         os.makedirs('Data')
-
-    # Delete any existing results file
-    # exp_id = exp_params[0]['expID']
-    # if os.path.exists(f'Data/{exp_id}_frames.h5'):
-    #     os.remove(f'Data/{exp_id}_frames.h5')
     
     for i, params in enumerate(exp_params):
 
@@ -353,14 +245,11 @@ def run_diffusion_experiments_multi_spore(exp_params, t_max, dt, dx, n_save_fram
         Db = params['D']
         Ps = params['Ps']
         c0 = params['c0']
-        # spore_spacing = params['spore_spacing']
         spore_density = params['spore_density']
 
         # Infer lattice size from spore density
         spore_density = conv.inverse_mL_to_micrometers_cubed(spore_density)
         N = lattice_size_from_density(spore_density, dx)
-
-        # spore_idx_spacing = spore_spacing / dx
 
         print(f"{sim_id}: Running simulation {label} on lattice with size {N}")
 
@@ -373,26 +262,108 @@ def run_diffusion_experiments_multi_spore(exp_params, t_max, dt, dx, n_save_fram
 
         # Initialise concentration at spores
         c_spore_init = 1
-        # c_lattice = setup_lattice_periodic_c0(N, N, spore_idx_spacing, c_spore_init)
         c_lattice = np.zeros((N+1, N+1, N+1), dtype=np.float64)
         c_thresholds = c_thresh_factors * c_spore_init
 
         # Reference spores for measurements
         spore_idx = (N // 2, N // 2, N // 2)
         c_lattice[spore_idx] = c_spore_init
-        # spore_idx_ref = (int(spore_idx_spacing), int(spore_idx_spacing), int(spore_idx_spacing))
-        # spore_idx_ref_2 = (int(spore_idx_spacing*2), int(spore_idx_spacing*2), int(spore_idx_spacing*2))
 
         # Run numerical experiment
         c_evolution, times, times_thresh = diff.diffusion_time_dependent_GPU(c_lattice, t_max, D, Db, Ps, dt, dx, n_save_frames, spore_idx, None, c_thresholds)
         c_numerical = c_evolution[:, spore_idx[0], spore_idx[1], spore_idx[2]]
-        print(c_evolution[-1].max())
 
         # Save results
         np.save(f"Data/{exp_id}_{sim_id}_frames.npy", c_evolution)
-        # with h5py.File(f'Data/{exp_id}_frames.h5', 'a') as f:
-        #     f.create_dataset(sim_id, data=c_evolution, compression="gzip")
-        # sim_results = pd.DataFrame({'time': times, 'c_numerical': c_numerical*c0, 'c_analytical': c_analytical*c0})
+        sim_results = pd.DataFrame({'time': times, 'c_numerical': c_numerical*c0, 'c_analytical': c_numerical*c0, 'spore_idx': [spore_idx] * len(times)}) # Correct this if analytical solution is available!~
+
+        # Add column for ID and threshold times
+        sim_results['simID'] = sim_id
+        sim_results['label'] = label
+        sim_results['N'] = N
+        sim_results['times_thresh'] = list(np.tile(times_thresh, (len(sim_results), 1)))
+        sim_results['c_thresh'] = list(np.tile(c_thresh_factors*c0, (len(sim_results), 1)))
+
+        sim_results_list.append(sim_results)
+
+    sim_results_global = pd.concat(sim_results_list)
+    
+    # Write parameters and results to file
+    exp_params_data.to_csv(f'Data/{exp_params[0]['expID']}_exp_params.csv')
+    sim_results_global.to_csv(f'Data/{exp_params[0]['expID']}_sim_results.csv')
+
+
+def run_diffusion_experiments_multi_spore_bottom(exp_params, t_max, dt, dx, H, n_save_frames, V_spore, c_thresh_factors=None):
+    """
+    Run diffusion experiments with multiple uniformly spaced spore sources
+    at the bottom a 3D lattice with periodic boundaries in x and y
+    and von Neumann boundaries in z.
+    inputs:
+        exp_params (dict): the parameters of the experiment
+        t_max (float): the maximum time of the experiment
+        N (int): the size of the lattice in each dimension
+        dt (float): the time step of the simulation
+        dx (float): the lattice spacing in micrometers
+        H (int): the number of lattice points in the z direction
+        n_save_frames (int): the number of frames to save
+        V_spore (float): the volume of the spore in micrometers^3
+        c_thresh_factors (list): concentration reduction factor thresholds to save times at
+    """
+
+    sim_results_global = pd.DataFrame()
+    sim_results_list = []
+    exp_params_data = pd.DataFrame(exp_params)
+
+    # Add new parameters
+    exp_params_data['dt'] = dt
+    exp_params_data['dx'] = dx
+    exp_params_data['A_spore'] = None
+    exp_params_data['V_spore'] = V_spore
+
+    # Create folder for data
+    if not os.path.exists('Data'):
+        os.makedirs('Data')
+    
+    for i, params in enumerate(exp_params):
+
+        exp_id = params['expID']
+        sim_id = params['simID']
+        label = params['label']
+        Db = params['D']
+        Ps = params['Ps']
+        c0 = params['c0']
+        spore_density = params['spore_density']
+
+        # Infer lattice size from spore density
+        spore_density = conv.inverse_mL_to_micrometers_cubed(spore_density)
+        N = lattice_size_from_density(spore_density, dx, H)
+
+        # spore_idx_spacing = spore_spacing / dx
+
+        print(f"{sim_id}: Running simulation {label} on lattice with size {N} and height {H}")
+
+        # Compute spore area
+        A_spore = (np.cbrt(V_spore) ** 2) * 6
+        exp_params_data.loc[i, 'A_spore'] = A_spore
+
+        # Default D in medium
+        D = 600 # micrometers^2/s
+
+        # Initialise concentration at spores
+        c_spore_init = 1
+        c_lattice = np.zeros((N+1, N+1, H+1), dtype=np.float64)
+        c_thresholds = c_thresh_factors * c_spore_init
+
+        # Reference spores for measurements
+        spore_idx = (N // 2, N // 2, 1)
+        c_lattice[spore_idx] = c_spore_init
+
+        # Run numerical experiment
+        c_evolution, times, times_thresh = diff.diffusion_time_dependent_GPU(c_lattice, t_max, D, Db, Ps, dt, dx, n_save_frames, spore_idx, None, c_thresholds, False)
+        c_numerical = c_evolution[:, spore_idx[0], spore_idx[1], spore_idx[2]]
+
+        # Save results
+        np.save(f"Data/{exp_id}_{sim_id}_frames.npy", c_evolution)
         sim_results = pd.DataFrame({'time': times, 'c_numerical': c_numerical*c0, 'c_analytical': c_numerical*c0, 'spore_idx': [spore_idx] * len(times)}) # Correct this if analytical solution is available!~
 
         # Add column for ID and threshold times
