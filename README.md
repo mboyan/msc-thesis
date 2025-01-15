@@ -1,6 +1,11 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## Note on $c_0$ assumption
+The highest possible concentration (full volume of cell wall) is taken in order to maximise the difference between $c_0$ and the threshold of 10 mM. This yields the steepest release curve, which should bring about the earliest saturation effects possible.
+
+Revisit this assumption once saturation effects become a thing.
+
 ## To include in presentation for 10.01.2025
 - Recap of previous experiments;
 - Assumptions on density - what spacing distances does it translate to;
