@@ -20,6 +20,23 @@ def permeation_time_dependent_analytical(c_in, c_out, t, Ps, A, V, alpha=1.0):
     return c
 
 
+def diffusion_time_dependent_analytical(dist, c_init, D, time, vol, dims=3):
+    """
+    Compute the analytical solution of the time-dependent diffusion equation at any point x.
+    inputs:
+        dist (float) - the distance from the source
+        c_init (float) - the initial concentration
+        D (float) - the diffusion constant
+        time (float) - the time at which the concentration is to be computed
+        vol (float) - the volume of the initial concentration source
+    """
+    if dims == 2:
+        result = np.power(vol * c_init, 2/3) / (4*np.pi*D*time) * np.exp(-dist**2 / (4*D*time))
+    elif dims == 3:
+        result = vol * c_init / np.power(4*np.pi*D*time, 1.5) * np.exp(-dist**2 / (4*D*time))
+    return result
+
+
 def diffusion_time_dependent_analytical_src(c_init, D, time, vol, dims=3):
     """
     Compute the analytical solution of the time-dependent diffusion equation at the source.
@@ -27,7 +44,7 @@ def diffusion_time_dependent_analytical_src(c_init, D, time, vol, dims=3):
         c_init (float) - the initial concentration
         D (float) - the diffusion constant
         time (float) - the time at which the concentration is to be computed
-        vol (float) - the volume of the initial concentration cell
+        vol (float) - the volume of the initial concentration source
     """
     if dims == 2:
         result = np.power(vol * c_init, 2/3) / (4*np.pi*D*time)
