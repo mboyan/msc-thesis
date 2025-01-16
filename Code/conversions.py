@@ -29,6 +29,20 @@ def inverse_mL_to_micrometers_cubed(mL_inv):
 
     return np.float32(result)
 
+def inverse_micrometers_cubed_to_mL(micrometers_cubed_inv):
+    """
+    Convert inverse micrometers cubed to inverse milliliters.
+    inputs:
+        micrometers_cubed_inv (float): volume in inverse micrometers cubed
+    """
+    micrometers_cubed_inv_sym = sp.symbols('micrometers_cubed_inv')
+    conversion_expr = micrometers_cubed_inv_sym * 1e12
+    result = conversion_expr.subs(micrometers_cubed_inv_sym, micrometers_cubed_inv)
+
+    print(f"Conversion: {result} mL^-1")
+
+    return np.float32(result)
+
 def convert_D_to_Ps(D, K, d):
     """
     Convert diffusion coefficient to permeability.
