@@ -1,6 +1,22 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## Notes from meeting with Han 17.01
+- Mention spore-spore distances together with concentrations (more intuitive);
+- There should be an intermediate conclusion relating the saturation relationship to Maryam's results; 
+- _side note_: What ARE Maryam's results?
+- Spores actually spend much longer time in 3D arrangement because of cultivation stage;
+- Get functional relationship of 2D arrangements as well;
+- Check spore stock procedure from Maryam's experiment for more context; 
+- Relate to natural scenarios: 
+   - 1 droplet of water is ca. $50 \mu\textrm{L}$;
+   - 1 conidiophore has 10000 spores;
+   - 1 colony - 2 billion spores;
+   - ways of dispersal - check paper - wind less effective, hydrophobic surface (leg of an insect) is likely, rain - very effective;
+   - imagine a conidiophore taken by an insect to a plant where a dew drop forms and captures the spores - different sized drops will have different concentrations;
+   - are Maryam's experiments consistent with such scenarios?
+- Synergistic effect of multiple inhibitors (e.g. 5 inhibitors with $0.2 \mu\textrm{L}$ thresholds can have the effect of 10 mM 1-octen-3-ol?
+
 ## Note on $c_0$ assumption
 The highest possible concentration (full volume of cell wall) is taken in order to maximise the difference between $c_0$ and the threshold of 10 mM. This yields the steepest release curve, which should bring about the earliest saturation effects possible.
 
