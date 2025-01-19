@@ -1,6 +1,14 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## Narrowing down parameters and relating them to nature
+- Goal: model links papers by Ijadpanahsaravi, Lyu and Teertstra;
+- Check and compare settings and assumptions in all papers - spore densities, germination times, germination percentages, ...
+- Use these to create (Gaussian) distributions of e.g. germination times;
+- Find out what inhibition is expected due to spore density;
+- Find all possible inhibitor candidates and their reasonable concentration limits + possible inhibition thresholds;
+- Use Teertstra to relate study to natural scenario: dispersal (insect, water droplet), heterogeneity explained by range of maturation times, ...
+
 ## Notes from meeting with Han 17.01
 - Mention spore-spore distances together with concentrations (more intuitive);
 - There should be an intermediate conclusion relating the saturation relationship to Maryam's results; 
