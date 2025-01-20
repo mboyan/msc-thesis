@@ -103,12 +103,28 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
     c_max = -np.inf
     N_max = -np.inf
     for simID in unique_simIDs:
-        c_evolution = np.load(f"Data/{expID}_{simID}_frames.npy")
+        c_evolution = np.load(f"Data/{expID}_{simID}_frames.npy", mmap_mode='r')
         c_evolutions[simID] = c_evolution
         lattice_sizes[simID] = c_evolution.shape[1]
         c_min = min(c_min, np.min(c_evolution[-1]))
         c_max = max(c_max, np.max(c_evolution[-1]))
         N_max = max(N_max, lattice_sizes[simID])
+
+    # Load data with memory mapping
+    # for simID in unique_simIDs:
+    #     with np.load(f"Data/{expID}_{simID}_frames.npy", mmap_mode='r') as c_evolution:
+    #         # Store the memory-mapped array in the dictionary
+    #         c_evolutions[simID] = c_evolution
+
+    #         # Get the lattice size
+    #         lattice_sizes[simID] = c_evolution.shape[1]
+
+    #         # Update the global concentration range
+    #         c_min = min(c_min, np.min(c_evolution[-1]))
+    #         c_max = max(c_max, np.max(c_evolution[-1]))
+
+    #         # Update the maximum lattice size
+    #         N_max = max(N_max, lattice_sizes[simID])
 
     # Plot results
     for simID in unique_simIDs:
