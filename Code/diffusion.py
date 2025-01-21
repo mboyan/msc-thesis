@@ -585,4 +585,7 @@ def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.001,
     c_evolution[(save_ct, ...)] = c_A_gpu.copy_to_host()
     times[save_ct] = t_max
 
+    # Run diffusion
+    
+
     return c_evolution, times, times_thresh
