@@ -4,6 +4,7 @@ import matplotlib.gridspec as gridspec
 # import plotly.graph_objects as go
 import pandas as pd
 import conversions as conv
+from scipy.optimize import curve_fit
 
 def plot_spore_positions(Ns, Hs, spore_arrangements, dx, titles=None, top_view=False):
     """
@@ -177,15 +178,13 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
         if sim_params['dims'] == 2:
             if N < N_max:
                 # Repeat lattice to align with largest lattice
-                c_lattice_repeat = np.pad(c_evolution, ((0, 0), (0, N_max - N), (0, N_max - N)), 'wrap')
-                c_final = c_lattice_repeat[-1, ...]
+                c_final = np.pad(c_evolution[-1, ...], ((0, N_max - N), (0, N_max - N)), 'wrap')
             else:
                 c_final = c_evolution[-1, ...]
         elif sim_params['dims'] == 3:
             if N < N_max:
                 # Repeat lattice to align with largest lattice
-                c_lattice_repeat = np.pad(c_evolution, ((0, 0), (0, N_max - N), (0, N_max - N), (0, N_max - N)), 'wrap')
-                c_final = c_lattice_repeat[-1, :, spore_idx[1], :].T
+                c_final = np.pad(c_evolution[-1, :, spore_idx[1], :].T, ((0, N_max - N), (0, N_max - N)), 'wrap')
             else:
                 c_final = c_evolution[-1, :, spore_idx[1], :].T
 
@@ -226,15 +225,17 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
     plt.show()
 
 
-def plot_densities_vs_concentrations_at_time(expID, time, logx=False, logy=False, lin_fit=False):
+def plot_densities_vs_concentrations_at_time(expID, time, alogx=False, alogy=False, blogx=False, blogy=False, model_fit=None):
     """
     Plot the concentration at a specific time for all simulations in an experiment.
     inputs:
         expID (int): the ID of the experiment
         time (float): the time at which to plot the concentration
-        logx (bool): whether to plot the x-axis in log scale
-        logy (bool): whether to plot the y-axis in log scale
-        lin_fit (bool): whether to fit a linear regression to the data
+        alogx (bool): whether to plot the x-axis in log scale of the first plot
+        alogy (bool): whether to plot the y-axis in log scale of the first plot
+        blogx (bool): whether to plot the x-axis in log scale of the second plot
+        blogy (bool): whether to plot the y-axis in log scale of the second plot
+        model_fit (function): the function to fit the data
     """
 
     exp_params = pd.read_csv(f"Data/{expID}_exp_params.csv")
@@ -246,7 +247,7 @@ def plot_densities_vs_concentrations_at_time(expID, time, logx=False, logy=False
     results_dict = {'concentration': [], 'density': [], 'spore_dist': []}
     for simID in unique_simIDs:
         # Get concentration frames
-        c_evolution = np.load(f"Data/{expID}_{simID}_frames.npy")
+        c_evolution = np.load(f"Data/{expID}_{simID}_frames.npy", mmap_mode='r')
 
         # Read simulation data
         sim_params = exp_params[exp_params['simID'] == simID].iloc[0]
@@ -274,9 +275,10 @@ def plot_densities_vs_concentrations_at_time(expID, time, logx=False, logy=False
     results_df = results_df.sort_values('density')
 
     # Fit linear regression
-    if lin_fit:
-        fit = np.polyfit(results_df['density'], results_df['concentration'], 1)
-        print(f"Linear fit: y = {fit[0]}x + {fit[1]}")
+    if model_fit is not None:
+        # fit = np.polyfit(results_df['density'], results_df['concentration'], 1)
+        coeffs, _ = curve_fit(model_fit, results_df['density'], results_df['concentration'], p0=np.full(len(model_fit.__code__.co_varnames) - 1, 0.5))
+        print(f"Fitted coefficients: {coeffs}")
 
     # Plot figure
     fig, ax = plt.subplots(2, 1, figsize=(6, 8))
@@ -284,12 +286,12 @@ def plot_densities_vs_concentrations_at_time(expID, time, logx=False, logy=False
 
     # Plot concentration vs. density
     ax[0].plot(results_df['density'], results_df['concentration'], marker='o')
-    ax[0].set_xlabel('Spore density [$1/\mu m^3$]')
+    ax[0].set_xlabel('Spore density [$1/mL$]')
     ax[0].set_ylabel('Concentration at spore [M]')
     ax[0].grid()
-    if logx:
+    if alogx:
         ax[0].set_xscale('log')
-    if logy:
+    if alogy:
         ax[0].set_yscale('log')
     
     # Plot concentration vs. distance
@@ -297,9 +299,9 @@ def plot_densities_vs_concentrations_at_time(expID, time, logx=False, logy=False
     ax[1].set_xlabel('Spore distance [$\mu m$]')
     ax[1].set_ylabel('Concentration at spore [M]')
     ax[1].grid()
-    if logx:
+    if blogx:
         ax[1].set_xscale('log')
-    if logy:
+    if blogy:
         ax[1].set_yscale('log')
     plt.tight_layout()
     plt.show()

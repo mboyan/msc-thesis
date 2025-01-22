@@ -37,7 +37,7 @@ def lattice_size_from_density(spore_density, dx, H=None):
         N (int): the size of the lattice in each dimension
     """
 
-    if H is not None:
+    if H is None:
         L = np.cbrt(1 / spore_density)
         N = int(np.ceil(L / dx))
     else:
