@@ -479,7 +479,7 @@ def max_reduce(a, b):
         return b
 
 
-def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.001, dx=0.005, n_save_frames=100,
+def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.005, dx=5, n_save_frames=100,
                                  spore_idx=(None, None, None), spore_idx_spacing=None, c_thresholds=None, bottom_arrangement=False):
     """
     Compute the evolution of a square lattice of concentration scalars
@@ -575,9 +575,10 @@ def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.001,
     else:
         kernel_blocks, kernel_threads = invoke_smart_kernel_3D(N)
 
+    # Run simulation
     for t in range(n_frames):
 
-        # print(f"Frame {t} of {n_frames}", end="\r")
+        print(f"Frame {t} of {n_frames}", end="\r")
 
         # Save frame
         if t % save_interval == 0:
@@ -601,8 +602,5 @@ def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.001,
     # Save final frame
     c_evolution[(save_ct, ...)] = c_A_gpu.copy_to_host()
     times[save_ct] = t_max
-
-    # Run diffusion
-    
 
     return c_evolution, times, times_thresh
