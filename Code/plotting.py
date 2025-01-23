@@ -51,7 +51,8 @@ def plot_spore_positions(Ns, Hs, spore_arrangements, dx, titles=None, top_view=F
     plt.show()
 
 
-def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, target_thresh=None, mark_spore=True, color_pairs=False, heatmap_size=5, title=None):
+def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, target_thresh=None,
+                            mark_spore=True, color_pairs=False, heatmap_size=5, title=None, label_last=False):
     """
     Plot the results of a general diffusion experiment.
     inputs:
@@ -62,6 +63,7 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
         mark_spore (bool): whether to mark the spore on the final concentration plot
         color_pairs (bool): whether to use a color palette with pairs of colors
         title (str): the title of the plot
+        label_last (bool): whether to label only the first and last concentration values
     """
 
     exp_params = pd.read_csv(f"Data/{expID}_exp_params.csv")
@@ -89,8 +91,13 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
     # Color palette
     if color_pairs:
         palette = plt.get_cmap('tab20')
-    else:
+        pal_discrete = True
+    elif len(unique_simIDs) < 10:
         palette = plt.get_cmap('tab10')
+        pal_discrete = True
+    else:
+        palette = plt.get_cmap('viridis')
+        pal_discrete = False
 
     # Create figure for final concentration
     nrows = np.ceil(len(unique_simIDs) / 2).astype(int)
@@ -111,22 +118,6 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
         c_max = max(c_max, np.max(c_evolution[-1]))
         N_max = max(N_max, lattice_sizes[simID])
 
-    # Load data with memory mapping
-    # for simID in unique_simIDs:
-    #     with np.load(f"Data/{expID}_{simID}_frames.npy", mmap_mode='r') as c_evolution:
-    #         # Store the memory-mapped array in the dictionary
-    #         c_evolutions[simID] = c_evolution
-
-    #         # Get the lattice size
-    #         lattice_sizes[simID] = c_evolution.shape[1]
-
-    #         # Update the global concentration range
-    #         c_min = min(c_min, np.min(c_evolution[-1]))
-    #         c_max = max(c_max, np.max(c_evolution[-1]))
-
-    #         # Update the maximum lattice size
-    #         N_max = max(N_max, lattice_sizes[simID])
-
     # Plot results
     for simID in unique_simIDs:
         # Read simulation data
@@ -134,16 +125,28 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
         sim_results_data = sim_results[sim_results['simID'] == simID]
     	
         # Get label from simulation data
-        label = sim_results_data['label'].iloc[0]
+        if label_last:
+            if simID == unique_simIDs[0] or simID == unique_simIDs[-1]:
+                label = sim_results_data['label'].iloc[0]
+            else:
+                label = None
+        else:
+            label = sim_results_data['label'].iloc[0]
 
         # Lattice size
         N = lattice_sizes[simID]
 
         print(f"Plotting simulation {simID}: {label}")
 
+        # Palette index
+        if pal_discrete:
+            pal_idx = ax_ct % palette.N
+        else:
+            pal_idx = ax_ct / len(unique_simIDs)
+
         # Plot the concentration evolution
-        axA.plot(sim_results_data['time'], sim_results_data['c_numerical'], label=label, color=palette(ax_ct))
-        axA.plot(sim_results_data['time'], sim_results_data['c_analytical'], color=palette(ax_ct), linestyle='dashed')
+        axA.plot(sim_results_data['time'], sim_results_data['c_numerical'], label=label, color=palette(pal_idx))
+        axA.plot(sim_results_data['time'], sim_results_data['c_analytical'], color=palette(pal_idx), linestyle='dashed')
 
         # Filter out thresholds that are not within the simulation time
         times_thresh = sim_results_data['times_thresh'].iloc[-1].strip('[]')
@@ -153,8 +156,8 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
         times_thresh = [x for x in times_thresh if x > 0]
 
         # Plot the concentration thresholds
-        axA.vlines(times_thresh, 0, c_thresh, colors='r', color=palette(ax_ct), linestyles='dotted', linewidth=1)
-        axA.hlines(c_thresh, 0, times_thresh, colors='r', color=palette(ax_ct), linestyles='dotted', linewidth=1)
+        axA.vlines(times_thresh, 0, c_thresh, colors='r', color=palette(pal_idx), linestyles='dotted', linewidth=1)
+        axA.hlines(c_thresh, 0, times_thresh, colors='r', color=palette(pal_idx), linestyles='dotted', linewidth=1)
         # axA.set_ylim(max(1e-12, np.min(sim_results_data['c_numerical'])), 1.2*np.max(sim_results_data['c_numerical']))
         axA.set_ylim(max(1e-12, min(0.1*np.min(sim_results_data['c_numerical']), 0.1*target_thresh)), 1.2*np.max(sim_results_data['c_numerical']))
         # axA.set_ylim(1e-12, 1.2*np.max(sim_results_data['c_numerical']))
@@ -191,7 +194,7 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
         # Plot the final concentration
         if nrows > 1:
             im=axsB[np.floor(ax_ct / 2).astype(int), ax_ct % 2].imshow(c_final, cmap='viridis', origin='lower', vmin=c_min, vmax=c_max)
-            axsB[np.floor(ax_ct / 2).astype(int), ax_ct % 2].set_title(label)
+            axsB[np.floor(ax_ct / 2).astype(int), ax_ct % 2].set_title(sim_results_data['label'].iloc[0])
             
             # Add colorbar
             # cbar = figB.colorbar(im, ax=axsB[np.floor(ax_ct / 2).astype(int), ax_ct % 2])
@@ -199,8 +202,8 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
             # Mark spore with a red circle
             if mark_spore: axsB[np.floor(ax_ct / 2).astype(int), ax_ct % 2].scatter(spore_idx[0], spore_idx[1], color='r', marker='o', facecolors='none')
         else:
-            axsB[ax_ct].imshow(c_final, cmap='viridis', origin='lower')
-            axsB[ax_ct].set_title(label)
+            im=axsB[ax_ct].imshow(c_final, cmap='viridis', origin='lower')
+            axsB[ax_ct].set_title(sim_results_data['label'].iloc[0])
             
             # Mark spore with a red circle
             if mark_spore: axsB[ax_ct].scatter(spore_idx[0], spore_idx[1], color='r', marker='o', facecolors='none')
@@ -212,6 +215,10 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
 
         ax_ct += 1
     
+    # Add a single horizontal colorbar at the bottom
+    cbar_ax = figB.add_axes([0.15, -0.02, 0.7, 0.02])
+    figB.colorbar(im, cax=cbar_ax, orientation='horizontal')
+
     if target_thresh is not None:
         axA.axhline(y=target_thresh, color='r', linestyle='-.', label='Target threshold')
 
