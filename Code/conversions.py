@@ -33,7 +33,7 @@ def inverse_micrometers_cubed_to_mL(micrometers_cubed_inv):
     """
     Convert inverse micrometers cubed to inverse milliliters.
     inputs:
-        micrometers_cubed_inv (float): volume in inverse micrometers cubed
+        micrometers_cubed_inv (float): number density in inverse micrometers cubed
     """
     micrometers_cubed_inv_sym = sp.symbols('micrometers_cubed_inv')
     conversion_expr = micrometers_cubed_inv_sym * 1e12
