@@ -52,7 +52,7 @@ def plot_spore_positions(Ns, Hs, spore_arrangements, dx, titles=None, top_view=F
 
 
 def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, target_thresh=None,
-                            mark_spore=True, color_pairs=False, heatmap_size=5, title=None, label_last=False):
+                            mark_spore=True, color_pairs=False, heatmap_size=5, title=None, label_last=False, t_max=None):
     """
     Plot the results of a general diffusion experiment.
     inputs:
@@ -64,6 +64,7 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
         color_pairs (bool): whether to use a color palette with pairs of colors
         title (str): the title of the plot
         label_last (bool): whether to label only the first and last concentration values
+        t_max (float): the maximum time to plot
     """
 
     exp_params = pd.read_csv(f"Data/{expID}_exp_params.csv")
@@ -145,8 +146,14 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
             pal_idx = ax_ct / len(unique_simIDs)
 
         # Plot the concentration evolution
-        axA.plot(sim_results_data['time'], sim_results_data['c_numerical'], label=label, color=palette(pal_idx))
-        axA.plot(sim_results_data['time'], sim_results_data['c_analytical'], color=palette(pal_idx), linestyle='dashed')
+        if t_max is not None:
+            time_mask = sim_results_data['time'] <= t_max
+        else:
+            time_mask = np.ones(len(sim_results_data['time']), dtype=bool)
+        nonzero_mask = sim_results_data['c_numerical'] > 0
+        total_mask = time_mask & nonzero_mask
+        axA.plot(sim_results_data['time'][total_mask], sim_results_data['c_numerical'][total_mask], label=label, color=palette(pal_idx))
+        axA.plot(sim_results_data['time'][total_mask], sim_results_data['c_analytical'][total_mask], color=palette(pal_idx), linestyle='dashed')
 
         # Filter out thresholds that are not within the simulation time
         times_thresh = sim_results_data['times_thresh'].iloc[-1].strip('[]')
@@ -159,7 +166,7 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
         axA.vlines(times_thresh, 0, c_thresh, colors='r', color=palette(pal_idx), linestyles='dotted', linewidth=1)
         axA.hlines(c_thresh, 0, times_thresh, colors='r', color=palette(pal_idx), linestyles='dotted', linewidth=1)
         # axA.set_ylim(max(1e-12, np.min(sim_results_data['c_numerical'])), 1.2*np.max(sim_results_data['c_numerical']))
-        axA.set_ylim(max(1e-12, min(0.1*np.min(sim_results_data['c_numerical']), 0.1*target_thresh)), 1.2*np.max(sim_results_data['c_numerical']))
+        axA.set_ylim(max(1e-12, min(0.1*np.min(sim_results_data['c_numerical'][total_mask]), 0.1*target_thresh)), 1.2*np.max(sim_results_data['c_numerical'][total_mask]))
         # axA.set_ylim(1e-12, 1.2*np.max(sim_results_data['c_numerical']))
         # axA.set_xlim(0, 1000)
 
@@ -176,7 +183,7 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
                 print("Error: spore index not found")
         
         # Get concentration frames
-        c_evolution = c_evolutions[simID]
+        c_evolution = c_evolutions[simID][total_mask, ...]
 
         if sim_params['dims'] == 2:
             if N < N_max:
@@ -272,7 +279,9 @@ def plot_densities_vs_concentrations_at_time(expID, time, alogx=False, alogy=Fal
         results_dict['density'].append(spore_density)
         results_dict['spore_dist'].append(spore_dist)
 
-        c_t = sim_results_data['c_numerical'][sim_results_data['time'] == time].iloc[0]
+        time_mask = (sim_results_data['time'] <= time) & (sim_results_data['c_numerical'] > 0)
+        c_t = sim_results_data['c_numerical'][time_mask].iloc[-1]
+        print(c_t)
         results_dict['concentration'].append(c_t)
     
     # Convert to DataFrame

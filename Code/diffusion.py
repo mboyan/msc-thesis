@@ -480,7 +480,7 @@ def max_reduce(a, b):
 
 
 def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.005, dx=5, n_save_frames=100,
-                                 spore_idx=(None, None, None), spore_idx_spacing=None, c_thresholds=None, bottom_arrangement=False):
+                                 spore_idx=(None, None, None), spore_idx_spacing=None, c_thresholds=None, bottom_arrangement=False, c_cutoff=None):
     """
     Compute the evolution of a square lattice of concentration scalars
     based on the time-dependent diffusion equation.
@@ -497,6 +497,7 @@ def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.005,
         spore_spacing (int) - the spacing between spore indices along each dimension; defaults to None; if used, spore_idx is ignored
         c_thresholds (float) - threshold values for the concentration; defaults to None
         bottom_arrangement (bool) - whether the spores are arranged at the bottom of the lattice; defaults to False
+        c_cutoff (float): the concentration threshold at which to terminate the simulation; defaults to None
     outputs:
         u_evolotion (numpy.ndarray) - the states of the lattice at all moments in time
     """
@@ -578,7 +579,7 @@ def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.005,
     # Run simulation
     for t in range(n_frames):
 
-        print(f"Frame {t} of {n_frames}", end="\r")
+        # print(f"Frame {t} of {n_frames}", end="\r")
 
         # Save frame
         if t % save_interval == 0:
@@ -598,6 +599,11 @@ def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.005,
             if thresh_ct < times_thresh.shape[0] and times_thresh[thresh_ct] == 0 and max_reduce(c_A_gpu.ravel()) < c_thresholds[thresh_ct]:
                 times_thresh[thresh_ct] = t * dt
                 thresh_ct += 1
+        
+        # Check if concentration has reached the cutoff
+        if c_cutoff is not None:
+            if max_reduce(c_A_gpu.ravel()) < c_cutoff:
+                break
 
     # Save final frame
     c_evolution[(save_ct, ...)] = c_A_gpu.copy_to_host()
