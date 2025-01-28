@@ -1,6 +1,17 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## Notes on conidial agglomeration
+- First stage of agglomeration (spores only) is visible within first hour in independent experiments;
+- But steady-state relative particle concentration differs:
+   - Grimm (2004) - 80-90%;
+   - Grimm (2005) - 65%;
+   - Müller (2021) - 1% (!?)
+- Grimm mentions agglomeration depends on strain and culture conditions;
+- Try systematic approximations of inoculum densities;
+   - a grid of single particles + 1 aggregate (explore different configurations);
+   - stochastic arrangements
+
 ## Narrowing down parameters and relating them to nature
 - Goal: model links papers by Ijadpanahsaravi, Lyu and Teertstra;
 - Check and compare settings and assumptions in all papers - spore densities, germination times, germination percentages, ...
