@@ -114,10 +114,10 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
     for simID in unique_simIDs:
         c_evolution = np.load(f"Data/{expID}_{simID}_frames.npy", mmap_mode='r')
         c_evolutions[simID] = c_evolution
-        lattice_sizes[simID] = c_evolution.shape[1]
+        lattice_sizes[simID] = (c_evolution.shape[1], c_evolution.shape[-1])
         c_min = min(c_min, np.min(c_evolution[-1]))
         c_max = max(c_max, np.max(c_evolution[-1]))
-        N_max = max(N_max, lattice_sizes[simID])
+        N_max = max(N_max, lattice_sizes[simID][0])
 
     # Plot results
     for simID in unique_simIDs:
@@ -135,7 +135,8 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
             label = sim_results_data['label'].iloc[0]
 
         # Lattice size
-        N = lattice_sizes[simID]
+        N = lattice_sizes[simID][0]
+        H = lattice_sizes[simID][1]
 
         print(f"Plotting simulation {simID}: {label}")
 
@@ -177,10 +178,14 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
         else:
             if sim_params['dims'] == 2:
                 spore_idx = (N // 2, N // 2)
-            elif sim_params['dims'] == 3:
+            elif sim_params['dims'] == 3 and N == H:
                 spore_idx = (N // 2, N // 2, N // 2)
+            elif sim_params['dims'] == 3 and N != H:
+                # Detect bottom spore arrangement
+                spore_idx = (N // 2, N // 2, 1)
             else:
                 print("Error: spore index not found")
+        print(f"Spore index: {spore_idx}")
         
         # Get concentration frames
         c_evolution = c_evolutions[simID][total_mask, ...]
