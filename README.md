@@ -1,6 +1,11 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## Info on different compounds
+- DHN melanin: https://pubchem.ncbi.nlm.nih.gov/compound/1_5-dihydroxynaphthalene
+- 1-octen-3-ol: https://pubchem.ncbi.nlm.nih.gov/compound/1-octen-3-ol
+- glucose: https://pubchem.ncbi.nlm.nih.gov/compound/D-Glucose
+
 ## Notes on conidial agglomeration
 - First stage of agglomeration (spores only) is visible within first hour in independent experiments;
 - But steady-state relative particle concentration differs:
