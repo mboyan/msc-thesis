@@ -1,6 +1,11 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## Notes for future experiments
+- Rerun single-spore experiments in Julia;
+- Only save lattice cross-sections;
+- Save necessary data in `.csv` files, minimise reading from `.npy`'s
+
 ## Info on different compounds
 - DHN melanin: https://pubchem.ncbi.nlm.nih.gov/compound/1_5-dihydroxynaphthalene
 - 1-octen-3-ol: https://pubchem.ncbi.nlm.nih.gov/compound/1-octen-3-ol
