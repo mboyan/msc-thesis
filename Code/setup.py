@@ -41,8 +41,9 @@ def lattice_size_from_density(spore_density, dx, H=None):
         L = np.cbrt(1 / spore_density)
         N = int(np.ceil(L / dx))
     else:
-        L = np.sqrt(1 / (dx * spore_density))
-        N = int(np.ceil(L / dx))
+        # L = np.sqrt(1 / (dx * spore_density))
+        # N = int(np.ceil(L / dx))
+        N = int(np.ceil(np.sqrt(1/(spore_density * H * dx**3))))
 
     return N
 
@@ -253,8 +254,11 @@ def run_diffusion_experiments_multi_spore(exp_params, t_max, dt, dx, n_save_fram
         spore_density = conv.inverse_mL_to_micrometers_cubed(spore_density)
         if H is None:
             N = lattice_size_from_density(spore_density, dx)
+            H = N
+            spore_idx = (N // 2, N // 2, N // 2)
         else:
             N = lattice_size_from_density(spore_density, dx, H)
+            spore_idx = (N // 2, N // 2, 0)
 
         print(f"{sim_id}: Running simulation {label} on lattice with size {N}")
 
@@ -267,14 +271,13 @@ def run_diffusion_experiments_multi_spore(exp_params, t_max, dt, dx, n_save_fram
 
         # Initialise concentration at spores
         c_spore_init = 1
-        c_lattice = np.zeros((N+1, N+1, N+1), dtype=np.float64)
+        c_lattice = np.zeros((N+1, N+1, H+1), dtype=np.float64)
         c_thresholds = c_thresh_factors * c_spore_init
 
          # Normalize cutoff concentration
         c_cutoff_norm = c_cutoff / c0
 
-        # Reference spores for measurements
-        spore_idx = (N // 2, N // 2, N // 2)
+        # Set initial concentration
         c_lattice[spore_idx] = c_spore_init
 
         # Run numerical experiment
@@ -282,7 +285,7 @@ def run_diffusion_experiments_multi_spore(exp_params, t_max, dt, dx, n_save_fram
             bottom_arrangement = False
         else:
             bottom_arrangement = True
-        c_evolution, times, times_thresh = diff.diffusion_time_dependent_GPU(c_lattice, t_max, D, Db, Ps, dt, dx, n_save_frames, spore_idx, None,
+        c_evolution, times, times_thresh = diff.diffusion_time_dependent_GPU(c_lattice, t_max, D, Db, Ps, dt, dx, n_save_frames, spore_idx,
                                                                              c_thresholds, bottom_arrangement, c_cutoff_norm)
         c_numerical = c_evolution[:, spore_idx[0], spore_idx[1], spore_idx[2]]
 
@@ -305,96 +308,3 @@ def run_diffusion_experiments_multi_spore(exp_params, t_max, dt, dx, n_save_fram
     # Write parameters and results to file
     exp_params_data.to_csv(f'Data/{exp_params[0]['expID']}_exp_params.csv')
     sim_results_global.to_csv(f'Data/{exp_params[0]['expID']}_sim_results.csv')
-
-
-# def run_diffusion_experiments_multi_spore_bottom(exp_params, t_max, dt, dx, H, n_save_frames, V_spore, c_thresh_factors=None):
-#     """
-#     Run diffusion experiments with multiple uniformly spaced spore sources
-#     at the bottom a 3D lattice with periodic boundaries in x and y
-#     and von Neumann boundaries in z.
-#     inputs:
-#         exp_params (dict): the parameters of the experiment
-#         t_max (float): the maximum time of the experiment
-#         N (int): the size of the lattice in each dimension
-#         dt (float): the time step of the simulation
-#         dx (float): the lattice spacing in micrometers
-#         H (int): the number of lattice points in the z direction
-#         n_save_frames (int): the number of frames to save
-#         V_spore (float): the volume of the spore in micrometers^3
-#         c_thresh_factors (list): concentration reduction factor thresholds to save times at
-#     """
-
-#     sim_results_global = pd.DataFrame()
-#     sim_results_list = []
-#     exp_params_data = pd.DataFrame(exp_params)
-
-#     # Add new parameters
-#     exp_params_data['dt'] = dt
-#     exp_params_data['dx'] = dx
-#     exp_params_data['A_spore'] = None
-#     exp_params_data['V_spore'] = V_spore
-
-#     # Create folder for data
-#     if not os.path.exists('Data'):
-#         os.makedirs('Data')
-    
-#     for i, params in enumerate(exp_params):
-
-#         exp_id = params['expID']
-#         sim_id = params['simID']
-#         label = params['label']
-#         Db = params['D']
-#         Ps = params['Ps']
-#         c0 = params['c0']
-#         spore_density = params['spore_density']
-
-#         # Infer lattice size from spore density
-#         spore_density = conv.inverse_mL_to_micrometers_cubed(spore_density)
-#         N = lattice_size_from_density(spore_density, dx, H)
-
-#         # spore_idx_spacing = spore_spacing / dx
-
-#         print(f"{sim_id}: Running simulation {label} on lattice with size {N} and height {H}")
-
-#         # Compute spore area
-#         A_spore = (np.cbrt(V_spore) ** 2) * 6
-#         exp_params_data.loc[i, 'A_spore'] = A_spore
-
-#         # Default D in medium
-#         D = 600 # micrometers^2/s
-
-#         # Initialise concentration at spores
-#         c_spore_init = 1
-#         c_lattice = np.zeros((N+1, N+1, H+1), dtype=np.float64)
-#         c_thresholds = c_thresh_factors * c_spore_init
-
-#         # Reference spores for measurements
-#         spore_idx = (N // 2, N // 2, 1)
-#         c_lattice[spore_idx] = c_spore_init
-
-#         # Run numerical experiment
-#         if H is None:
-#             bottom_arrangement = False
-#         else:
-#             bottom_arrangement = True
-#         c_evolution, times, times_thresh = diff.diffusion_time_dependent_GPU(c_lattice, t_max, D, Db, Ps, dt, dx, n_save_frames, spore_idx, None, c_thresholds, bottom_arrangement)
-#         c_numerical = c_evolution[:, spore_idx[0], spore_idx[1], spore_idx[2]]
-
-#         # Save results
-#         np.save(f"Data/{exp_id}_{sim_id}_frames.npy", c_evolution)
-#         sim_results = pd.DataFrame({'time': times, 'c_numerical': c_numerical*c0, 'c_analytical': c_numerical*c0, 'spore_idx': [spore_idx] * len(times)}) # Correct this if analytical solution is available!~
-
-#         # Add column for ID and threshold times
-#         sim_results['simID'] = sim_id
-#         sim_results['label'] = label
-#         sim_results['N'] = N
-#         sim_results['times_thresh'] = list(np.tile(times_thresh, (len(sim_results), 1)))
-#         sim_results['c_thresh'] = list(np.tile(c_thresh_factors*c0, (len(sim_results), 1)))
-
-#         sim_results_list.append(sim_results)
-
-#     sim_results_global = pd.concat(sim_results_list)
-    
-#     # Write parameters and results to file
-#     exp_params_data.to_csv(f'Data/{exp_params[0]['expID']}_exp_params.csv')
-#     sim_results_global.to_csv(f'Data/{exp_params[0]['expID']}_sim_results.csv')

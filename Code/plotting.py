@@ -93,7 +93,7 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
     if color_pairs:
         palette = plt.get_cmap('tab20')
         pal_discrete = True
-    elif len(unique_simIDs) < 10:
+    elif len(unique_simIDs) < 8:
         palette = plt.get_cmap('tab10')
         pal_discrete = True
     else:
@@ -197,11 +197,20 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
             else:
                 c_final = c_evolution[-1, ...]
         elif sim_params['dims'] == 3:
-            if N < N_max:
+            if N < N_max and H == N:
                 # Repeat lattice to align with largest lattice
                 c_final = np.pad(c_evolution[-1, :, spore_idx[1], :].T, ((0, N_max - N), (0, N_max - N)), 'wrap')
             else:
+                print(c_evolution.shape)
                 c_final = c_evolution[-1, :, spore_idx[1], :].T
+                
+                # Cut off top
+                if H > 2 * N:
+                    print(c_final.shape)
+                    # print(N)
+                    c_final = c_final[:2*N, :]
+                    print(c_final.shape)
+                    print(spore_idx)
 
         # Plot the final concentration
         if nrows > 1:
@@ -212,16 +221,16 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
             # cbar = figB.colorbar(im, ax=axsB[np.floor(ax_ct / 2).astype(int), ax_ct % 2])
 
             # Mark spore with a red circle
-            if mark_spore: axsB[np.floor(ax_ct / 2).astype(int), ax_ct % 2].scatter(spore_idx[0], spore_idx[1], color='r', marker='o', facecolors='none')
+            if mark_spore: axsB[np.floor(ax_ct / 2).astype(int), ax_ct % 2].scatter(spore_idx[0], spore_idx[-1], color='r', marker='o', facecolors='none')
         else:
             im=axsB[ax_ct].imshow(c_final, cmap='viridis', origin='lower')
             axsB[ax_ct].set_title(sim_results_data['label'].iloc[0])
             
             # Mark spore with a red circle
-            if mark_spore: axsB[ax_ct].scatter(spore_idx[0], spore_idx[1], color='r', marker='o', facecolors='none')
+            if mark_spore: axsB[ax_ct].scatter(spore_idx[0], spore_idx[-1], color='r', marker='o', facecolors='none')
         
         # Mark boundary of original lattice
-        if N < N_max:
+        if N < N_max and H == N:
             axsB[np.floor(ax_ct / 2).astype(int), ax_ct % 2].vlines(N, 0, N_max-1, colors='r', linestyles='dotted')
             axsB[np.floor(ax_ct / 2).astype(int), ax_ct % 2].hlines(N, 0, N_max-1, colors='r', linestyles='dotted')
 
