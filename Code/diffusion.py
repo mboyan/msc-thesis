@@ -54,22 +54,22 @@ def diffusion_time_dependent_analytical_src(c_init, D, time, vol, dims=3):
     return result
 
 
-def compute_permeation_constant(c_in_target, c_out, c_0, t, A, V, alpha=1.0):
-    """
-    Compute the permeation constant P_s given the constant external concentration,
-    the initial concentration of the solute, the concentration of the solute at time t
-    and the surface area and volume of the spore.
-    inputs:
-        c_in (float) - the concentration at the spore at time t
-        c_out (float) - the constant external concentration
-        c_0 (float) - the initial concentration of the solute at the spore
-        t (float) - time
-        A (float) - the surface area of the spore
-        V (float) - the volume of the spore
-        alpha (float) - permeable fraction of the area; defaults to 1
-    """
-    Ps = V / (alpha * A * t) * np.log((c_out - c_0) / (c_out - c_in_target))
-    return Ps
+# def compute_permeation_constant(c_in_target, c_out, c_0, t, A, V, alpha=1.0):
+#     """
+#     Compute the permeation constant P_s given the constant external concentration,
+#     the initial concentration of the solute, the concentration of the solute at time t
+#     and the surface area and volume of the spore.
+#     inputs:
+#         c_in (float) - the concentration at the spore at time t
+#         c_out (float) - the constant external concentration
+#         c_0 (float) - the initial concentration of the solute at the spore
+#         t (float) - time
+#         A (float) - the surface area of the spore
+#         V (float) - the volume of the spore
+#         alpha (float) - permeable fraction of the area; defaults to 1
+#     """
+#     Ps = V / (alpha * A * t) * np.log((c_out - c_0) / (c_out - c_in_target))
+#     return Ps
 
 
 # ===== NUMERICAL SOLUTIONS =====
