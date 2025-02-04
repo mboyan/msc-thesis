@@ -146,13 +146,19 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
         else:
             pal_idx = ax_ct / len(unique_simIDs)
 
-        # Plot the concentration evolution
+        # Cull invalid data
         if t_max is not None:
             time_mask = sim_results_data['time'] <= t_max
         else:
             time_mask = np.ones(len(sim_results_data['time']), dtype=bool)
         nonzero_mask = sim_results_data['c_numerical'] > 0
+        first_zero = np.argmin(nonzero_mask)
+        if first_zero == 0:
+            first_zero = len(nonzero_mask)
+        nonzero_mask[first_zero:] = False
         total_mask = time_mask & nonzero_mask
+
+        # Plot the concentration evolution
         axA.plot(sim_results_data['time'][total_mask], sim_results_data['c_numerical'][total_mask], label=label, color=palette(pal_idx))
         axA.plot(sim_results_data['time'][total_mask], sim_results_data['c_analytical'][total_mask], color=palette(pal_idx), linestyle='dashed')
 
@@ -182,7 +188,7 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
                 spore_idx = (N // 2, N // 2, N // 2)
             elif sim_params['dims'] == 3 and N != H:
                 # Detect bottom spore arrangement
-                spore_idx = (N // 2, N // 2, 1)
+                spore_idx = (N // 2, N // 2, 0)
             else:
                 print("Error: spore index not found")
         print(f"Spore index: {spore_idx}")
@@ -201,16 +207,12 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
                 # Repeat lattice to align with largest lattice
                 c_final = np.pad(c_evolution[-1, :, spore_idx[1], :].T, ((0, N_max - N), (0, N_max - N)), 'wrap')
             else:
-                print(c_evolution.shape)
-                c_final = c_evolution[-1, :, spore_idx[1], :].T
+                c_final = np.pad(c_evolution[-1, :, spore_idx[1], :].T, ((0, 0), (0, N_max - N)), 'wrap')
+                # c_final = c_evolution[-1, :, spore_idx[1], :].T
                 
                 # Cut off top
-                if H > 2 * N:
-                    print(c_final.shape)
-                    # print(N)
-                    c_final = c_final[:2*N, :]
-                    print(c_final.shape)
-                    print(spore_idx)
+                if H > 2 * N_max:
+                    c_final = c_final[:2*N_max, :]
 
         # Plot the final concentration
         if nrows > 1:
@@ -253,7 +255,7 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
     plt.show()
 
 
-def plot_densities_vs_concentrations_at_time(expID, time, alogx=False, alogy=False, blogx=False, blogy=False, model_fit=None):
+def plot_densities_vs_concentrations_at_time(expID, time, alogx=False, alogy=False, blogx=False, blogy=False, model_fit=None, show_first=None):
     """
     Plot the concentration at a specific time for all simulations in an experiment.
     inputs:
@@ -264,6 +266,7 @@ def plot_densities_vs_concentrations_at_time(expID, time, alogx=False, alogy=Fal
         blogx (bool): whether to plot the x-axis in log scale of the second plot
         blogy (bool): whether to plot the y-axis in log scale of the second plot
         model_fit (function): the function to fit the data
+        show_first (int): the number of simulations to show in the plot
     """
 
     exp_params = pd.read_csv(f"Data/{expID}_exp_params.csv")
@@ -271,9 +274,16 @@ def plot_densities_vs_concentrations_at_time(expID, time, alogx=False, alogy=Fal
 
     unique_simIDs = exp_params['simID'].unique()
 
+    if show_first is None:
+        show_first = len(unique_simIDs)
+
     # Read simulation results
     results_dict = {'concentration': [], 'density': [], 'spore_dist': []}
-    for simID in unique_simIDs:
+    for i, simID in enumerate(unique_simIDs):
+
+        if i >= show_first:
+            break
+
         # Get concentration frames
         c_evolution = np.load(f"Data/{expID}_{simID}_frames.npy", mmap_mode='r')
 
@@ -283,9 +293,10 @@ def plot_densities_vs_concentrations_at_time(expID, time, alogx=False, alogy=Fal
         
         # Reconstruct spore density
         N = c_evolution.shape[1]
+        H = c_evolution.shape[-1]
         dx = sim_params['dx']
         spore_dist = N * dx
-        lattice_vol = spore_dist**3
+        lattice_vol = spore_dist**2 * H * dx
         spore_density = 1 / lattice_vol
         
         # Convert to 1/mL
@@ -295,7 +306,6 @@ def plot_densities_vs_concentrations_at_time(expID, time, alogx=False, alogy=Fal
 
         time_mask = (sim_results_data['time'] <= time) & (sim_results_data['c_numerical'] > 0)
         c_t = sim_results_data['c_numerical'][time_mask].iloc[-1]
-        print(c_t)
         results_dict['concentration'].append(c_t)
     
     # Convert to DataFrame
@@ -305,10 +315,10 @@ def plot_densities_vs_concentrations_at_time(expID, time, alogx=False, alogy=Fal
     results_df = results_df.sort_values('density')
 
     # Fit linear regression
-    if model_fit is not None:
-        # fit = np.polyfit(results_df['density'], results_df['concentration'], 1)
-        coeffs, _ = curve_fit(model_fit, results_df['density'], results_df['concentration'], p0=np.full(len(model_fit.__code__.co_varnames) - 1, 0.5))
-        print(f"Fitted coefficients: {coeffs}")
+    # if model_fit is not None:
+    #     # fit = np.polyfit(results_df['density'], results_df['concentration'], 1)
+    #     coeffs, _ = curve_fit(model_fit, results_df['density'], results_df['concentration'], p0=np.full(len(model_fit.__code__.co_varnames) - 1, 0.5))
+    #     print(f"Fitted coefficients: {coeffs}")
 
     # Plot figure
     fig, ax = plt.subplots(2, 1, figsize=(6, 8))
