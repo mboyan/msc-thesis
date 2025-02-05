@@ -1,6 +1,12 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## Notes on presentation for Jaap
+- highlight mathematical derivations more than biological assumptions;
+- clearly outline parameters and outputs schematically - indicate goals and missing components of the model;
+- present inhibitor assumptions in a tabular view;
+- illustrate 3 scales and their corresponding analytical solutions (if applicable)
+
 ## Notes for future experiments
 - Rerun single-spore experiments in Julia;
 - Only save lattice cross-sections;
