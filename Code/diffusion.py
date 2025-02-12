@@ -450,23 +450,25 @@ def update_GPU_3D_periodic_spores_bottom(c_old, c_new, H, dtdx2, D, Db, N):
     Ddtdx24 = D * dtdx2
     Ddtdx25 = D * dtdx2
     
-    if i == N // 2 and j == N // 2 and k == 0:
+    if i == N // 2 and j == N // 2 and k == 1:
         Ddtdx20 = Db * dtdx2
         Ddtdx21 = Db * dtdx2
         Ddtdx22 = Db * dtdx2
         Ddtdx23 = Db * dtdx2
         Ddtdx24 = Db * dtdx2
         Ddtdx25 = Db * dtdx2
-    elif i == N // 2 - 1 and j == N // 2 and k == 0:
+    elif i == N // 2 - 1 and j == N // 2 and k == 1:
         Ddtdx21 = Db * dtdx2
-    elif i == N // 2 + 1 and j == N // 2 and k == 0:
+    elif i == N // 2 + 1 and j == N // 2 and k == 1:
         Ddtdx20 = Db * dtdx2
-    elif i == N // 2 and j == N // 2 - 1 and k == 0:
+    elif i == N // 2 and j == N // 2 - 1 and k == 1:
         Ddtdx23 = Db * dtdx2
-    elif i == N // 2 and j == N // 2 + 1 and k == 0:
+    elif i == N // 2 and j == N // 2 + 1 and k == 1:
         Ddtdx22 = Db * dtdx2
-    elif i == N // 2 and j == N // 2 and k == 1:
+    elif i == N // 2 and j == N // 2 and k == 2:
         Ddtdx24 = Db * dtdx2
+    elif i == N // 2 and j == N // 2 and k == 0:
+        Ddtdx25 = Db * dtdx2
 
     diff_sum = Ddtdx20 * bottom + Ddtdx21 * top + Ddtdx22 * left + Ddtdx23 * right + Ddtdx24 * front + Ddtdx25 * back
     c_new[i, j, k] = center + diff_sum - (Ddtdx20 + Ddtdx21 + Ddtdx22 + Ddtdx23 + Ddtdx24 + Ddtdx25) * center

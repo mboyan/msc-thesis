@@ -258,7 +258,7 @@ def run_diffusion_experiments_multi_spore(exp_params, t_max, dt, dx, n_save_fram
             spore_idx = (N // 2, N // 2, N // 2)
         else:
             N = lattice_size_from_density(spore_density, dx, H)
-            spore_idx = (N // 2, N // 2, 0)
+            spore_idx = (N // 2, N // 2, 1) # Spores placed at height 1
 
         print(f"{sim_id}: Running simulation {label} on lattice with size {N}")
 

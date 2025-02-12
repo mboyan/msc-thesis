@@ -188,7 +188,7 @@ def plot_experiment_results(expID, select_sims=None, logx=False, logy=False, tar
                 spore_idx = (N // 2, N // 2, N // 2)
             elif sim_params['dims'] == 3 and N != H:
                 # Detect bottom spore arrangement
-                spore_idx = (N // 2, N // 2, 0)
+                spore_idx = (N // 2, N // 2, 1)
             else:
                 print("Error: spore index not found")
         print(f"Spore index: {spore_idx}")
