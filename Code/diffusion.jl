@@ -207,6 +207,213 @@ __precompile__(false)
     end
 
 
+    function compare_indices(indices1, indices2)
+        """
+        Utility function for comparing tuples of indices.
+        inputs:
+            indices1 (tuple) - the first tuple of indices
+            indices2 (tuple) - the second tuple of indices
+        """
+        return indices1[1] == indices2[1] && indices1[2] == indices2[2] && indices1[3] == indices2[3]
+    end
+
+
+    function update_GPU_hi_res!(c_old, c_new, N, H, dtdx2, D, Db, spore_center_indices, cw_index_map, spore_rad_lattice, neumann_z)
+        """
+        Update the concentration values on the lattice
+        using the time-dependent diffusion equation.
+        inputs:
+            c_old (array) - the current state of the lattice
+            c_new (array) - the updated state of the lattice
+            N (int) - the number of lattice rows/columns
+            H (int) - the number of lattice layers
+            dtdx2 (float) - the update factor
+            D (float) - the diffusion constant
+            Db (float) - the diffusion constant through the spore
+            spore_center_indices (array of tuples) - the indices of the spore locations
+            cw_index_map (array of tuples) - zero-based indices of the cell wall locations in 1 quadrant
+            spore_rad_lattice (float) - the radius of the spore in lattice units
+            neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction
+        """
+        i, j, k = CUDA.blockIdx().x, CUDA.blockIdx().y, CUDA.blockIdx().z
+        ti, tj, tk = CUDA.threadIdx().x, CUDA.threadIdx().y, CUDA.threadIdx().z
+    
+        # Determine the indices of the current cell
+        idx = ((i - 1) * blockDim().x + ti, (j - 1) * blockDim().y + tj, (k - 1) * blockDim().z + tk)
+        
+        # Check if in spore
+        in_spore = false
+        sp_cw_index = 0
+        max_dist = norm([N, N, H])
+        closest_spore = 0
+        for (n, spore_center_idx) in enumerate(spore_center_indices)
+            dist = norm([idx[x] - spore_center_idx[x] for x in 1:3])
+            # Record closest spore
+            if dist < max_dist
+                max_dist = dist
+                closest_spore = n
+            end
+            if dist ≤ spore_rad_lattice
+                in_spore = true
+                # Check if in cell wall
+                for cw_idx in cw_index_map
+                    # Get all symmetries
+                    cw_idx_neu = (cw_idx[1] + spore_center_idx[1], cw_idx[2] + spore_center_idx[2], cw_idx[3] + spore_center_idx[3])
+                    cw_idx_seu = (cw_idx_neu[1], -cw_idx[2] + spore_center_idx[2], cw_idx_neu[3])
+                    cw_idx_nwu = (-cw_idx[1] + spore_center_idx[1], cw_idx_neu[2], cw_idx_neu[3])
+                    cw_idx_swu = (cw_idx_nwu[1], cw_idx_seu[2], cw_idx_neu[3])
+                    cw_idx_ned = (cw_idx_neu[1], cw_idx_ne[2], -cw_idx[3] + spore_center_idx[3])
+                    cw_idx_sed = (cw_idx_seu[1], cw_idx_seu[2], cw_idx_ned[3])
+                    cw_idx_nwd = (cw_idx_nwu[1], cw_idx_nwu[2], cw_idx_ned[3])
+                    cw_idx_swd = (cw_idx_swu[1], cw_idx_swu[2], cw_idx_ned[3])
+                    # if idx[1] == cw_idx_neu[1] && idx[2] == cw_idx_neu[2] && idx[3] == cw_idx_neu[3] ||
+                    #     idx[1] == cw_idx_seu[1] && idx[2] == cw_idx_seu[2] && idx[3] == cw_idx_seu[3] ||
+                    #     idx[1] == cw_idx_nwu[1] && idx[2] == cw_idx_nwu[2] && idx[3] == cw_idx_nwu[3] ||
+                    #     idx[1] == cw_idx_swu[1] && idx[2] == cw_idx_swu[2] && idx[3] == cw_idx_swu[3] ||
+                    #     idx[1] == cw_idx_ned[1] && idx[2] == cw_idx_ned[2] && idx[3] == cw_idx_ned[3] ||
+                    #     idx[1] == cw_idx_sed[1] && idx[2] == cw_idx_sed[2] && idx[3] == cw_idx_sed[3] ||
+                    #     idx[1] == cw_idx_nwd[1] && idx[2] == cw_idx_nwd[2] && idx[3] == cw_idx_nwd[3] ||
+                    #     idx[1] == cw_idx_swd[1] && idx[2] == cw_idx_swd[2] && idx[3] == cw_idx_swd[3]
+                    #     # Save the index of the spore
+                    #     sp_cw_index = n
+                    #     break
+                    # end
+                    if compare_indices(idx, cw_idx_neu) || compare_indices(idx, cw_idx_seu) ||
+                        compare_indices(idx, cw_idx_nwu) || compare_indices(idx, cw_idx_swu) ||
+                        compare_indices(idx, cw_idx_ned) || compare_indices(idx, cw_idx_sed) ||
+                        compare_indices(idx, cw_idx_nwd) || compare_indices(idx, cw_idx_swd)
+                        # Save the index of the spore
+                        sp_cw_index = n
+                        break
+                    end
+                end
+                break
+            end
+        end
+
+        # Update the concentration value
+        if 1 ≤ idx[1] ≤ N && 1 ≤ idx[2] ≤ N && 1 ≤ idx[3] ≤ H
+            
+            von_neumann_nbrs = [(idx[1], idx[2], mod1(idx[3] - 1, H)), (idx[1], idx[2], mod1(idx[3] + 1, H)),
+                                (idx[1], mod1(idx[2] - 1, N), idx[3]), (idx[1], mod1(idx[2] + 1, N), idx[3]),
+                                (mod1(idx[1] - 1, N), idx[2], idx[3]), (mod1(idx[1] + 1, N), idx[2], idx[3])]
+
+            # Take absolute of relative coordinates
+            von_neumann_abs = [[abs(von_neumann_nbrs[x][1] - spore_center_indices[sp_cw_index]),
+                                abs(von_neumann_nbrs[x][2] - spore_center_indices[sp_cw_index]),
+                                abs(von_neumann_nbrs[x][3] - spore_center_indices[sp_cw_index])] for x in 1:6]
+
+            # Cell wall site
+            if sp_cw_index > 0
+                # Check bottom neighbour
+                if norm(von_neumann_abs[1]) ≤ spore_rad_lattice
+                    if von_neumann_abs[1] in cw_index_map
+                        diff_bottom = Db * dtdx2 * (c_old[von_neumann_nbrs[1]...] - c_old[idx...])
+                    else
+                        diff_bottom = 0
+                    end
+                else
+                    diff_bottom = D * dtdx2 * (c_old[von_neumann_nbrs[1]...] - c_old[idx...])
+                end
+                # Check top neighbour
+                if norm(von_neumann_abs[2]) ≤ spore_rad_lattice
+                    if von_neumann_abs[2] in cw_index_map
+                        diff_top = Db * dtdx2 * (c_old[von_neumann_nbrs[2]...] - c_old[idx...])
+                    else
+                        diff_top = 0
+                    end
+                else
+                    diff_top = D * dtdx2 * (c_old[von_neumann_nbrs[2]...] - c_old[idx...])
+                end
+                # Check left neighbour
+                if norm(von_neumann_abs[3]) ≤ spore_rad_lattice
+                    if von_neumann_abs[3] in cw_index_map
+                        diff_left = Db * dtdx2 * (c_old[von_neumann_nbrs[3]...] - c_old[idx...])
+                    else
+                        diff_left = 0
+                    end
+                else
+                    diff_left = D * dtdx2 * (c_old[von_neumann_nbrs[3]...] - c_old[idx...])
+                end
+                # Check right neighbour
+                if norm(von_neumann_abs[4]) ≤ spore_rad_lattice
+                    if von_neumann_abs[4] in cw_index_map
+                        diff_right = Db * dtdx2 * (c_old[von_neumann_nbrs[4]...] - c_old[idx...])
+                    else
+                        diff_right = 0
+                    end
+                else
+                    diff_right = D * dtdx2 * (c_old[von_neumann_nbrs[4]...] - c_old[idx...])
+                end
+                # Check front neighbour
+                if norm(von_neumann_abs[5]) ≤ spore_rad_lattice
+                    if von_neumann_abs[5] in cw_index_map
+                        diff_front = Db * dtdx2 * (c_old[von_neumann_nbrs[5]...] - c_old[idx...])
+                    else
+                        diff_front = 0
+                    end
+                else
+                    diff_front = D * dtdx2 * (c_old[von_neumann_nbrs[5]...] - c_old[idx...])
+                end
+                # Check back neighbour
+                if norm(von_neumann_abs[6]) ≤ spore_rad_lattice
+                    if von_neumann_abs[6] in cw_index_map
+                        diff_back = Db * dtdx2 * (c_old[von_neumann_nbrs[6]...] - c_old[idx...])
+                    else
+                        diff_back = 0
+                    end
+                else
+                    diff_back = D * dtdx2 * (c_old[von_neumann_nbrs[6]...] - c_old[idx...])
+                end
+            end
+
+            c_new[idx...] = c_old[idx...] + diff_bottom + diff_top + diff_left + diff_right + diff_front + diff_back
+            
+        elseif !in_spore
+            # Exterior site
+
+            # Check bottom neighbour
+            if norm(von_neumann_abs[1]) ≤ spore_rad_lattice
+                diff_bottom = Db * dtdx2 * (c_old[von_neumann_nbrs[1]...] - c_old[idx...])
+            else
+                diff_bottom = D * dtdx2 * (c_old[von_neumann_nbrs[1]...] - c_old[idx...])
+            end
+            # Check top neighbour
+            if norm(von_neumann_abs[2]) ≤ spore_rad_lattice
+                diff_top = Db * dtdx2 * (c_old[von_neumann_nbrs[2]...] - c_old[idx...])
+            else
+                diff_top = D * dtdx2 * (c_old[von_neumann_nbrs[2]...] - c_old[idx...])
+            end
+            # Check left neighbour
+            if norm(von_neumann_abs[3]) ≤ spore_rad_lattice
+                diff_left = Db * dtdx2 * (c_old[von_neumann_nbrs[3]...] - c_old[idx...])
+            else
+                diff_left = D * dtdx2 * (c_old[von_neumann_nbrs[3]...] - c_old[idx...])
+            end
+            # Check right neighbour
+            if norm(von_neumann_abs[4]) ≤ spore_rad_lattice
+                diff_right = Db * dtdx2 * (c_old[von_neumann_nbrs[4]...] - c_old[idx...])
+            else
+                diff_right = D * dtdx2 * (c_old[von_neumann_nbrs[4]...] - c_old[idx...])
+            end
+            # Check front neighbour
+            if norm(von_neumann_abs[5]) ≤ spore_rad_lattice
+                diff_front = Db * dtdx2 * (c_old[von_neumann_nbrs[5]...] - c_old[idx...])
+            else
+                diff_front = D * dtdx2 * (c_old[von_neumann_nbrs[5]...] - c_old[idx...])
+            end
+            # Check back neighbour
+            if norm(von_neumann_abs[6]) ≤ spore_rad_lattice
+                diff_back = Db * dtdx2 * (c_old[von_neumann_nbrs[6]...] - c_old[idx...])
+            else
+                diff_back = D * dtdx2 * (c_old[von_neumann_nbrs[6]...] - c_old[idx...])
+            end
+
+            c_new[idx...] = c_old[idx...] + diff_bottom + diff_top + diff_left + diff_right + diff_front + diff_back
+        end
+    end
+
+
     function diffusion_time_dependent_GPU(c_init, t_max; D=1.0, Db=nothing, Ps=1.0, dt=0.005, dx=5, n_save_frames=100,
         spore_idx=nothing, spore_idx_spacing=nothing, c_thresholds=nothing, neumann_z=false)
         """
@@ -441,7 +648,7 @@ __precompile__(false)
         return c_med_evolution, c_spore_evolution, times, t_thresholds
     end
 
-    function diffusion_time_dependent_GPU_hi_res(c_init, c₀, spore_center_idx, spore_rad, t_max; D=1.0, Pₛ=1.0, dt=0.005, dx=0.2, n_save_frames=100,
+    function diffusion_time_dependent_GPU_hi_res(c_init, c₀, spore_center_indices, spore_rad, t_max; D=1.0, Pₛ=1.0, dt=0.005, dx=0.2, n_save_frames=100,
         c_thresholds=nothing, neumann_z=false)
         """
         Compute the evolution of a square lattice of concentration scalars
@@ -449,7 +656,7 @@ __precompile__(false)
         inputs:
             c_init (vector of float) - the initial state of the lattice
             c₀ (float) - the initial concentration at the spore
-            spore_center_idx (tuple) - the indices of the spore location
+            spore_center_indices (array of tuples) - the indices of the spore locations
             spore_rad (float) - the radius of the spore
             t_max (int) - a maximum number of iterations
             D (float) - the diffusion constant; defaults to 1
@@ -466,7 +673,7 @@ __precompile__(false)
             t_thresholds (array) - the times at which the concentration crossed the threshold
         """
 
-        @assert length(spore_center_idx) == 3 "spore_idx must be a 3D array"
+        @assert length(spore_center_indices[1]) == 3 "spore_idx must be a 3D array"
 
         GC.gc()
 
@@ -496,19 +703,22 @@ __precompile__(false)
         # distances = [(i - spore_center_idx[1])^2 + (j - spore_center_idx[2])^2 + (k - spore_center_idx[3])^2 for (i, j, k) in indices]
         # spore_mask .= reshape([d ≤ spore_rad^2 for d in distances], N, N, H)
 
-        # Find cell wall indices
+        # Construct cell wall index map
         steps = [0, -1, 1]
-        von_neumann_nbrs = vec([(di, dj, dk) for di in steps, dj in steps, dk in steps])
-        # println("Von Neumann neighbors: ", von_neumann_nbrs)
-        cw_indices = []
+        moore_nbrs = vec([(di, dj, dk) for di in steps, dj in steps, dk in steps])
+        # println("Moore neighbors: ", moore_nbrs)
+        cw_index_map = []
         spore_rad_lattice = spore_rad / dx
-        for i in 1:N, j in 1:N, k in 1:H
-            # dist = sqrt((i - spore_center_idx[1])^2 + (j - spore_center_idx[2])^2 + (k - spore_center_idx[3])^2)
+        println("Spore radius in lattice units: ", spore_rad_lattice)
+        spore_bnds = Int(ceil(spore_rad_lattice)+1)
+        println("Spore bounds: ", spore_bnds)
+        for i in 1:spore_bnds, j in 1:spore_bnds, k in 1:spore_bnds
             excluded = false
             excluded_nbrs = 0
-            for (di, dj) in von_neumann_nbrs
-                if (i + di - spore_center_idx[1])^2 + (j + dj - spore_center_idx[2])^2 + (k - spore_center_idx[3])^2 > spore_rad_lattice^2
-                    if (di, dj) == (0, 0)
+            for (di, dj, dk) in moore_nbrs
+                # println(sqrt((i + di)^2 + (j + dj)^2 + (k + dk)^2))
+                if (i + di)^2 + (j + dj)^2 + (k + dk)^2 > spore_rad_lattice^2
+                    if (di, dj, dk) == (0, 0, 0)
                         excluded = true
                     else
                         excluded_nbrs += 1
@@ -517,10 +727,10 @@ __precompile__(false)
                 end
             end
             if !excluded && excluded_nbrs > 0
-                push!(cw_indices, (i, j, k))
+                push!(cw_index_map, (i - 1, j - 1, k - 1))
             end
         end
-        println(length(cw_indices), " cell wall indices found.")
+        println(length(cw_index_map), " cell wall indices found.")
 
         # Determine number of frames
         n_frames = Int(floor(t_max / dt))
@@ -540,8 +750,47 @@ __precompile__(false)
         end
         thresh_ct = 0
 
+        # Initialise lattice states on GPU
+        c_A_gpu = cu(c_init)
+        c_B_gpu = CUDA.zeros(N, N, H)
+        cw_index_map_gpu = cu(cw_index_map)
+        spore_center_indices_gpu = cu(spore_center_indices)
+
+        kernel_blocks, kernel_threads = invoke_smart_kernel_3D(size(c_init))
+
+        # Run the simulation
+        for t in 1:n_frames
+
+            # Save frame
+            if t % save_interval == 0 && save_ct ≤ n_save_frames
+                c_evolution[save_ct, :, :] .= Array(c_A_gpu)[:, N ÷ 2, :]
+                times[save_ct] = t * dt
+                save_ct += 1
+                # println("Frame $save_ct saved.")
+            end
+
+            # Update the lattice
+            @cuda threads=kernel_threads blocks=kernel_blocks update_GPU_hi_res!(c_A_gpu, c_B_gpu, N, H, dtdx2, D, Db, spore_center_indices_gpu, cw_index_map_gpu, spore_rad_lattice, neumann_z)
+            c_A_gpu, c_B_gpu = c_B_gpu, c_A_gpu
+
+            # Check for threshold crossing
+            if !isnothing(c_thresholds)
+                if thresh_ct < length(t_thresholds) && t_thresholds[thresh_ct] == 0 && CUDA.reduce(max_reduce_kernel, c_A_gpu) < c_thresholds[thresh_ct]
+                    t_thresholds[thresh_ct] = t * dt
+                    thresh_ct += 1
+                end
+            end
+        end
+
+        # Save final frame
+        c_evolution[save_ct, :, :] .= Array(c_A_gpu)[:, N ÷ 2, :]
+
         c_test = zeros(N, H)
-        cw_indices_2D = [(i, k) for (i, j, k) in cw_indices if j == N ÷ 2]
+        cw_indices_2D_ne = [(i + spore_center_indices[1][1], k + spore_center_indices[1][3]) for (i, j, k) in cw_index_map if j == 1]
+        cw_indices_2D_se = [(i + spore_center_indices[1][1], -k + spore_center_indices[1][3]) for (i, j, k) in cw_index_map if i > 0 && j == 1 && k > 0]
+        cw_indices_2D_sw = [(-i + spore_center_indices[1][1], -k + spore_center_indices[1][3]) for (i, j, k) in cw_index_map if j == 1]
+        cw_indices_2D_nw = [(-i + spore_center_indices[1][1], k + spore_center_indices[1][3]) for (i, j, k) in cw_index_map if i > 0 && j == 1 && k > 0]
+        cw_indices_2D = vcat(cw_indices_2D_ne, cw_indices_2D_se, cw_indices_2D_sw, cw_indices_2D_nw)
         cw_indices_cartesian = CartesianIndex.(cw_indices_2D)
         println("Number of cell wall indices: ", length(cw_indices_cartesian))
         c_test[cw_indices_cartesian] .= c₀
