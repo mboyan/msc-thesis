@@ -208,7 +208,7 @@ def run_diffusion_experiments_single_spore(exp_params, t_max, N, dt, dx, n_save_
     sim_results_global.to_csv(f'Data/{exp_params[0]['expID']}_sim_results.csv')
 
 
-def run_diffusion_experiments_multi_spore(exp_params, t_max, dt, dx, n_save_frames, V_spore, c_thresh_factors=None, H=None, c_cutoff=None):
+def run_diffusion_experiments_multi_spore(exp_params, t_max, dt, dx, n_save_frames, V_spore, c_thresh_factors=None, H=None, c_cutoff=None, spore_height=0):
     """
     Run diffusion experiments with multiple uniformly spaced spore sources
     on a 3D lattice with periodic boundaries.
@@ -223,6 +223,7 @@ def run_diffusion_experiments_multi_spore(exp_params, t_max, dt, dx, n_save_fram
         c_thresh_factors (list): concentration reduction factor thresholds to save times at
         H (int): the height of the lattice, if specified, a 2D lattice array at the bottom is implied
         c_cutoff (float): the concentration threshold at which to terminate the simulation
+        spore_height (int): the height at which to place the spores
     """
 
     sim_results_global = pd.DataFrame()
@@ -258,7 +259,7 @@ def run_diffusion_experiments_multi_spore(exp_params, t_max, dt, dx, n_save_fram
             spore_idx = (N // 2, N // 2, N // 2)
         else:
             N = lattice_size_from_density(spore_density, dx, H)
-            spore_idx = (N // 2, N // 2, 1) # Spores placed at height 1
+            spore_idx = (N // 2, N // 2, spore_height)
 
         print(f"{sim_id}: Running simulation {label} on lattice with size {N}")
 
@@ -286,7 +287,7 @@ def run_diffusion_experiments_multi_spore(exp_params, t_max, dt, dx, n_save_fram
         else:
             bottom_arrangement = True
         c_evolution, times, times_thresh = diff.diffusion_time_dependent_GPU(c_lattice, t_max, D, Db, Ps, dt, dx, n_save_frames, spore_idx,
-                                                                             c_thresholds, bottom_arrangement, c_cutoff_norm)
+                                                                             c_thresholds, bottom_arrangement, c_cutoff_norm, spore_height)
         c_numerical = c_evolution[:, spore_idx[0], spore_idx[1], spore_idx[2]]
 
         # Save results

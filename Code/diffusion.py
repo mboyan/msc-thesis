@@ -227,7 +227,7 @@ def invoke_smart_kernel_3D(size, threads_per_block=(8, 8, 8)):
 
 
 @cuda.jit()
-def update_GPU_2D(c_old, c_new, N, dtdx2, D, Db, spore_idx):
+def update_GPU_2D(c_old, c_new, N, H, dtdx2, D, Db, spore_idx):
     """
     Update the concentration of a 2D lattice point based on the time-dependent diffusion equation with a periodic boundary.
     Uses CUDA to parallelize the computation.
@@ -235,6 +235,7 @@ def update_GPU_2D(c_old, c_new, N, dtdx2, D, Db, spore_idx):
         c_old (DeviceNDArray) - the current state of the lattice
         c_new (DeviceNDArray) - the next state of the lattice
         N (int) - the size of the lattice
+        H (int) - the height of the lattice (placeholder)
         dtdx2 (float) - the update factor
         D (float) - the diffusion constant through the medium
         Db (float) - the diffusion constant through the spore barrier
@@ -275,7 +276,7 @@ def update_GPU_2D(c_old, c_new, N, dtdx2, D, Db, spore_idx):
 
 
 @cuda.jit()
-def update_GPU_3D(c_old, c_new, N, dtdx2, D, Db, spore_idx):
+def update_GPU_3D(c_old, c_new, N, H, dtdx2, D, Db, spore_idx):
     """
     Update the concentration of a 3D lattice point based on the time-dependent diffusion equation with a periodic boundary.
     Uses CUDA to parallelize the computation.
@@ -283,6 +284,7 @@ def update_GPU_3D(c_old, c_new, N, dtdx2, D, Db, spore_idx):
         c_old (DeviceNDArray) - the current state of the lattice
         c_new (DeviceNDArray) - the next state of the lattice
         N (int) - the size of the lattice
+        H (int) - the height of the lattice
         dtdx2 (float) - the update factor
         D (float) - the diffusion constant through the medium
         Db (float) - the diffusion constant through the spore barrier
@@ -301,8 +303,8 @@ def update_GPU_3D(c_old, c_new, N, dtdx2, D, Db, spore_idx):
     top = c_old[(i + 1) % N, j, k]
     left = c_old[i, (j - 1) % N, k]
     right = c_old[i, (j + 1) % N, k]
-    front = c_old[i, j, (k - 1) % N]
-    back = c_old[i, j, (k + 1) % N]
+    front = c_old[i, j, (k - 1) % H]
+    back = c_old[i, j, (k + 1) % H]
 
     # Neumann boundary at top and bottom
     # if k == 0:
@@ -409,7 +411,7 @@ def update_GPU_3D(c_old, c_new, N, dtdx2, D, Db, spore_idx):
 
 
 @cuda.jit()
-def update_GPU_3D_periodic_spores_bottom(c_old, c_new, H, dtdx2, D, Db, N):
+def update_GPU_3D_periodic_spores_bottom(c_old, c_new, N, H, dtdx2, D, Db, spore_height):
     """
     Update the concentration of a 3D lattice point based on the time-dependent diffusion equation
     with a periodic boundary and spores spaced regularly in all dimensions.
@@ -417,11 +419,12 @@ def update_GPU_3D_periodic_spores_bottom(c_old, c_new, H, dtdx2, D, Db, N):
     inputs:
         c_old (DeviceNDArray) - the current state of the lattice
         c_new (DeviceNDArray) - the next state of the lattice
+        N (int) - the size of the lattice
         H (int) - the height of the lattice
         dtdx2 (float) - the update factor
         D (float) - the diffusion constant through the medium
         Db (float) - the diffusion constant through the spore barrier
-        N (int) - the size of the lattice
+        spore_height (int) - the height of the spores
     """
 
     i, j, k = cuda.grid(3)
@@ -457,17 +460,17 @@ def update_GPU_3D_periodic_spores_bottom(c_old, c_new, H, dtdx2, D, Db, N):
         Ddtdx23 = Db * dtdx2
         Ddtdx24 = Db * dtdx2
         Ddtdx25 = Db * dtdx2
-    elif i == N // 2 - 1 and j == N // 2 and k == 1:
+    elif i == N // 2 - 1 and j == N // 2 and k == spore_height:
         Ddtdx21 = Db * dtdx2
-    elif i == N // 2 + 1 and j == N // 2 and k == 1:
+    elif i == N // 2 + 1 and j == N // 2 and k == spore_height:
         Ddtdx20 = Db * dtdx2
-    elif i == N // 2 and j == N // 2 - 1 and k == 1:
+    elif i == N // 2 and j == N // 2 - 1 and k == spore_height:
         Ddtdx23 = Db * dtdx2
-    elif i == N // 2 and j == N // 2 + 1 and k == 1:
+    elif i == N // 2 and j == N // 2 + 1 and k == spore_height:
         Ddtdx22 = Db * dtdx2
-    elif i == N // 2 and j == N // 2 and k == 2:
+    elif i == N // 2 and j == N // 2 and k == spore_height + 1:
         Ddtdx24 = Db * dtdx2
-    elif i == N // 2 and j == N // 2 and k == 0:
+    elif i == N // 2 and j == N // 2 and k == spore_height - 1:
         Ddtdx25 = Db * dtdx2
 
     diff_sum = Ddtdx20 * bottom + Ddtdx21 * top + Ddtdx22 * left + Ddtdx23 * right + Ddtdx24 * front + Ddtdx25 * back
@@ -486,7 +489,7 @@ def max_reduce(a, b):
 
 
 def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.005, dx=5, n_save_frames=100,
-                                 spore_idx=(None, None, None), c_thresholds=None, bottom_arrangement=False, c_cutoff=None):
+                                 spore_idx=(None, None, None), c_thresholds=None, bottom_arrangement=False, c_cutoff=None, spore_height=0):
     """
     Compute the evolution of a square lattice of concentration scalars
     based on the time-dependent diffusion equation.
@@ -503,6 +506,7 @@ def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.005,
         c_thresholds (float) - threshold values for the concentration; defaults to None
         bottom_arrangement (bool) - whether the spores are arranged at the bottom of the lattice; defaults to False
         c_cutoff (float): the concentration threshold at which to terminate the simulation; defaults to None
+        spore_height (int): the height of the spores; defaults to 0
     outputs:
         u_evolotion (numpy.ndarray) - the states of the lattice at all moments in time
     """
@@ -523,7 +527,7 @@ def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.005,
         if bottom_arrangement:
             update_func = update_GPU_3D_periodic_spores_bottom
             size_ref = H
-            spore_ref = N - 1
+            spore_ref = spore_height
             print("3D simulation with 2D periodic spores")
         else:
             update_func = update_GPU_3D
@@ -590,7 +594,7 @@ def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.005,
             times[save_ct] = t * dt
             save_ct += 1
         
-        update_func[kernel_blocks, kernel_threads](c_A_gpu, c_B_gpu, size_ref, dtdx2, D, Db, spore_ref)
+        update_func[kernel_blocks, kernel_threads](c_A_gpu, c_B_gpu, N-1, H-1, dtdx2, D, Db, spore_ref)
 
         # Synchronize the GPU to ensure the kernel has finished
         cuda.synchronize()
