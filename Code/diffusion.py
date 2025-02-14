@@ -453,7 +453,7 @@ def update_GPU_3D_periodic_spores_bottom(c_old, c_new, N, H, dtdx2, D, Db, spore
     Ddtdx24 = D * dtdx2
     Ddtdx25 = D * dtdx2
     
-    if i == N // 2 and j == N // 2 and k == 1:
+    if i == N // 2 and j == N // 2 and k == spore_height:
         Ddtdx20 = Db * dtdx2
         Ddtdx21 = Db * dtdx2
         Ddtdx22 = Db * dtdx2
@@ -529,6 +529,7 @@ def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.005,
             size_ref = H
             spore_ref = spore_height
             print("3D simulation with 2D periodic spores")
+            print(f"Spore height: {spore_height}")
         else:
             update_func = update_GPU_3D
             size_ref = N
