@@ -343,73 +343,6 @@ def update_GPU_3D(c_old, c_new, N, H, dtdx2, D, Db, spore_idx):
     c_new[i, j, k] = center + diff_sum - (Ddtdx20 + Ddtdx21 + Ddtdx22 + Ddtdx23 + Ddtdx24 + Ddtdx25) * center
 
 
-# @cuda.jit()
-# def update_GPU_3D_periodic_spores(c_old, c_new, N, dtdx2, D, Db, spore_spacing):
-#     """
-#     Update the concentration of a 3D lattice point based on the time-dependent diffusion equation
-#     with a periodic boundary and spores spaced regularly in all dimensions.
-#     Uses CUDA to parallelize the computation.
-#     inputs:
-#         c_old (DeviceNDArray) - the current state of the lattice
-#         c_new (DeviceNDArray) - the next state of the lattice
-#         N (int) - the size of the lattice
-#         dtdx2 (float) - the update factor
-#         D (float) - the diffusion constant through the medium
-#         Db (float) - the diffusion constant through the spore barrier
-#         spore_spacing (int) - the spacing between spores
-#     """
-
-#     i, j, k = cuda.grid(3)
-
-#     if i >= c_old.shape[0] or j >= c_old.shape[1] or k >= c_old.shape[2]:
-#         return
-    
-#     center = c_old[i, j, k]
-#     bottom = c_old[(i - 1) % N, j, k]
-#     top = c_old[(i + 1) % N, j, k]
-#     left = c_old[i, (j - 1) % N, k]
-#     right = c_old[i, (j + 1) % N, k]
-#     front = c_old[i, j, (k - 1) % N]
-#     back = c_old[i, j, (k + 1) % N]
-
-#     # Neumann boundary at top and bottom
-#     # if neumann:
-#     #     if k == 0:
-#     #         front = c_old[i, j, 1]
-#     #     elif k == H - 1:
-#     #         back = c_old[i, j, H - 2]
-
-#     Ddtdx20 = D * dtdx2
-#     Ddtdx21 = D * dtdx2
-#     Ddtdx22 = D * dtdx2
-#     Ddtdx23 = D * dtdx2
-#     Ddtdx24 = D * dtdx2
-#     Ddtdx25 = D * dtdx2
-
-#     if i % spore_spacing == 0 and j % spore_spacing == 0 and k % spore_spacing == 0:
-#         Ddtdx20 = Db * dtdx2
-#         Ddtdx21 = Db * dtdx2
-#         Ddtdx22 = Db * dtdx2
-#         Ddtdx23 = Db * dtdx2
-#         Ddtdx24 = Db * dtdx2
-#         Ddtdx25 = Db * dtdx2
-#     elif i % spore_spacing == spore_spacing - 1 and j % spore_spacing == 0 and k % spore_spacing == 0:
-#         Ddtdx21 = Db * dtdx2
-#     elif i % spore_spacing == 1 and j % spore_spacing == 0 and k % spore_spacing == 0:
-#         Ddtdx20 = Db * dtdx2
-#     elif i % spore_spacing == 0 and j % spore_spacing == spore_spacing - 1 and k % spore_spacing == 0:
-#         Ddtdx23 = Db * dtdx2
-#     elif i % spore_spacing == 0 and j % spore_spacing == 1 and k % spore_spacing == 0:
-#         Ddtdx22 = Db * dtdx2
-#     elif i % spore_spacing == 0 and j % spore_spacing == 0 and k % spore_spacing == spore_spacing - 1:
-#         Ddtdx25 = Db * dtdx2
-#     elif i % spore_spacing == 0 and j % spore_spacing == 0 and k % spore_spacing == 1:
-#         Ddtdx24 = Db * dtdx2
-
-#     diff_sum = Ddtdx20 * bottom + Ddtdx21 * top + Ddtdx22 * left + Ddtdx23 * right + Ddtdx24 * front + Ddtdx25 * back
-#     c_new[i, j, k] = center + diff_sum - (Ddtdx20 + Ddtdx21 + Ddtdx22 + Ddtdx23 + Ddtdx24 + Ddtdx25) * center
-
-
 @cuda.jit()
 def update_GPU_3D_periodic_spores_bottom(c_old, c_new, N, H, dtdx2, D, Db, spore_height):
     """
@@ -519,20 +452,17 @@ def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.005,
     if dims == 2:
         H = 0
         update_func = update_GPU_2D
-        size_ref = N
         spore_ref = spore_idx
         print("2D simulation")
     else:
         H = c_init.shape[2]
         if bottom_arrangement:
             update_func = update_GPU_3D_periodic_spores_bottom
-            size_ref = H
             spore_ref = spore_height
             print("3D simulation with 2D periodic spores")
             print(f"Spore height: {spore_height}")
         else:
             update_func = update_GPU_3D
-            size_ref = N
             spore_ref = spore_idx
             print("3D simulation with 3D periodic spores")
 
