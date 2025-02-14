@@ -233,48 +233,53 @@ __precompile__(false)
         # Determine the indices of the current cell
         idx = ((i - 1) * blockDim().x + ti, (j - 1) * blockDim().y + tj, (k - 1) * blockDim().z + tk)
 
+        spore_rad_sq = spore_rad_lattice^2
+        spore_half_rad_sq = (spore_rad_lattice*0.5)^2
+
         # Update the concentration value
         if 1 ≤ idx[1] ≤ N && 1 ≤ idx[2] ≤ N && 1 ≤ idx[3] ≤ H
 
             # Check if in spore / cell wall
             in_spore = false
             sp_cw_index = 0
-            max_dist_sq = N * N + N * N + H * H
+            min_dist_sq = N * N + N * N + H * H
             closest_spore = 1
             len_idx_map = length(cw_idx_map_x) ÷ 3
             for n in 1:(length(sp_cen_indices) ÷ 3)
                 spore_center_idx = (sp_cen_indices[3*n - 2], sp_cen_indices[3*n - 1], sp_cen_indices[3*n])
                 dist_sq = (idx[1] - sp_cen_indices[3*n - 2])^2 + (idx[2] - sp_cen_indices[3*n - 1])^2 + (idx[3] - sp_cen_indices[3*n])^2
                 # Record closest spore
-                if dist_sq < max_dist_sq
-                    max_dist_sq = dist_sq
+                if dist_sq < min_dist_sq
+                    min_dist_sq = dist_sq
                     closest_spore = n
                 end
-                if dist_sq ≤ spore_rad_lattice
+                if dist_sq ≤ spore_rad_sq
                     in_spore = true
-                    # Check if in cell wall
-                    for m in 1:len_idx_map
-                        # Get all symmetries
-                        cw_idx_neu = (cw_idx_map_x[m] + spore_center_idx[1], cw_idx_map_y[m] + spore_center_idx[2], cw_idx_map_z[m] + spore_center_idx[3])
-                        cw_idx_seu = (cw_idx_neu[1], -cw_idx_map_y[m] + spore_center_idx[2], cw_idx_neu[3])
-                        cw_idx_nwu = (-cw_idx_map_x[m] + spore_center_idx[1], cw_idx_neu[2], cw_idx_neu[3])
-                        cw_idx_swu = (cw_idx_nwu[1], cw_idx_seu[2], cw_idx_neu[3])
-                        cw_idx_ned = (cw_idx_neu[1], cw_idx_neu[2], -cw_idx_map_z[m] + spore_center_idx[3])
-                        cw_idx_sed = (cw_idx_seu[1], cw_idx_seu[2], cw_idx_ned[3])
-                        cw_idx_nwd = (cw_idx_nwu[1], cw_idx_nwu[2], cw_idx_ned[3])
-                        cw_idx_swd = (cw_idx_swu[1], cw_idx_swu[2], cw_idx_ned[3])
-                        cond_sum = (1 - abs((idx[1] - cw_idx_neu[1])*(idx[2] - cw_idx_neu[2])*(idx[3] - cw_idx_neu[3]))) +
-                                    (1 - abs((idx[1] - cw_idx_seu[1])*(idx[2] - cw_idx_seu[2])*(idx[3] - cw_idx_seu[3]))) +
-                                    (1 - abs((idx[1] - cw_idx_nwu[1])*(idx[2] - cw_idx_nwu[2])*(idx[3] - cw_idx_nwu[3]))) +
-                                    (1 - abs((idx[1] - cw_idx_swu[1])*(idx[2] - cw_idx_swu[2])*(idx[3] - cw_idx_swu[3]))) +
-                                    (1 - abs((idx[1] - cw_idx_ned[1])*(idx[2] - cw_idx_ned[2])*(idx[3] - cw_idx_ned[3]))) +
-                                    (1 - abs((idx[1] - cw_idx_sed[1])*(idx[2] - cw_idx_sed[2])*(idx[3] - cw_idx_sed[3]))) +
-                                    (1 - abs((idx[1] - cw_idx_nwd[1])*(idx[2] - cw_idx_nwd[2])*(idx[3] - cw_idx_nwd[3]))) +
-                                    (1 - abs((idx[1] - cw_idx_swd[1])*(idx[2] - cw_idx_swd[2])*(idx[3] - cw_idx_swd[3])))
-                        if cond_sum == 8
-                            # Save the index of the spore
-                            sp_cw_index = n
-                            break
+                    if dist_sq > spore_half_rad_sq
+                        # Check if in cell wall
+                        for m in 1:len_idx_map
+                            # Get all symmetries
+                            cw_idx_neu = (cw_idx_map_x[m] + spore_center_idx[1], cw_idx_map_y[m] + spore_center_idx[2], cw_idx_map_z[m] + spore_center_idx[3])
+                            cw_idx_seu = (cw_idx_neu[1], -cw_idx_map_y[m] + spore_center_idx[2], cw_idx_neu[3])
+                            cw_idx_nwu = (-cw_idx_map_x[m] + spore_center_idx[1], cw_idx_neu[2], cw_idx_neu[3])
+                            cw_idx_swu = (cw_idx_nwu[1], cw_idx_seu[2], cw_idx_neu[3])
+                            cw_idx_ned = (cw_idx_neu[1], cw_idx_neu[2], -cw_idx_map_z[m] + spore_center_idx[3])
+                            cw_idx_sed = (cw_idx_seu[1], cw_idx_seu[2], cw_idx_ned[3])
+                            cw_idx_nwd = (cw_idx_nwu[1], cw_idx_nwu[2], cw_idx_ned[3])
+                            cw_idx_swd = (cw_idx_swu[1], cw_idx_swu[2], cw_idx_ned[3])
+                            cond_sum = (1 - abs((idx[1] - cw_idx_neu[1])*(idx[2] - cw_idx_neu[2])*(idx[3] - cw_idx_neu[3]))) +
+                                        (1 - abs((idx[1] - cw_idx_seu[1])*(idx[2] - cw_idx_seu[2])*(idx[3] - cw_idx_seu[3]))) +
+                                        (1 - abs((idx[1] - cw_idx_nwu[1])*(idx[2] - cw_idx_nwu[2])*(idx[3] - cw_idx_nwu[3]))) +
+                                        (1 - abs((idx[1] - cw_idx_swu[1])*(idx[2] - cw_idx_swu[2])*(idx[3] - cw_idx_swu[3]))) +
+                                        (1 - abs((idx[1] - cw_idx_ned[1])*(idx[2] - cw_idx_ned[2])*(idx[3] - cw_idx_ned[3]))) +
+                                        (1 - abs((idx[1] - cw_idx_sed[1])*(idx[2] - cw_idx_sed[2])*(idx[3] - cw_idx_sed[3]))) +
+                                        (1 - abs((idx[1] - cw_idx_nwd[1])*(idx[2] - cw_idx_nwd[2])*(idx[3] - cw_idx_nwd[3]))) +
+                                        (1 - abs((idx[1] - cw_idx_swd[1])*(idx[2] - cw_idx_swd[2])*(idx[3] - cw_idx_swd[3])))
+                            if cond_sum == 8
+                                # Save the index of the spore
+                                sp_cw_index = n
+                                break
+                            end
                         end
                     end
                     break
@@ -311,7 +316,7 @@ __precompile__(false)
             if sp_cw_index > 0
 
                 # Check bottom neighbour
-                if vneum_abs[1][1]^2 + vneum_abs[1][2]^2 + vneum_abs[1][3]^2 ≤ spore_rad_lattice^2
+                if vneum_abs[1][1]^2 + vneum_abs[1][2]^2 + vneum_abs[1][3]^2 ≤ spore_rad_sq
                     if vneum_abs[1][1] in cw_idx_map_x && vneum_abs[1][2] in cw_idx_map_y && vneum_abs[1][3] in cw_idx_map_z
                         diff_bottom = Db * dtdx2 * (c_old[vneum_nbrs[1]...] - center)
                     else
@@ -321,7 +326,7 @@ __precompile__(false)
                     diff_bottom = D * dtdx2 * (c_old[vneum_nbrs[1]...] - center)
                 end
                 # Check top neighbour
-                if vneum_abs[2][1]^2 + vneum_abs[2][2]^2 + vneum_abs[2][3]^2 ≤ spore_rad_lattice^2
+                if vneum_abs[2][1]^2 + vneum_abs[2][2]^2 + vneum_abs[2][3]^2 ≤ spore_rad_sq
                     if vneum_abs[2][1] in cw_idx_map_x && vneum_abs[2][2] in cw_idx_map_y && vneum_abs[2][3] in cw_idx_map_z
                         diff_top = Db * dtdx2 * (c_old[vneum_nbrs[2]...] - center)
                     else
@@ -331,7 +336,7 @@ __precompile__(false)
                     diff_top = D * dtdx2 * (c_old[vneum_nbrs[2]...] - center)
                 end
                 # Check left neighbour
-                if vneum_abs[3][1]^2 + vneum_abs[3][2]^2 + vneum_abs[3][3]^2 ≤ spore_rad_lattice^2
+                if vneum_abs[3][1]^2 + vneum_abs[3][2]^2 + vneum_abs[3][3]^2 ≤ spore_rad_sq
                     if vneum_abs[3][1] in cw_idx_map_x && vneum_abs[3][2] in cw_idx_map_y && vneum_abs[3][3] in cw_idx_map_z
                         diff_left = Db * dtdx2 * (c_old[vneum_nbrs[3]...] - center)
                     else
@@ -341,7 +346,7 @@ __precompile__(false)
                     diff_left = D * dtdx2 * (c_old[vneum_nbrs[3]...] - center)
                 end
                 # Check right neighbour
-                if vneum_abs[4][1]^2 + vneum_abs[4][2]^2 + vneum_abs[4][3]^2 ≤ spore_rad_lattice^2
+                if vneum_abs[4][1]^2 + vneum_abs[4][2]^2 + vneum_abs[4][3]^2 ≤ spore_rad_sq
                     if vneum_abs[4][1] in cw_idx_map_x && vneum_abs[4][2] in cw_idx_map_y && vneum_abs[4][3] in cw_idx_map_z
                         diff_right = Db * dtdx2 * (c_old[vneum_nbrs[4]...] - center)
                     else
@@ -351,7 +356,7 @@ __precompile__(false)
                     diff_right = D * dtdx2 * (c_old[vneum_nbrs[4]...] - center)
                 end
                 # Check front neighbour
-                if vneum_abs[5][1]^2 + vneum_abs[5][2]^2 + vneum_abs[5][3]^2 ≤ spore_rad_lattice^2
+                if vneum_abs[5][1]^2 + vneum_abs[5][2]^2 + vneum_abs[5][3]^2 ≤ spore_rad_sq
                     if vneum_abs[5][1] in cw_idx_map_x && vneum_abs[5][2] in cw_idx_map_y && vneum_abs[5][3] in cw_idx_map_z
                         diff_front = Db * dtdx2 * (c_old[vneum_nbrs[5]...] - center)
                     else
@@ -361,7 +366,7 @@ __precompile__(false)
                     diff_front = D * dtdx2 * (c_old[vneum_nbrs[5]...] - center)
                 end
                 # Check back neighbour
-                if vneum_abs[6][1]^2 + vneum_abs[6][2]^2 + vneum_abs[6][3]^2 ≤ spore_rad_lattice^2
+                if vneum_abs[6][1]^2 + vneum_abs[6][2]^2 + vneum_abs[6][3]^2 ≤ spore_rad_sq
                     if vneum_abs[6][1] in cw_idx_map_x && vneum_abs[6][2] in cw_idx_map_y && vneum_abs[6][3] in cw_idx_map_z
                         diff_back = Db * dtdx2 * (c_old[vneum_nbrs[6]...] - center)
                     else
@@ -373,47 +378,52 @@ __precompile__(false)
                 
                 c_new[idx...] = center + diff_bottom + diff_top + diff_left + diff_right + diff_front + diff_back
                 
-            elseif !in_spore
+            elseif !in_spore && min_dist_sq < spore_half_rad_sq * 1.1
                 # Exterior site
 
                 # Check bottom neighbour
-                if vneum_abs[1][1]^2 + vneum_abs[1][2]^2 + vneum_abs[1][3]^2 ≤ spore_rad_lattice^2
+                if vneum_abs[1][1]^2 + vneum_abs[1][2]^2 + vneum_abs[1][3]^2 ≤ spore_rad_sq
                     diff_bottom = Db * dtdx2 * (c_old[vneum_nbrs[1]...] - center)
                 else
                     diff_bottom = D * dtdx2 * (c_old[vneum_nbrs[1]...] - center)
                 end
                 # Check top neighbour
-                if vneum_abs[2][1]^2 + vneum_abs[2][2]^2 + vneum_abs[2][3]^2 ≤ spore_rad_lattice^2
+                if vneum_abs[2][1]^2 + vneum_abs[2][2]^2 + vneum_abs[2][3]^2 ≤ spore_rad_sq
                     diff_top = Db * dtdx2 * (c_old[vneum_nbrs[2]...] - center)
                 else
                     diff_top = D * dtdx2 * (c_old[vneum_nbrs[2]...] - center)
                 end
                 # Check left neighbour
-                if vneum_abs[3][1]^2 + vneum_abs[3][2]^2 + vneum_abs[3][3]^2 ≤ spore_rad_lattice^2
+                if vneum_abs[3][1]^2 + vneum_abs[3][2]^2 + vneum_abs[3][3]^2 ≤ spore_rad_sq
                     diff_left = Db * dtdx2 * (c_old[vneum_nbrs[3]...] - center)
                 else
                     diff_left = D * dtdx2 * (c_old[vneum_nbrs[3]...] - center)
                 end
                 # Check right neighbour
-                if vneum_abs[4][1]^2 + vneum_abs[4][2]^2 + vneum_abs[4][3]^2 ≤ spore_rad_lattice^2
+                if vneum_abs[4][1]^2 + vneum_abs[4][2]^2 + vneum_abs[4][3]^2 ≤ spore_rad_sq
                     diff_right = Db * dtdx2 * (c_old[vneum_nbrs[4]...] - center)
                 else
                     diff_right = D * dtdx2 * (c_old[vneum_nbrs[4]...] - center)
                 end
                 # Check front neighbour
-                if vneum_abs[5][1]^2 + vneum_abs[5][2]^2 + vneum_abs[5][3]^2 ≤ spore_rad_lattice^2
+                if vneum_abs[5][1]^2 + vneum_abs[5][2]^2 + vneum_abs[5][3]^2 ≤ spore_rad_sq
                     diff_front = Db * dtdx2 * (c_old[vneum_nbrs[5]...] - center)
                 else
                     diff_front = D * dtdx2 * (c_old[vneum_nbrs[5]...] - center)
                 end
                 # Check back neighbour
-                if vneum_abs[6][1]^2 + vneum_abs[6][2]^2 + vneum_abs[6][3]^2 ≤ spore_rad_lattice^2
+                if vneum_abs[6][1]^2 + vneum_abs[6][2]^2 + vneum_abs[6][3]^2 ≤ spore_rad_sq
                     diff_back = Db * dtdx2 * (c_old[vneum_nbrs[6]...] - center)
                 else
                     diff_back = D * dtdx2 * (c_old[vneum_nbrs[6]...] - center)
                 end
 
                 c_new[idx...] = center + diff_bottom + diff_top + diff_left + diff_right + diff_front + diff_back
+
+            elseif !in_spore && min_dist_sq ≥ spore_half_rad_sq * 1.1
+                c_new[idx...] = center + D * dtdx2 * (c_old[vneum_nbrs[1]...] + c_old[vneum_nbrs[2]...] + 
+                                                    c_old[vneum_nbrs[3]...] + c_old[vneum_nbrs[4]...] +
+                                                    c_old[vneum_nbrs[5]...] + c_old[vneum_nbrs[6]...] - 6 * center)
             end
         end
         
@@ -655,7 +665,7 @@ __precompile__(false)
         return c_med_evolution, c_spore_evolution, times, t_thresholds
     end
 
-    function diffusion_time_dependent_GPU_hi_res(c_init, sp_cen_indices, spore_rad, t_max; D=1.0, Pₛ=1.0, dt=0.005, dx=0.2, n_save_frames=100,
+    function diffusion_time_dependent_GPU_hi_res(c_init, c₀, sp_cen_indices, spore_rad, t_max; D=1.0, Pₛ=1.0, dt=0.005, dx=0.2, n_save_frames=100,
         c_thresholds=nothing, neumann_z=false)
         """
         Compute the evolution of a square lattice of concentration scalars
@@ -688,7 +698,7 @@ __precompile__(false)
         N = size(c_init)[1]
         H = size(c_init)[3]
 
-        @assert spore_rad < N && spore_rad <H "spore_rad must be less than N and H"
+        @assert spore_rad < N * dx && spore_rad < H * dx "spore_rad must be less than N and H"
 
         # Save update factor
         dtdx2 = dt / (dx^2)
@@ -704,11 +714,6 @@ __precompile__(false)
         if  Db * dtdx2 ≥ 0.2
             println("Warning: inappropriate scaling of dx and dt due to Db, may result in an unstable simulation; Dbdt/dx2 = $(Db*dtdx2).")
         end
-
-        # # Create spore mask
-        # indices = [(i, j, k) for i in 1:N, j in 1:N, k in 1:H]
-        # distances = [(i - spore_center_idx[1])^2 + (j - spore_center_idx[2])^2 + (k - spore_center_idx[3])^2 for (i, j, k) in indices]
-        # spore_mask .= reshape([d ≤ spore_rad^2 for d in distances], N, N, H)
 
         # Construct cell wall index map
         steps = [0, -1, 1]
@@ -738,6 +743,11 @@ __precompile__(false)
             end
         end
         println(length(cw_idx_map), " cell wall indices found.")
+
+        # Initialise concentrations in cell wall
+        for (i, j, k) in cw_idx_map
+            c_init[i + 1, N ÷ 2, k + 1] = c₀
+        end
 
         # Determine number of frames
         n_frames = Int(floor(t_max / dt))
@@ -779,7 +789,7 @@ __precompile__(false)
 
             # Save frame
             if (t - 1) % save_interval == 0 && save_ct ≤ n_save_frames
-                println(size(Array(c_A_gpu)))
+                println(maximum(Array(c_A_gpu)))
                 c_evolution[save_ct, :, :] .= Array(c_A_gpu)[:, N ÷ 2, :]
                 times[save_ct] = t * dt
                 # println("Frame $save_ct saved.")
