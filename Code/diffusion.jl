@@ -243,13 +243,12 @@ __precompile__(false)
             in_spore = false
             sp_cw_index = 0
             min_dist_sq = N * N + N * N + H * H
-            closest_spore = 1
-            len_idx_map = length(cw_idx_map_x) ÷ 3
+            closest_spore = 0
             for n in 1:(length(sp_cen_indices) ÷ 3)
-                spore_center_idx = (sp_cen_indices[3*n - 2], sp_cen_indices[3*n - 1], sp_cen_indices[3*n])
-                dist_sq = (idx[1] - sp_cen_indices[3*n - 2])^2 + (idx[2] - sp_cen_indices[3*n - 1])^2 + (idx[3] - sp_cen_indices[3*n])^2
+                sp_cen_idx = (sp_cen_indices[3*n - 2], sp_cen_indices[3*n - 1], sp_cen_indices[3*n])
+                dist_sq = (idx[1] - sp_cen_idx[1])^2 + (idx[2] - sp_cen_idx[2])^2 + (idx[3] - sp_cen_idx[3])^2
                 # Record closest spore
-                if dist_sq < min_dist_sq
+                if dist_sq ≤ min_dist_sq
                     min_dist_sq = dist_sq
                     closest_spore = n
                 end
@@ -257,25 +256,25 @@ __precompile__(false)
                     in_spore = true
                     if dist_sq > spore_half_rad_sq
                         # Check if in cell wall
-                        for m in 1:len_idx_map
-                            # Get all symmetries
-                            cw_idx_neu = (cw_idx_map_x[m] + spore_center_idx[1], cw_idx_map_y[m] + spore_center_idx[2], cw_idx_map_z[m] + spore_center_idx[3])
-                            cw_idx_seu = (cw_idx_neu[1], -cw_idx_map_y[m] + spore_center_idx[2], cw_idx_neu[3])
-                            cw_idx_nwu = (-cw_idx_map_x[m] + spore_center_idx[1], cw_idx_neu[2], cw_idx_neu[3])
+                        for m in eachindex(cw_idx_map_x)
+                            # Get all symmetries and reconstruct absolute cell wall indices
+                            cw_idx_neu = (cw_idx_map_x[m] + sp_cen_idx[1], cw_idx_map_y[m] + sp_cen_idx[2], cw_idx_map_z[m] + sp_cen_idx[3])
+                            cw_idx_seu = (cw_idx_neu[1], -cw_idx_map_y[m] + sp_cen_idx[2], cw_idx_neu[3])
+                            cw_idx_nwu = (-cw_idx_map_x[m] + sp_cen_idx[1], cw_idx_neu[2], cw_idx_neu[3])
                             cw_idx_swu = (cw_idx_nwu[1], cw_idx_seu[2], cw_idx_neu[3])
-                            cw_idx_ned = (cw_idx_neu[1], cw_idx_neu[2], -cw_idx_map_z[m] + spore_center_idx[3])
+                            cw_idx_ned = (cw_idx_neu[1], cw_idx_neu[2], -cw_idx_map_z[m] + sp_cen_idx[3])
                             cw_idx_sed = (cw_idx_seu[1], cw_idx_seu[2], cw_idx_ned[3])
                             cw_idx_nwd = (cw_idx_nwu[1], cw_idx_nwu[2], cw_idx_ned[3])
                             cw_idx_swd = (cw_idx_swu[1], cw_idx_swu[2], cw_idx_ned[3])
-                            cond_sum = (1 - abs((idx[1] - cw_idx_neu[1])*(idx[2] - cw_idx_neu[2])*(idx[3] - cw_idx_neu[3]))) +
-                                        (1 - abs((idx[1] - cw_idx_seu[1])*(idx[2] - cw_idx_seu[2])*(idx[3] - cw_idx_seu[3]))) +
-                                        (1 - abs((idx[1] - cw_idx_nwu[1])*(idx[2] - cw_idx_nwu[2])*(idx[3] - cw_idx_nwu[3]))) +
-                                        (1 - abs((idx[1] - cw_idx_swu[1])*(idx[2] - cw_idx_swu[2])*(idx[3] - cw_idx_swu[3]))) +
-                                        (1 - abs((idx[1] - cw_idx_ned[1])*(idx[2] - cw_idx_ned[2])*(idx[3] - cw_idx_ned[3]))) +
-                                        (1 - abs((idx[1] - cw_idx_sed[1])*(idx[2] - cw_idx_sed[2])*(idx[3] - cw_idx_sed[3]))) +
-                                        (1 - abs((idx[1] - cw_idx_nwd[1])*(idx[2] - cw_idx_nwd[2])*(idx[3] - cw_idx_nwd[3]))) +
-                                        (1 - abs((idx[1] - cw_idx_swd[1])*(idx[2] - cw_idx_swd[2])*(idx[3] - cw_idx_swd[3])))
-                            if cond_sum == 8
+                            is_in_cell_wall = (idx[1] == cw_idx_neu[1] && idx[2] == cw_idx_neu[2] && idx[3] == cw_idx_neu[3]) ||
+                                        (idx[1] == cw_idx_seu[1] && idx[2] == cw_idx_seu[2] && idx[3] == cw_idx_seu[3]) ||
+                                        (idx[1] == cw_idx_nwu[1] && idx[2] == cw_idx_nwu[2] && idx[3] == cw_idx_nwu[3]) ||
+                                        (idx[1] == cw_idx_swu[1] && idx[2] == cw_idx_swu[2] && idx[3] == cw_idx_swu[3]) ||
+                                        (idx[1] == cw_idx_ned[1] && idx[2] == cw_idx_ned[2] && idx[3] == cw_idx_ned[3]) ||
+                                        (idx[1] == cw_idx_sed[1] && idx[2] == cw_idx_sed[2] && idx[3] == cw_idx_sed[3]) ||
+                                        (idx[1] == cw_idx_nwd[1] && idx[2] == cw_idx_nwd[2] && idx[3] == cw_idx_nwd[3]) ||
+                                        (idx[1] == cw_idx_swd[1] && idx[2] == cw_idx_swd[2] && idx[3] == cw_idx_swd[3])
+                            if is_in_cell_wall
                                 # Save the index of the spore
                                 sp_cw_index = n
                                 break
@@ -313,7 +312,7 @@ __precompile__(false)
             abs(vneum_nbrs[6][3] - sp_cen_indices[3*closest_spore])))
 
             # Cell wall site
-            if sp_cw_index > 0
+            if sp_cw_index > 0 && min_dist_sq > spore_half_rad_sq * 1.1
 
                 # Check bottom neighbour
                 if vneum_abs[1][1]^2 + vneum_abs[1][2]^2 + vneum_abs[1][3]^2 ≤ spore_rad_sq
@@ -376,10 +375,11 @@ __precompile__(false)
                     diff_back = D * dtdx2 * (c_old[vneum_nbrs[6]...] - center)
                 end
                 
+                # c_new[idx...] = 0.2
                 c_new[idx...] = center + diff_bottom + diff_top + diff_left + diff_right + diff_front + diff_back
                 
-            elseif !in_spore && min_dist_sq < spore_half_rad_sq * 1.1
-                # Exterior site
+            elseif !in_spore && min_dist_sq < spore_rad_sq * 1.25
+                # Exterior site close to spore
 
                 # Check bottom neighbour
                 if vneum_abs[1][1]^2 + vneum_abs[1][2]^2 + vneum_abs[1][3]^2 ≤ spore_rad_sq
@@ -419,11 +419,16 @@ __precompile__(false)
                 end
 
                 c_new[idx...] = center + diff_bottom + diff_top + diff_left + diff_right + diff_front + diff_back
+                # c_new[idx...] = 0.4
 
-            elseif !in_spore && min_dist_sq ≥ spore_half_rad_sq * 1.1
+            elseif !in_spore && min_dist_sq ≥ spore_rad_sq * 1.25
+                # Exterior site far from spore
                 c_new[idx...] = center + D * dtdx2 * (c_old[vneum_nbrs[1]...] + c_old[vneum_nbrs[2]...] + 
                                                     c_old[vneum_nbrs[3]...] + c_old[vneum_nbrs[4]...] +
                                                     c_old[vneum_nbrs[5]...] + c_old[vneum_nbrs[6]...] - 6 * center)
+                # c_new[idx...] = 0.6
+            # else
+            #     c_new[idx...] = 0.8
             end
         end
         
@@ -725,20 +730,34 @@ __precompile__(false)
         spore_bnds = Int(ceil(spore_rad_lattice)+1)
         println("Spore bounds: ", spore_bnds)
         for i in 1:spore_bnds, j in 1:spore_bnds, k in 1:spore_bnds
-            excluded = false
-            excluded_nbrs = 0
+            # excluded = false
+            # excluded_nbrs = 0
+            # for (di, dj, dk) in moore_nbrs
+            #     # println(sqrt((i + di)^2 + (j + dj)^2 + (k + dk)^2))
+            #     if (i + di)^2 + (j + dj)^2 + (k + dk)^2 > spore_rad_lattice^2
+            #         if (di, dj, dk) == (0, 0, 0)
+            #             excluded = true
+            #         else
+            #             excluded_nbrs += 1
+            #             break
+            #         end
+            #     end
+            # end
+            # if !excluded && excluded_nbrs > 0
+            #     push!(cw_idx_map, (i - 1, j - 1, k - 1))
+            # end
+            included = false
+            included_nbrs = 0
             for (di, dj, dk) in moore_nbrs
-                # println(sqrt((i + di)^2 + (j + dj)^2 + (k + dk)^2))
-                if (i + di)^2 + (j + dj)^2 + (k + dk)^2 > spore_rad_lattice^2
+                if (i + di - 1)^2 + (j + dj - 1)^2 + (k + dk - 1)^2 ≤ spore_rad_lattice^2
                     if (di, dj, dk) == (0, 0, 0)
-                        excluded = true
+                        included = true
                     else
-                        excluded_nbrs += 1
-                        break
+                        included_nbrs += 1
                     end
                 end
             end
-            if !excluded && excluded_nbrs > 0
+            if included && included_nbrs < 26
                 push!(cw_idx_map, (i - 1, j - 1, k - 1))
             end
         end
