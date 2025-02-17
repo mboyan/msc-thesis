@@ -7,7 +7,7 @@ __precompile__(false)
     using ArgCheck
     using CUDA
     using IterTools
-    using StaticArrays
+    # using StaticArrays
 
     export permeation_time_dependent_analytical
     export diffusion_time_dependent_analytical_src
@@ -745,8 +745,17 @@ __precompile__(false)
         println(length(cw_idx_map), " cell wall indices found.")
 
         # Initialise concentrations in cell wall
-        for (i, j, k) in cw_idx_map
-            c_init[i + 1, N ÷ 2, k + 1] = c₀
+        for sp_cen_idx in sp_cen_indices
+            steps = [-1, 1]
+            full_quadrants = [1, 4, 6, 7]
+            transformations = vec(collect(IterTools.product(steps, steps, steps)))
+            cw_indices_2D = vcat([
+                [(i * t[1] + sp_cen_idx[1], j * t[2] + sp_cen_idx[2], k * t[3] + sp_cen_idx[3])
+                    for (i, j, k) in cw_idx_map if (n ∉ full_quadrants && i > 0 && j > 0 && k > 0) || (n in full_quadrants)]
+                for (n, t) in enumerate(transformations)
+            ]...)
+            cw_indices_cartesian = CartesianIndex.(cw_indices_2D)
+            c_init[cw_indices_cartesian] .= c₀
         end
 
         # Determine number of frames
