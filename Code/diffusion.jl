@@ -278,24 +278,27 @@ __precompile__(false)
                         (mod1(idx[1] - 1, N), idx[2], idx[3]), (mod1(idx[1] + 1, N), idx[2], idx[3]))
             
             # Take absolute of relative coordinates
-            vneum_abs = ((abs(vneum_nbrs[1][1] - sp_cen_indices[3*closest_spore - 2]),
-            abs(vneum_nbrs[1][2] - sp_cen_indices[3*closest_spore - 1]),
-            abs(vneum_nbrs[1][3] - sp_cen_indices[3*closest_spore])),
-            (abs(vneum_nbrs[2][1] - sp_cen_indices[3*closest_spore - 2]),
-            abs(vneum_nbrs[2][2] - sp_cen_indices[3*closest_spore - 1]),
-            abs(vneum_nbrs[2][3] - sp_cen_indices[3*closest_spore])),
-            (abs(vneum_nbrs[3][1] - sp_cen_indices[3*closest_spore - 2]),
-            abs(vneum_nbrs[3][2] - sp_cen_indices[3*closest_spore - 1]),
-            abs(vneum_nbrs[3][3] - sp_cen_indices[3*closest_spore])),
-            (abs(vneum_nbrs[4][1] - sp_cen_indices[3*closest_spore - 2]),
-            abs(vneum_nbrs[4][2] - sp_cen_indices[3*closest_spore - 1]),
-            abs(vneum_nbrs[4][3] - sp_cen_indices[3*closest_spore])),
-            (abs(vneum_nbrs[5][1] - sp_cen_indices[3*closest_spore - 2]),
-            abs(vneum_nbrs[5][2] - sp_cen_indices[3*closest_spore - 1]),
-            abs(vneum_nbrs[5][3] - sp_cen_indices[3*closest_spore])),
-            (abs(vneum_nbrs[6][1] - sp_cen_indices[3*closest_spore - 2]),
-            abs(vneum_nbrs[6][2] - sp_cen_indices[3*closest_spore - 1]),
-            abs(vneum_nbrs[6][3] - sp_cen_indices[3*closest_spore])))
+            sp_idx_x = sp_cen_indices[3*closest_spore - 2]
+            sp_idx_y = sp_cen_indices[3*closest_spore - 1]
+            sp_idx_z = sp_cen_indices[3*closest_spore]
+            vneum_abs = ((abs(vneum_nbrs[1][1] - sp_idx_x),
+            abs(vneum_nbrs[1][2] - sp_idx_y),
+            abs(vneum_nbrs[1][3] - sp_idx_z)),
+            (abs(vneum_nbrs[2][1] - sp_idx_x),
+            abs(vneum_nbrs[2][2] - sp_idx_y),
+            abs(vneum_nbrs[2][3] - sp_idx_z)),
+            (abs(vneum_nbrs[3][1] - sp_idx_x),
+            abs(vneum_nbrs[3][2] - sp_idx_y),
+            abs(vneum_nbrs[3][3] - sp_idx_z)),
+            (abs(vneum_nbrs[4][1] - sp_idx_x),
+            abs(vneum_nbrs[4][2] - sp_idx_y),
+            abs(vneum_nbrs[4][3] - sp_idx_z)),
+            (abs(vneum_nbrs[5][1] - sp_idx_x),
+            abs(vneum_nbrs[5][2] - sp_idx_x),
+            abs(vneum_nbrs[5][3] - sp_idx_z)),
+            (abs(vneum_nbrs[6][1] - sp_idx_x),
+            abs(vneum_nbrs[6][2] - sp_idx_x),
+            abs(vneum_nbrs[6][3] - sp_idx_z)))
 
             # Cell wall site
             if sp_cw_index > 0 && min_dist_sq > spore_half_rad_sq * 1.1
