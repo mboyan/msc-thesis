@@ -235,7 +235,7 @@ __precompile__(false)
         idx = ((i - 1) * blockDim().x + ti, (j - 1) * blockDim().y + tj, (k - 1) * blockDim().z + tk)
 
         spore_rad_sq = spore_rad_lattice^2
-        spore_half_rad_sq = (spore_rad_lattice*0.5)^2
+        spore_half_rad_sq = (spore_rad_lattice*0.75)^2
 
         # Update the concentration value
         if 1 ≤ idx[1] ≤ N && 1 ≤ idx[2] ≤ N && 1 ≤ idx[3] ≤ H
@@ -282,7 +282,9 @@ __precompile__(false)
                             end
                         end
                     end
-                    break
+                    if sp_cw_index > 0
+                        break
+                    end
                 end
             end
 
@@ -293,27 +295,30 @@ __precompile__(false)
                         (mod1(idx[1] - 1, N), idx[2], idx[3]), (mod1(idx[1] + 1, N), idx[2], idx[3]))
             
             # Take absolute of relative coordinates
-            vneum_abs = ((abs(vneum_nbrs[1][1] - sp_cen_indices[3*closest_spore - 2]),
-            abs(vneum_nbrs[1][2] - sp_cen_indices[3*closest_spore - 1]),
-            abs(vneum_nbrs[1][3] - sp_cen_indices[3*closest_spore])),
-            (abs(vneum_nbrs[2][1] - sp_cen_indices[3*closest_spore - 2]),
-            abs(vneum_nbrs[2][2] - sp_cen_indices[3*closest_spore - 1]),
-            abs(vneum_nbrs[2][3] - sp_cen_indices[3*closest_spore])),
-            (abs(vneum_nbrs[3][1] - sp_cen_indices[3*closest_spore - 2]),
-            abs(vneum_nbrs[3][2] - sp_cen_indices[3*closest_spore - 1]),
-            abs(vneum_nbrs[3][3] - sp_cen_indices[3*closest_spore])),
-            (abs(vneum_nbrs[4][1] - sp_cen_indices[3*closest_spore - 2]),
-            abs(vneum_nbrs[4][2] - sp_cen_indices[3*closest_spore - 1]),
-            abs(vneum_nbrs[4][3] - sp_cen_indices[3*closest_spore])),
-            (abs(vneum_nbrs[5][1] - sp_cen_indices[3*closest_spore - 2]),
-            abs(vneum_nbrs[5][2] - sp_cen_indices[3*closest_spore - 1]),
-            abs(vneum_nbrs[5][3] - sp_cen_indices[3*closest_spore])),
-            (abs(vneum_nbrs[6][1] - sp_cen_indices[3*closest_spore - 2]),
-            abs(vneum_nbrs[6][2] - sp_cen_indices[3*closest_spore - 1]),
-            abs(vneum_nbrs[6][3] - sp_cen_indices[3*closest_spore])))
+            sp_idx_x = sp_cen_indices[3*closest_spore - 2]
+            sp_idx_y = sp_cen_indices[3*closest_spore - 1]
+            sp_idx_z = sp_cen_indices[3*closest_spore]
+            vneum_abs = ((abs(vneum_nbrs[1][1] - sp_idx_x),
+            abs(vneum_nbrs[1][2] - sp_idx_y),
+            abs(vneum_nbrs[1][3] - sp_idx_z)),
+            (abs(vneum_nbrs[2][1] - sp_idx_x),
+            abs(vneum_nbrs[2][2] - sp_idx_y),
+            abs(vneum_nbrs[2][3] - sp_idx_z)),
+            (abs(vneum_nbrs[3][1] - sp_idx_x),
+            abs(vneum_nbrs[3][2] - sp_idx_y),
+            abs(vneum_nbrs[3][3] - sp_idx_z)),
+            (abs(vneum_nbrs[4][1] - sp_idx_x),
+            abs(vneum_nbrs[4][2] - sp_idx_y),
+            abs(vneum_nbrs[4][3] - sp_idx_z)),
+            (abs(vneum_nbrs[5][1] - sp_idx_x),
+            abs(vneum_nbrs[5][2] - sp_idx_x),
+            abs(vneum_nbrs[5][3] - sp_idx_z)),
+            (abs(vneum_nbrs[6][1] - sp_idx_x),
+            abs(vneum_nbrs[6][2] - sp_idx_x),
+            abs(vneum_nbrs[6][3] - sp_idx_z)))
 
             # Cell wall site
-            if sp_cw_index > 0 && min_dist_sq > spore_half_rad_sq * 1.1
+            if sp_cw_index > 0 && min_dist_sq > spore_half_rad_sq
 
                 # Check bottom neighbour
                 if vneum_abs[1][1]^2 + vneum_abs[1][2]^2 + vneum_abs[1][3]^2 ≤ spore_rad_sq
@@ -826,8 +831,9 @@ __precompile__(false)
             @cuda threads=kernel_threads blocks=kernel_blocks update_GPU_hi_res!(c_A_gpu, c_B_gpu, N, H, dtdx2, D, Db, Deff,
                                                                                 sp_cen_indices_gpu, cw_idx_map_x_gpu, cw_idx_map_y_gpu, cw_idx_map_z_gpu,
                                                                                 spore_rad_lattice, neumann_z)
-            c_A_gpu, c_B_gpu = c_B_gpu, c_A_gpu
             CUDA.synchronize()
+            c_A_gpu, c_B_gpu = c_B_gpu, c_A_gpu
+            
             # println("Kernel execution completed for Frame $t")
 
             # Check for threshold crossing
