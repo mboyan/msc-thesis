@@ -222,9 +222,9 @@ __precompile__(false)
             Db (float) - the diffusion constant through the spore
             Deff (float) - the effective diffusion constant at the spore interface
             sp_cen_indices (flat array of int) - the indices of the spore locations
-            cw_idx_map_x (flat array of int) - zero-based indices of the cell wall locations in 1 quadrant along x
-            cw_idx_map_y (flat array of int) - zero-based indices of the cell wall locations in 1 quadrant along y
-            cw_idx_map_z (flat array of int) - zero-based indices of the cell wall locations in 1 quadrant along z
+            cw_idx_map_x (flat array of int) - zero-based indices of the cell wall locations in 1 octant along x
+            cw_idx_map_y (flat array of int) - zero-based indices of the cell wall locations in 1 octant along y
+            cw_idx_map_z (flat array of int) - zero-based indices of the cell wall locations in 1 octant along z
             spore_rad_lattice (float) - the radius of the spore in lattice units
             neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction
         """
@@ -764,11 +764,11 @@ __precompile__(false)
         # Initialise concentrations in cell wall
         for sp_cen_idx in sp_cen_indices
             steps = [-1, 1]
-            full_quadrants = [1, 4, 6, 7]
+            full_octants = [1, 4, 6, 7]
             transformations = vec(collect(IterTools.product(steps, steps, steps)))
             cw_indices_2D = vcat([
                 [(i * t[1] + sp_cen_idx[1], j * t[2] + sp_cen_idx[2], k * t[3] + sp_cen_idx[3])
-                    for (i, j, k) in cw_idx_map if (n ∉ full_quadrants && i > 0 && j > 0 && k > 0) || (n in full_quadrants)]
+                    for (i, j, k) in cw_idx_map if (n ∉ full_octants && i > 0 && j > 0 && k > 0) || (n in full_octants)]
                 for (n, t) in enumerate(transformations)
             ]...)
             cw_indices_cartesian = CartesianIndex.(cw_indices_2D)
