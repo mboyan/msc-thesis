@@ -208,7 +208,7 @@ __precompile__(false)
     end
 
 
-    function update_GPU_hi_res!(c_old, c_new, N, H, dtdx2, D, Db, sp_cen_indices, cw_idx_map_x, cw_idx_map_y, cw_idx_map_z, spore_rad_lattice, neumann_z)
+    function update_GPU_hi_res!(c_old, c_new, N, H, dtdx2, D, Db, Deff, sp_cen_indices, cw_idx_map_x, cw_idx_map_y, cw_idx_map_z, spore_rad_lattice, neumann_z)
         """
         Update the concentration values on the lattice
         using the time-dependent diffusion equation.
@@ -220,6 +220,7 @@ __precompile__(false)
             dtdx2 (float) - the update factor
             D (float) - the diffusion constant
             Db (float) - the diffusion constant through the spore
+            Deff (float) - the effective diffusion constant at the spore interface
             sp_cen_indices (flat array of int) - the indices of the spore locations
             cw_idx_map_x (flat array of int) - zero-based indices of the cell wall locations in 1 quadrant along x
             cw_idx_map_y (flat array of int) - zero-based indices of the cell wall locations in 1 quadrant along y
@@ -322,7 +323,7 @@ __precompile__(false)
                         diff_bottom = 0.0
                     end
                 else
-                    diff_bottom = D * dtdx2 * (c_old[vneum_nbrs[1]...] - center)
+                    diff_bottom = Deff * dtdx2 * (c_old[vneum_nbrs[1]...] - center)
                 end
                 # Check top neighbour
                 if vneum_abs[2][1]^2 + vneum_abs[2][2]^2 + vneum_abs[2][3]^2 ≤ spore_rad_sq
@@ -332,7 +333,7 @@ __precompile__(false)
                         diff_top = 0.0
                     end
                 else
-                    diff_top = D * dtdx2 * (c_old[vneum_nbrs[2]...] - center)
+                    diff_top = Deff * dtdx2 * (c_old[vneum_nbrs[2]...] - center)
                 end
                 # Check left neighbour
                 if vneum_abs[3][1]^2 + vneum_abs[3][2]^2 + vneum_abs[3][3]^2 ≤ spore_rad_sq
@@ -342,7 +343,7 @@ __precompile__(false)
                         diff_left = 0.0
                     end
                 else
-                    diff_left = D * dtdx2 * (c_old[vneum_nbrs[3]...] - center)
+                    diff_left = Deff * dtdx2 * (c_old[vneum_nbrs[3]...] - center)
                 end
                 # Check right neighbour
                 if vneum_abs[4][1]^2 + vneum_abs[4][2]^2 + vneum_abs[4][3]^2 ≤ spore_rad_sq
@@ -352,7 +353,7 @@ __precompile__(false)
                         diff_right = 0.0
                     end
                 else
-                    diff_right = D * dtdx2 * (c_old[vneum_nbrs[4]...] - center)
+                    diff_right = Deff * dtdx2 * (c_old[vneum_nbrs[4]...] - center)
                 end
                 # Check front neighbour
                 if vneum_abs[5][1]^2 + vneum_abs[5][2]^2 + vneum_abs[5][3]^2 ≤ spore_rad_sq
@@ -362,7 +363,7 @@ __precompile__(false)
                         diff_front = 0.0
                     end
                 else
-                    diff_front = D * dtdx2 * (c_old[vneum_nbrs[5]...] - center)
+                    diff_front = Deff * dtdx2 * (c_old[vneum_nbrs[5]...] - center)
                 end
                 # Check back neighbour
                 if vneum_abs[6][1]^2 + vneum_abs[6][2]^2 + vneum_abs[6][3]^2 ≤ spore_rad_sq
@@ -372,10 +373,9 @@ __precompile__(false)
                         diff_back = 0.0
                     end
                 else
-                    diff_back = D * dtdx2 * (c_old[vneum_nbrs[6]...] - center)
+                    diff_back = Deff * dtdx2 * (c_old[vneum_nbrs[6]...] - center)
                 end
                 
-                # c_new[idx...] = 0.2
                 c_new[idx...] = center + diff_bottom + diff_top + diff_left + diff_right + diff_front + diff_back
                 
             elseif !in_spore && min_dist_sq < spore_rad_sq * 1.25
@@ -383,52 +383,48 @@ __precompile__(false)
 
                 # Check bottom neighbour
                 if vneum_abs[1][1]^2 + vneum_abs[1][2]^2 + vneum_abs[1][3]^2 ≤ spore_rad_sq
-                    diff_bottom = Db * dtdx2 * (c_old[vneum_nbrs[1]...] - center)
+                    diff_bottom = Deff * dtdx2 * (c_old[vneum_nbrs[1]...] - center)
                 else
                     diff_bottom = D * dtdx2 * (c_old[vneum_nbrs[1]...] - center)
                 end
                 # Check top neighbour
                 if vneum_abs[2][1]^2 + vneum_abs[2][2]^2 + vneum_abs[2][3]^2 ≤ spore_rad_sq
-                    diff_top = Db * dtdx2 * (c_old[vneum_nbrs[2]...] - center)
+                    diff_top = Deff * dtdx2 * (c_old[vneum_nbrs[2]...] - center)
                 else
                     diff_top = D * dtdx2 * (c_old[vneum_nbrs[2]...] - center)
                 end
                 # Check left neighbour
                 if vneum_abs[3][1]^2 + vneum_abs[3][2]^2 + vneum_abs[3][3]^2 ≤ spore_rad_sq
-                    diff_left = Db * dtdx2 * (c_old[vneum_nbrs[3]...] - center)
+                    diff_left = Deff * dtdx2 * (c_old[vneum_nbrs[3]...] - center)
                 else
                     diff_left = D * dtdx2 * (c_old[vneum_nbrs[3]...] - center)
                 end
                 # Check right neighbour
                 if vneum_abs[4][1]^2 + vneum_abs[4][2]^2 + vneum_abs[4][3]^2 ≤ spore_rad_sq
-                    diff_right = Db * dtdx2 * (c_old[vneum_nbrs[4]...] - center)
+                    diff_right = Deff * dtdx2 * (c_old[vneum_nbrs[4]...] - center)
                 else
                     diff_right = D * dtdx2 * (c_old[vneum_nbrs[4]...] - center)
                 end
                 # Check front neighbour
                 if vneum_abs[5][1]^2 + vneum_abs[5][2]^2 + vneum_abs[5][3]^2 ≤ spore_rad_sq
-                    diff_front = Db * dtdx2 * (c_old[vneum_nbrs[5]...] - center)
+                    diff_front = Deff * dtdx2 * (c_old[vneum_nbrs[5]...] - center)
                 else
                     diff_front = D * dtdx2 * (c_old[vneum_nbrs[5]...] - center)
                 end
                 # Check back neighbour
                 if vneum_abs[6][1]^2 + vneum_abs[6][2]^2 + vneum_abs[6][3]^2 ≤ spore_rad_sq
-                    diff_back = Db * dtdx2 * (c_old[vneum_nbrs[6]...] - center)
+                    diff_back = Deff * dtdx2 * (c_old[vneum_nbrs[6]...] - center)
                 else
                     diff_back = D * dtdx2 * (c_old[vneum_nbrs[6]...] - center)
                 end
 
                 c_new[idx...] = center + diff_bottom + diff_top + diff_left + diff_right + diff_front + diff_back
-                # c_new[idx...] = 0.4
 
             elseif !in_spore && min_dist_sq ≥ spore_rad_sq * 1.25
                 # Exterior site far from spore
                 c_new[idx...] = center + D * dtdx2 * (c_old[vneum_nbrs[1]...] + c_old[vneum_nbrs[2]...] + 
                                                     c_old[vneum_nbrs[3]...] + c_old[vneum_nbrs[4]...] +
                                                     c_old[vneum_nbrs[5]...] + c_old[vneum_nbrs[6]...] - 6 * center)
-                # c_new[idx...] = 0.6
-            # else
-            #     c_new[idx...] = 0.8
             end
         end
         
@@ -670,7 +666,7 @@ __precompile__(false)
         return c_med_evolution, c_spore_evolution, times, t_thresholds
     end
 
-    function diffusion_time_dependent_GPU_hi_res(c_init, c₀, sp_cen_indices, spore_rad, t_max; D=1.0, Pₛ=1.0, dt=0.005, dx=0.2, n_save_frames=100,
+    function diffusion_time_dependent_GPU_hi_res(c_init, c₀, sp_cen_indices, spore_rad, t_max; D=1.0, Db=1.0, dt=0.005, dx=0.2, n_save_frames=100,
         c_thresholds=nothing, neumann_z=false)
         """
         Compute the evolution of a square lattice of concentration scalars
@@ -682,8 +678,7 @@ __precompile__(false)
             spore_rad (float) - the radius of the spore
             t_max (int) - a maximum number of iterations
             D (float) - the diffusion constant; defaults to 1
-            Db (float) - the diffusion constant through the spore; defaults to nothing
-            Ps (float) - the permeation constant through the spore barrier; defaults to 1
+            Db (float) - the diffusion constant through the spore cell wall; defaults to 1
             dt (float) - timestep; defaults to 0.001
             dx (float) - spatial increment; defaults to 0.005
             n_save_frames (int) - determines the number of frames to save during the simulation; detaults to 100
@@ -708,16 +703,19 @@ __precompile__(false)
         # Save update factor
         dtdx2 = dt / (dx^2)
 
-        # Correction factor for permeation
-        Db = Pₛ * dx
-        println("Using D = $D, Db = $Db, Ps = $Pₛ")
+        # Compute effective diffusion constant at interface
+        Deff = 2 * D * Db / (D + Db)
+        println("Using D = $D, Db = $Db, Deff = $Deff")
 
         # Check stability
-        if  D * dtdx2 ≥ 0.2
+        if D * dtdx2 ≥ 0.2
             println("Warning: inappropriate scaling of dx and dt due to D, may result in an unstable simulation; Ddt/dx2 = $(D*dtdx2).")
         end
-        if  Db * dtdx2 ≥ 0.2
+        if Db * dtdx2 ≥ 0.2
             println("Warning: inappropriate scaling of dx and dt due to Db, may result in an unstable simulation; Dbdt/dx2 = $(Db*dtdx2).")
+        end
+        if Deff * dtdx2 ≥ 0.2
+            println("Warning: inappropriate scaling of dx and dt due to Deff, may result in an unstable simulation; Deffdt/dx2 = $(Deff*dtdx2).")
         end
 
         # Construct cell wall index map
@@ -825,7 +823,7 @@ __precompile__(false)
             end
 
             # Update the lattice
-            @cuda threads=kernel_threads blocks=kernel_blocks update_GPU_hi_res!(c_A_gpu, c_B_gpu, N, H, dtdx2, D, Db,
+            @cuda threads=kernel_threads blocks=kernel_blocks update_GPU_hi_res!(c_A_gpu, c_B_gpu, N, H, dtdx2, D, Db, Deff,
                                                                                 sp_cen_indices_gpu, cw_idx_map_x_gpu, cw_idx_map_y_gpu, cw_idx_map_z_gpu,
                                                                                 spore_rad_lattice, neumann_z)
             c_A_gpu, c_B_gpu = c_B_gpu, c_A_gpu
