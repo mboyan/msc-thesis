@@ -715,12 +715,11 @@ __precompile__(false)
             # Save frame
             if (t - 1) % save_interval == 0 && save_ct ≤ n_save_frames
                 c_A_temp = Array(c_A_gpu)[:, N ÷ 2, :]
-                # println(size(rem.(c_A_temp[:, N ÷ 2, :], floor.(Int, log10.(c_A_temp.+1e-6)) )))
-                c_evolution[save_ct, :, :] .= rem.(c_A_temp, 10.0 .^floor.(Int, log10.(c_A_temp.+1e-12))).*c₀
+                c_evolution[save_ct, :, :] .= @. ifelse(c_A_temp ≥ 100, rem(c_A_temp, 100), ifelse(c_A_temp ≥ 10, rem(c_A_temp, 10), 0.0)).*c₀
                 # c_evolution[save_ct, :, :] .= Array(c_A_gpu)[: , N ÷ 2, :]
-                println(maximum(c_evolution[save_ct, :, :]))
+                # println(maximum(c_evolution[save_ct, :, :]))
                 times[save_ct] = t * dt
-                # println("Frame $save_ct saved.")
+                println("Frame $save_ct saved.")
                 save_ct += 1
             end
 
@@ -743,7 +742,7 @@ __precompile__(false)
         # c_evolution[save_ct, :, :] .= rem.(c_A_temp, floor.(Int, log10.(c_A_temp.+1e-12))).*c₀
         # c_evolution[save_ct, :, :] .= rem.(c_A_temp, 10.0 .^floor.(Int, log10.(c_A_temp.+1e-12))).*c₀
         # c_evolution[save_ct, :, :] .= c_A_temp .≥ 10 ? (c_A_temp .≥ 100 ? rem.(c_A_temp, 100) : rem.(c_A_temp, 10)) : 0.0
-        c_evolution[save_ct, :, :] .= @. ifelse(c_A_temp ≥ 100, rem(c_A_temp, 100), ifelse(c_A_temp ≥ 10, rem(c_A_temp, 10), 0.0))
+        c_evolution[save_ct, :, :] .= @. ifelse(c_A_temp ≥ 100, rem(c_A_temp, 100), ifelse(c_A_temp ≥ 10, rem(c_A_temp, 10), 0.0)).*c₀
         # c_evolution[save_ct, :, :] .= @. ifelse(c_A_temp ≥ 100, 2, ifelse(c_A_temp ≥ 10, 1, 0))
         # println(maximum(c_evolution[save_ct, :, :]))
 
