@@ -247,13 +247,9 @@ __precompile__(false)
                 center = rem(lattice_old[idx...], 10)
             else
                 # Interior site
-                region_id = 2
-                center = rem(lattice_old[idx...], 100)
+                lattice_new[idx...] = lattice_old[idx...]
+                return nothing
             end
-
-            # vneum_nbrs = ((idx[1], idx[2], mod1(idx[3] - 1, H)), (idx[1], idx[2], mod1(idx[3] + 1, H)),
-            #             (idx[1], mod1(idx[2] - 1, N), idx[3]), (idx[1], mod1(idx[2] + 1, N), idx[3]),
-            #             (mod1(idx[1] - 1, N), idx[2], idx[3]), (mod1(idx[1] + 1, N), idx[2], idx[3]))
             
             bottom = lattice_old[idx[1], idx[2], mod1(idx[3] - 1, H)]
             top = lattice_old[idx[1], idx[2], mod1(idx[3] + 1, H)]
@@ -262,7 +258,7 @@ __precompile__(false)
             front = lattice_old[mod1(idx[1] - 1, N), idx[2], idx[3]]
             back = lattice_old[mod1(idx[1] + 1, N), idx[2], idx[3]]
 
-            diff_bottom, diff_top, diff_left, diff_right, diff_front, diff_back = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+            diff_bottom, diff_top, diff_left, diff_right, diff_front, diff_back = 0f0, 0f0, 0f0, 0f0, 0f0, 0f0
 
             if region_id == 0 # Exterior site
                 # Check bottom neighbour
@@ -338,27 +334,16 @@ __precompile__(false)
                 elseif back < 100 # Cell wall - cell wall
                     diff_back = Db * (rem(back, 10) - center)
                 end
-            else
-                return nothing
+            # else # Interior site
+            #     return nothing
             end
 
-            center_f = Float32(center)
-            diff_bottom_f = Float32(diff_bottom)
-            diff_top_f = Float32(diff_top)
-            diff_left_f = Float32(diff_left)
-            diff_right_f = Float32(diff_right)
-            diff_front_f = Float32(diff_front)
-            diff_back_f = Float32(diff_back)
+            c_new = center + dtdx2 * (diff_bottom + diff_top + diff_left + diff_right + diff_front + diff_back)
 
-            c_new = center_f + dtdx2 * (diff_bottom_f + diff_top_f + diff_left_f + diff_right_f + diff_front_f + diff_back_f)
-
-            # c_new = center + dtdx2 * (diff_bottom + diff_top + diff_left + diff_right + diff_front + diff_back)
             if region_id == 0
                 lattice_new[idx...] = c_new
             elseif region_id == 1
                 lattice_new[idx...] = 10f0 + c_new
-            else
-                lattice_new[idx...] = 100f0 + c_new
             end
         end
         
@@ -410,7 +395,8 @@ __precompile__(false)
         H = size(c_init)[3]
 
         # Save update factor
-        dtdx2 = Float32(dt / (dx^2))
+        # dtdx2 = Float32(dt / (dx^2))
+        dtdx2 = dt / (dx^2)
 
         # Correction factor for permeation
         if isnothing(Db)
@@ -642,6 +628,11 @@ __precompile__(false)
         Deff = 2 * D * Db / (D + Db)
         println("Using D = $D, Db = $Db, Deff = $Deff")
 
+        # Convert to Float32
+        D = Float32(D)
+        Db = Float32(Db)
+        Deff = Float32(Deff)
+
         # Check stability
         if D * dtdx2 ≥ 0.2
             println("Warning: inappropriate scaling of dx and dt due to D, may result in an unstable simulation; Ddt/dx2 = $(D*dtdx2).")
@@ -661,6 +652,7 @@ __precompile__(false)
         steps = [0, -1, 1]
         moore_nbrs = vec([(di, dj, dk) for di in steps, dj in steps, dk in steps])
         # println("Moore neighbors: ", moore_nbrs)
+        # region_ids = zeros(Int, N, N, H)
 
         # Initialise concentrations in cell wall
         for i in 1:N, j in 1:N, k in 1:H
@@ -679,10 +671,13 @@ __precompile__(false)
             end
             if included && included_nbrs < 26
                 c_init[i, j, k] = 11.0 # Encode cell wall 1.0 + 10
+                # region_ids[i, j, k] = 1
             elseif included && included_nbrs == 26
-                c_init[i, j, k] = 100.0 # Encode spore 0.0 + 100
+                c_init[i, j, k] = 100.0 # Encode interior 0.0 + 100
+                # region_ids[i, j, k] = 2
             else
                 c_init[i, j, k] = 0.0 # Encode exterior 0.0 + 0
+                # region_ids[i, j, k] = 0
             end
         end
         println("Concentrations initialised.")
@@ -708,9 +703,9 @@ __precompile__(false)
         # Initialise arrays on GPU
         c_A_gpu = cu(c_init)
         c_B_gpu = CUDA.zeros(N, N, H)
+        # region_ids_gpu = cu(region_ids)
 
         kernel_blocks, kernel_threads = invoke_smart_kernel_3D(size(c_init))
-        println("Kernel blocks: $kernel_blocks, kernel threads: $kernel_threads")
 
         # Run the simulation
         for t in 1:n_frames
@@ -719,9 +714,10 @@ __precompile__(false)
 
             # Save frame
             if (t - 1) % save_interval == 0 && save_ct ≤ n_save_frames
-                c_A_temp = Array(c_A_gpu)
+                c_A_temp = Array(c_A_gpu)[:, N ÷ 2, :]
                 # println(size(rem.(c_A_temp[:, N ÷ 2, :], floor.(Int, log10.(c_A_temp.+1e-6)) )))
-                c_evolution[save_ct, :, :] .= rem.(c_A_temp[:, N ÷ 2, :], floor.(Int, log10.(c_A_temp[:, N ÷ 2, :].+1e-6))).*c₀
+                c_evolution[save_ct, :, :] .= rem.(c_A_temp, 10.0 .^floor.(Int, log10.(c_A_temp.+1e-12))).*c₀
+                # c_evolution[save_ct, :, :] .= Array(c_A_gpu)[: , N ÷ 2, :]
                 println(maximum(c_evolution[save_ct, :, :]))
                 times[save_ct] = t * dt
                 # println("Frame $save_ct saved.")
@@ -732,8 +728,6 @@ __precompile__(false)
             @cuda threads=kernel_threads blocks=kernel_blocks update_GPU_hi_res!(c_A_gpu, c_B_gpu, N, H, dtdx2, D, Db, Deff, neumann_z)
             CUDA.synchronize()
             c_A_gpu, c_B_gpu = c_B_gpu, c_A_gpu
-            
-            # println("Kernel execution completed for Frame $t")
 
             # Check for threshold crossing
             if !isnothing(c_thresholds)
@@ -745,21 +739,13 @@ __precompile__(false)
         end
 
         # Save final frame
-        c_A_temp = Array(c_A_gpu)
-        c_evolution[save_ct, :, :] .= rem.(c_A_temp[:, N ÷ 2, :], floor.(Int, log10.(c_A_temp[:, N ÷ 2, :].+1e-6))).*c₀
-
-        # c_test = zeros(N, H)
-        # cw_indices_2D_ne = [(i + sp_cen_indices[1][1], k + sp_cen_indices[1][3]) for (i, j, k) in cw_idx_map if j == 1]
-        # cw_indices_2D_se = [(i + sp_cen_indices[1][1], -k + sp_cen_indices[1][3]) for (i, j, k) in cw_idx_map if i > 0 && j == 1 && k > 0]
-        # cw_indices_2D_sw = [(-i + sp_cen_indices[1][1], -k + sp_cen_indices[1][3]) for (i, j, k) in cw_idx_map if j == 1]
-        # cw_indices_2D_nw = [(-i + sp_cen_indices[1][1], k + sp_cen_indices[1][3]) for (i, j, k) in cw_idx_map if i > 0 && j == 1 && k > 0]
-        # cw_indices_2D = vcat(cw_indices_2D_ne, cw_indices_2D_se, cw_indices_2D_sw, cw_indices_2D_nw)
-        # cw_indices_cartesian = CartesianIndex.(cw_indices_2D)
-        # println("Number of cell wall indices: ", length(cw_indices_cartesian))
-        # c_test[cw_indices_cartesian] .= c₀
-        # # count nonzero elements
-        # println("Nonzero elements: ", count(!iszero, c_test))
-        # c_evolution[1, :, :] .= c_test
+        c_A_temp = Array(c_A_gpu)[:, N ÷ 2, :]
+        # c_evolution[save_ct, :, :] .= rem.(c_A_temp, floor.(Int, log10.(c_A_temp.+1e-12))).*c₀
+        # c_evolution[save_ct, :, :] .= rem.(c_A_temp, 10.0 .^floor.(Int, log10.(c_A_temp.+1e-12))).*c₀
+        # c_evolution[save_ct, :, :] .= c_A_temp .≥ 10 ? (c_A_temp .≥ 100 ? rem.(c_A_temp, 100) : rem.(c_A_temp, 10)) : 0.0
+        c_evolution[save_ct, :, :] .= @. ifelse(c_A_temp ≥ 100, rem(c_A_temp, 100), ifelse(c_A_temp ≥ 10, rem(c_A_temp, 10), 0.0))
+        # c_evolution[save_ct, :, :] .= @. ifelse(c_A_temp ≥ 100, 2, ifelse(c_A_temp ≥ 10, 1, 0))
+        # println(maximum(c_evolution[save_ct, :, :]))
 
         return c_evolution, times, t_thresholds
     end
