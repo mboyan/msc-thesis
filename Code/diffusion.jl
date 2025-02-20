@@ -258,7 +258,7 @@ __precompile__(false)
             front = lattice_old[mod1(idx[1] - 1, N), idx[2], idx[3]]
             back = lattice_old[mod1(idx[1] + 1, N), idx[2], idx[3]]
 
-            diff_bottom, diff_top, diff_left, diff_right, diff_front, diff_back = 0f0, 0f0, 0f0, 0f0, 0f0, 0f0
+            diff_bottom, diff_top, diff_left, diff_right, diff_front, diff_back = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
             if region_id == 0 # Exterior site
                 # Check bottom neighbour
@@ -343,7 +343,7 @@ __precompile__(false)
             if region_id == 0
                 lattice_new[idx...] = c_new
             elseif region_id == 1
-                lattice_new[idx...] = 10f0 + c_new
+                lattice_new[idx...] = 10.0 + c_new
             end
         end
         
@@ -629,9 +629,9 @@ __precompile__(false)
         println("Using D = $D, Db = $Db, Deff = $Deff")
 
         # Convert to Float32
-        D = Float32(D)
-        Db = Float32(Db)
-        Deff = Float32(Deff)
+        # D = Float32(D)
+        # Db = Float32(Db)
+        # Deff = Float32(Deff)
 
         # Check stability
         if D * dtdx2 ≥ 0.2
@@ -702,7 +702,7 @@ __precompile__(false)
 
         # Initialise arrays on GPU
         c_A_gpu = cu(c_init)
-        c_B_gpu = CUDA.zeros(N, N, H)
+        c_B_gpu = CUDA.zeros(Float64, N, N, H)
         # region_ids_gpu = cu(region_ids)
 
         kernel_blocks, kernel_threads = invoke_smart_kernel_3D(size(c_init))
@@ -742,10 +742,12 @@ __precompile__(false)
         # c_evolution[save_ct, :, :] .= rem.(c_A_temp, floor.(Int, log10.(c_A_temp.+1e-12))).*c₀
         # c_evolution[save_ct, :, :] .= rem.(c_A_temp, 10.0 .^floor.(Int, log10.(c_A_temp.+1e-12))).*c₀
         # c_evolution[save_ct, :, :] .= c_A_temp .≥ 10 ? (c_A_temp .≥ 100 ? rem.(c_A_temp, 100) : rem.(c_A_temp, 10)) : 0.0
+        region_ids = @. ifelse(c_A_temp ≥ 100, 2, ifelse(c_A_temp ≥ 10, 1, 0))
         c_evolution[save_ct, :, :] .= @. ifelse(c_A_temp ≥ 100, rem(c_A_temp, 100), ifelse(c_A_temp ≥ 10, rem(c_A_temp, 10), 0.0)).*c₀
+        times[save_ct] = t_max
         # c_evolution[save_ct, :, :] .= @. ifelse(c_A_temp ≥ 100, 2, ifelse(c_A_temp ≥ 10, 1, 0))
         # println(maximum(c_evolution[save_ct, :, :]))
 
-        return c_evolution, times, t_thresholds
+        return c_evolution, times, region_ids, t_thresholds
     end
 end
