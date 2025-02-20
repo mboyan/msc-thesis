@@ -1,6 +1,9 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## Note for heavy future experiments
+Set up incremental file saving, where a simulation can start from the final state of a previous one.
+
 ## Notes on presentation for Jaap
 - highlight mathematical derivations more than biological assumptions;
 - clearly outline parameters and outputs schematically - indicate goals and missing components of the model;
