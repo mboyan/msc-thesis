@@ -212,26 +212,19 @@ __precompile__(false)
         return s
     end
 
-    function update_GPU_hi_res!(c_old, c_new, N, H, dtdx2, D, Db, Deff, sp_cen_indices, cw_idx_map_x, cw_idx_map_y, cw_idx_map_z, spore_rad_sq, sp_inner_rad_sq, sp_outer_rad_sq, neumann_z)
+    function update_GPU_hi_res!(lattice_old, lattice_new, N, H, dtdx2, D, Db, Deff, neumann_z)
         """
         Update the concentration values on the lattice
         using the time-dependent diffusion equation.
         inputs:
-            c_old (array) - the current state of the lattice
-            c_new (array) - the updated state of the lattice
+            lattice_old (array) - the current state of the lattice (concentrations + region IDs)
+            lattice_new (array) - the updated state of the lattice (concentrations + region IDs)
             N (int) - the number of lattice rows/columns
             H (int) - the number of lattice layers
             dtdx2 (float) - the update factor
             D (float) - the diffusion constant
             Db (float) - the diffusion constant through the spore
             Deff (float) - the effective diffusion constant at the spore interface
-            sp_cen_indices (flat array of int) - the indices of the spore locations
-            cw_idx_map_x (flat array of int) - zero-based indices of the cell wall locations in 1 octant along x
-            cw_idx_map_y (flat array of int) - zero-based indices of the cell wall locations in 1 octant along y
-            cw_idx_map_z (flat array of int) - zero-based indices of the cell wall locations in 1 octant along z
-            spore_rad_sq (int) - the squared radius of the spore in lattice units
-            sp_inner_rad_sq (int) - the squared radius of the estimated spore interior in lattice units
-            sp_outer_rad_sq (int) - the squared radius of the estimated spore exterior in lattice units
             neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction
         """
         i, j, k = CUDA.blockIdx().x, CUDA.blockIdx().y, CUDA.blockIdx().z
@@ -240,204 +233,117 @@ __precompile__(false)
         # Determine the indices of the current cell
         idx = ((i - 1) * blockDim().x + ti, (j - 1) * blockDim().y + tj, (k - 1) * blockDim().z + tk)
 
-        # spore_rad_sq = spore_rad_lattice^2
-        # sp_inner_rad_sq = (spore_rad_lattice - 3)^2
-        # sp_outer_rad_sq = (spore_rad_lattice + 3)^2
-
         # Update the concentration value
         if 1 ≤ idx[1] ≤ N && 1 ≤ idx[2] ≤ N && 1 ≤ idx[3] ≤ H
 
-            # Check if in spore / cell wall
-            in_spore = false
-            sp_cw_index = 0
-            min_dist_sq = N * N + N * N + H * H
-            closest_spore = 0
-            for n in 1:(length(sp_cen_indices) ÷ 3)
-                sp_cen_idx = (sp_cen_indices[3*n - 2], sp_cen_indices[3*n - 1], sp_cen_indices[3*n])
-                dist_sq = device_norm3_sq(idx .- sp_cen_idx)
-                # Record closest spore
-                if dist_sq ≤ min_dist_sq
-                    min_dist_sq = dist_sq
-                    closest_spore = n
+            # Decode spore indices
+            if lattice_old[idx...] < 10
+                # Exterior site
+                region_id = 0
+                center = lattice_old[idx...]
+            elseif lattice_old[idx...] < 100
+                # Cell wall
+                region_id = 1
+                center = rem(lattice_old[idx...], 10)
+            else
+                # Interior site
+                lattice_new[idx...] = lattice_old[idx...]
+                return nothing
+            end
+            
+            bottom = lattice_old[idx[1], idx[2], mod1(idx[3] - 1, H)]
+            top = lattice_old[idx[1], idx[2], mod1(idx[3] + 1, H)]
+            left = lattice_old[idx[1], mod1(idx[2] - 1, N), idx[3]]
+            right = lattice_old[idx[1], mod1(idx[2] + 1, N), idx[3]]
+            front = lattice_old[mod1(idx[1] - 1, N), idx[2], idx[3]]
+            back = lattice_old[mod1(idx[1] + 1, N), idx[2], idx[3]]
+
+            diff_bottom, diff_top, diff_left, diff_right, diff_front, diff_back = 0f0, 0f0, 0f0, 0f0, 0f0, 0f0
+
+            if region_id == 0 # Exterior site
+                # Check bottom neighbour
+                if bottom < 10 # Exterior - exterior
+                    diff_bottom = D * (bottom - center)
+                elseif bottom < 100 # Exterior - cell wall
+                    diff_bottom = Deff * (rem(bottom, 10) - center)
                 end
-                if dist_sq ≤ spore_rad_sq
-                    in_spore = true
-                    if dist_sq > sp_inner_rad_sq
-                        # Check if in cell wall
-                        for m in eachindex(cw_idx_map_x)
-                            # Get all symmetries and reconstruct absolute cell wall indices
-                            if idx[1] > sp_cen_idx[1] && idx[2] > sp_cen_idx[2] && idx[3] > sp_cen_idx[3]
-                                @inbounds cw_idx = (cw_idx_map_x[m] + sp_cen_idx[1], cw_idx_map_y[m] + sp_cen_idx[2], cw_idx_map_z[m] + sp_cen_idx[3])
-                            elseif idx[1] > sp_cen_idx[1] && idx[2] > sp_cen_idx[2] && idx[3] ≤ sp_cen_idx[3]
-                                @inbounds cw_idx = (cw_idx_map_x[m] + sp_cen_idx[1], cw_idx_map_y[m] + sp_cen_idx[2], -cw_idx_map_z[m] + sp_cen_idx[3])
-                            elseif idx[1] > sp_cen_idx[1] && idx[2] ≤ sp_cen_idx[2] && idx[3] > sp_cen_idx[3]
-                                @inbounds cw_idx = (cw_idx_map_x[m] + sp_cen_idx[1], -cw_idx_map_y[m] + sp_cen_idx[2], cw_idx_map_z[m] + sp_cen_idx[3])
-                            elseif idx[1] > sp_cen_idx[1] && idx[2] ≤ sp_cen_idx[2] && idx[3] ≤ sp_cen_idx[3]
-                                @inbounds cw_idx = (cw_idx_map_x[m] + sp_cen_idx[1], -cw_idx_map_y[m] + sp_cen_idx[2], -cw_idx_map_z[m] + sp_cen_idx[3])
-                            elseif idx[1] ≤ sp_cen_idx[1] && idx[2] > sp_cen_idx[2] && idx[3] > sp_cen_idx[3]
-                                @inbounds cw_idx = (-cw_idx_map_x[m] + sp_cen_idx[1], cw_idx_map_y[m] + sp_cen_idx[2], cw_idx_map_z[m] + sp_cen_idx[3])
-                            elseif idx[1] ≤ sp_cen_idx[1] && idx[2] > sp_cen_idx[2] && idx[3] ≤ sp_cen_idx[3]
-                                @inbounds cw_idx = (-cw_idx_map_x[m] + sp_cen_idx[1], cw_idx_map_y[m] + sp_cen_idx[2], -cw_idx_map_z[m] + sp_cen_idx[3])
-                            elseif idx[1] ≤ sp_cen_idx[1] && idx[2] ≤ sp_cen_idx[2] && idx[3] > sp_cen_idx[3]
-                                @inbounds cw_idx = (-cw_idx_map_x[m] + sp_cen_idx[1], -cw_idx_map_y[m] + sp_cen_idx[2], cw_idx_map_z[m] + sp_cen_idx[3])
-                            elseif idx[1] ≤ sp_cen_idx[1] && idx[2] ≤ sp_cen_idx[2] && idx[3] ≤ sp_cen_idx[3]
-                                @inbounds cw_idx = (-cw_idx_map_x[m] + sp_cen_idx[1], -cw_idx_map_y[m] + sp_cen_idx[2], -cw_idx_map_z[m] + sp_cen_idx[3])
-                            end
-                            if idx[1] == cw_idx[1] && idx[2] == cw_idx[2] && idx[3] == cw_idx[3]
-                                # Save spore index
-                                sp_cw_index = n
-                                break
-                            end
-                        end
-                    end
-                    if sp_cw_index > 0
-                        break
-                    end
+                # Check top neighbour
+                if top < 10 # Exterior - exterior
+                    diff_top = D * (top - center)
+                elseif top < 100 # Exterior - cell wall
+                    diff_top = Deff * (rem(top, 10) - center)
                 end
+                # Check left neighbour
+                if left < 10 # Exterior - exterior
+                    diff_left = D * (left - center)
+                elseif left < 100 # Exterior - cell wall
+                    diff_left = Deff * (rem(left, 10) - center)
+                end
+                # Check right neighbour
+                if right < 10 # Exterior - exterior
+                    diff_right = D * (right - center)
+                elseif right < 100 # Exterior - cell wall
+                    diff_right = Deff * (rem(right, 10) - center)
+                end
+                # Check front neighbour
+                if front < 10 # Exterior - exterior
+                    diff_front = D * (front - center)
+                elseif front < 100 # Exterior - cell wall
+                    diff_front = Deff * (rem(front, 10) - center)
+                end
+                # Check back neighbour
+                if back < 10 # Exterior - exterior
+                    diff_back = D * (back - center)
+                elseif back < 100 # Exterior - cell wall
+                    diff_back = Deff * (rem(back, 10) - center)
+                end
+            elseif region_id == 1 # Cell wall site
+                # Check bottom neighbour
+                if bottom < 10 # Cell wall - exterior
+                    diff_bottom = Deff * (bottom - center)
+                elseif bottom < 100 # Cell wall - cell wall
+                    diff_bottom = Db * (rem(bottom, 10) - center)
+                end
+                # Check top neighbour
+                if top < 10 # Cell wall - exterior
+                    diff_top = Deff * (top - center)
+                elseif top < 100 # Cell wall - cell wall
+                    diff_top = Db * (rem(top, 10) - center)
+                end
+                # Check left neighbour
+                if left < 10 # Cell wall - exterior
+                    diff_left = Deff * (left - center)
+                elseif left < 100 # Cell wall - cell wall
+                    diff_left = Db * (rem(left, 10) - center)
+                end
+                # Check right neighbour
+                if right < 10 # Cell wall - exterior
+                    diff_right = Deff * (right - center)
+                elseif right < 100 # Cell wall - cell wall
+                    diff_right = Db * (rem(right, 10) - center)
+                end
+                # Check front neighbour
+                if front < 10 # Cell wall - exterior
+                    diff_front = Deff * (front - center)
+                elseif front < 100 # Cell wall - cell wall
+                    diff_front = Db * (rem(front, 10) - center)
+                end
+                # Check back neighbour
+                if back < 10 # Cell wall - exterior
+                    diff_back = Deff * (back - center)
+                elseif back < 100 # Cell wall - cell wall
+                    diff_back = Db * (rem(back, 10) - center)
+                end
+            # else # Interior site
+            #     return nothing
             end
 
-            center = c_old[idx...]
+            c_new = center + dtdx2 * (diff_bottom + diff_top + diff_left + diff_right + diff_front + diff_back)
 
-            vneum_nbrs = ((idx[1], idx[2], mod1(idx[3] - 1, H)), (idx[1], idx[2], mod1(idx[3] + 1, H)),
-                        (idx[1], mod1(idx[2] - 1, N), idx[3]), (idx[1], mod1(idx[2] + 1, N), idx[3]),
-                        (mod1(idx[1] - 1, N), idx[2], idx[3]), (mod1(idx[1] + 1, N), idx[2], idx[3]))
-            
-            # Take absolute of relative coordinates
-            sp_idx_x = sp_cen_indices[3*closest_spore - 2]
-            sp_idx_y = sp_cen_indices[3*closest_spore - 1]
-            sp_idx_z = sp_cen_indices[3*closest_spore]
-            vneum_abs = ((abs(vneum_nbrs[1][1] - sp_idx_x),
-            abs(vneum_nbrs[1][2] - sp_idx_y),
-            abs(vneum_nbrs[1][3] - sp_idx_z)),
-            (abs(vneum_nbrs[2][1] - sp_idx_x),
-            abs(vneum_nbrs[2][2] - sp_idx_y),
-            abs(vneum_nbrs[2][3] - sp_idx_z)),
-            (abs(vneum_nbrs[3][1] - sp_idx_x),
-            abs(vneum_nbrs[3][2] - sp_idx_y),
-            abs(vneum_nbrs[3][3] - sp_idx_z)),
-            (abs(vneum_nbrs[4][1] - sp_idx_x),
-            abs(vneum_nbrs[4][2] - sp_idx_y),
-            abs(vneum_nbrs[4][3] - sp_idx_z)),
-            (abs(vneum_nbrs[5][1] - sp_idx_x),
-            abs(vneum_nbrs[5][2] - sp_idx_x),
-            abs(vneum_nbrs[5][3] - sp_idx_z)),
-            (abs(vneum_nbrs[6][1] - sp_idx_x),
-            abs(vneum_nbrs[6][2] - sp_idx_x),
-            abs(vneum_nbrs[6][3] - sp_idx_z)))
-
-            # Cell wall site
-            if sp_cw_index > 0 && min_dist_sq > sp_inner_rad_sq
-
-                # Check bottom neighbour
-                if device_norm3_sq(vneum_abs[1]) ≤ spore_rad_sq
-                    if vneum_abs[1][1] in cw_idx_map_x && vneum_abs[1][2] in cw_idx_map_y && vneum_abs[1][3] in cw_idx_map_z
-                        diff_bottom = Db * dtdx2 * (c_old[vneum_nbrs[1]...] - center)
-                    else
-                        diff_bottom = 0.0
-                    end
-                else
-                    diff_bottom = Deff * dtdx2 * (c_old[vneum_nbrs[1]...] - center)
-                end
-                # Check top neighbour
-                if device_norm3_sq(vneum_abs[2]) ≤ spore_rad_sq
-                    if vneum_abs[2][1] in cw_idx_map_x && vneum_abs[2][2] in cw_idx_map_y && vneum_abs[2][3] in cw_idx_map_z
-                        diff_top = Db * dtdx2 * (c_old[vneum_nbrs[2]...] - center)
-                    else
-                        diff_top = 0.0
-                    end
-                else
-                    diff_top = Deff * dtdx2 * (c_old[vneum_nbrs[2]...] - center)
-                end
-                # Check left neighbour
-                if device_norm3_sq(vneum_abs[3]) ≤ spore_rad_sq
-                    if vneum_abs[3][1] in cw_idx_map_x && vneum_abs[3][2] in cw_idx_map_y && vneum_abs[3][3] in cw_idx_map_z
-                        diff_left = Db * dtdx2 * (c_old[vneum_nbrs[3]...] - center)
-                    else
-                        diff_left = 0.0
-                    end
-                else
-                    diff_left = Deff * dtdx2 * (c_old[vneum_nbrs[3]...] - center)
-                end
-                # Check right neighbour
-                if device_norm3_sq(vneum_abs[4]) ≤ spore_rad_sq
-                    if vneum_abs[4][1] in cw_idx_map_x && vneum_abs[4][2] in cw_idx_map_y && vneum_abs[4][3] in cw_idx_map_z
-                        diff_right = Db * dtdx2 * (c_old[vneum_nbrs[4]...] - center)
-                    else
-                        diff_right = 0.0
-                    end
-                else
-                    diff_right = Deff * dtdx2 * (c_old[vneum_nbrs[4]...] - center)
-                end
-                # Check front neighbour
-                if device_norm3_sq(vneum_abs[5]) ≤ spore_rad_sq
-                    if vneum_abs[5][1] in cw_idx_map_x && vneum_abs[5][2] in cw_idx_map_y && vneum_abs[5][3] in cw_idx_map_z
-                        diff_front = Db * dtdx2 * (c_old[vneum_nbrs[5]...] - center)
-                    else
-                        diff_front = 0.0
-                    end
-                else
-                    diff_front = Deff * dtdx2 * (c_old[vneum_nbrs[5]...] - center)
-                end
-                # Check back neighbour
-                if device_norm3_sq(vneum_abs[6]) ≤ spore_rad_sq
-                    if vneum_abs[6][1] in cw_idx_map_x && vneum_abs[6][2] in cw_idx_map_y && vneum_abs[6][3] in cw_idx_map_z
-                        diff_back = Db * dtdx2 * (c_old[vneum_nbrs[6]...] - center)
-                    else
-                        diff_back = 0.0
-                    end
-                else
-                    diff_back = Deff * dtdx2 * (c_old[vneum_nbrs[6]...] - center)
-                end
-                
-                c_new[idx...] = center + diff_bottom + diff_top + diff_left + diff_right + diff_front + diff_back
-                
-            elseif !in_spore && min_dist_sq < sp_outer_rad_sq
-                # Exterior site close to spore
-
-                # Check bottom neighbour
-                if device_norm3_sq(vneum_abs[1]) ≤ spore_rad_sq
-                    diff_bottom = Deff * dtdx2 * (c_old[vneum_nbrs[1]...] - center)
-                else
-                    diff_bottom = D * dtdx2 * (c_old[vneum_nbrs[1]...] - center)
-                end
-                # Check top neighbour
-                if device_norm3_sq(vneum_abs[2]) ≤ spore_rad_sq
-                    diff_top = Deff * dtdx2 * (c_old[vneum_nbrs[2]...] - center)
-                else
-                    diff_top = D * dtdx2 * (c_old[vneum_nbrs[2]...] - center)
-                end
-                # Check left neighbour
-                if device_norm3_sq(vneum_abs[3]) ≤ spore_rad_sq
-                    diff_left = Deff * dtdx2 * (c_old[vneum_nbrs[3]...] - center)
-                else
-                    diff_left = D * dtdx2 * (c_old[vneum_nbrs[3]...] - center)
-                end
-                # Check right neighbour
-                if device_norm3_sq(vneum_abs[4]) ≤ spore_rad_sq
-                    diff_right = Deff * dtdx2 * (c_old[vneum_nbrs[4]...] - center)
-                else
-                    diff_right = D * dtdx2 * (c_old[vneum_nbrs[4]...] - center)
-                end
-                # Check front neighbour
-                if device_norm3_sq(vneum_abs[5]) ≤ spore_rad_sq
-                    diff_front = Deff * dtdx2 * (c_old[vneum_nbrs[5]...] - center)
-                else
-                    diff_front = D * dtdx2 * (c_old[vneum_nbrs[5]...] - center)
-                end
-                # Check back neighbour
-                if device_norm3_sq(vneum_abs[6]) ≤ spore_rad_sq
-                    diff_back = Deff * dtdx2 * (c_old[vneum_nbrs[6]...] - center)
-                else
-                    diff_back = D * dtdx2 * (c_old[vneum_nbrs[6]...] - center)
-                end
-
-                c_new[idx...] = center + diff_bottom + diff_top + diff_left + diff_right + diff_front + diff_back
-
-            elseif !in_spore && min_dist_sq ≥ sp_outer_rad_sq
-                # Exterior site far from spore
-                c_new[idx...] = center + D * dtdx2 * (c_old[vneum_nbrs[1]...] + c_old[vneum_nbrs[2]...] + 
-                                                    c_old[vneum_nbrs[3]...] + c_old[vneum_nbrs[4]...] +
-                                                    c_old[vneum_nbrs[5]...] + c_old[vneum_nbrs[6]...] - 6 * center)
+            if region_id == 0
+                lattice_new[idx...] = c_new
+            elseif region_id == 1
+                lattice_new[idx...] = 10f0 + c_new
             end
         end
         
@@ -489,6 +395,7 @@ __precompile__(false)
         H = size(c_init)[3]
 
         # Save update factor
+        # dtdx2 = Float32(dt / (dx^2))
         dtdx2 = dt / (dx^2)
 
         # Correction factor for permeation
@@ -721,6 +628,11 @@ __precompile__(false)
         Deff = 2 * D * Db / (D + Db)
         println("Using D = $D, Db = $Db, Deff = $Deff")
 
+        # Convert to Float32
+        D = Float32(D)
+        Db = Float32(Db)
+        Deff = Float32(Deff)
+
         # Check stability
         if D * dtdx2 ≥ 0.2
             println("Warning: inappropriate scaling of dx and dt due to D, may result in an unstable simulation; Ddt/dx2 = $(D*dtdx2).")
@@ -732,62 +644,43 @@ __precompile__(false)
             println("Warning: inappropriate scaling of dx and dt due to Deff, may result in an unstable simulation; Deffdt/dx2 = $(Deff*dtdx2).")
         end
 
+        # Radus in lattice units
+        spore_rad_lattice = spore_rad / dx
+        println("Spore radius in lattice units: ", spore_rad_lattice)
+
         # Construct cell wall index map
         steps = [0, -1, 1]
         moore_nbrs = vec([(di, dj, dk) for di in steps, dj in steps, dk in steps])
         # println("Moore neighbors: ", moore_nbrs)
-        cw_idx_map = []
-        spore_rad_lattice = spore_rad / dx
-        println("Spore radius in lattice units: ", spore_rad_lattice)
-        spore_bnds = Int(ceil(spore_rad_lattice)+1)
-        println("Spore bounds: ", spore_bnds)
-        for i in 1:spore_bnds, j in 1:spore_bnds, k in 1:spore_bnds
-            # excluded = false
-            # excluded_nbrs = 0
-            # for (di, dj, dk) in moore_nbrs
-            #     # println(sqrt((i + di)^2 + (j + dj)^2 + (k + dk)^2))
-            #     if (i + di)^2 + (j + dj)^2 + (k + dk)^2 > spore_rad_lattice^2
-            #         if (di, dj, dk) == (0, 0, 0)
-            #             excluded = true
-            #         else
-            #             excluded_nbrs += 1
-            #             break
-            #         end
-            #     end
-            # end
-            # if !excluded && excluded_nbrs > 0
-            #     push!(cw_idx_map, (i - 1, j - 1, k - 1))
-            # end
+        # region_ids = zeros(Int, N, N, H)
+
+        # Initialise concentrations in cell wall
+        for i in 1:N, j in 1:N, k in 1:H
             included = false
             included_nbrs = 0
             for (di, dj, dk) in moore_nbrs
-                if (i + di - 1)^2 + (j + dj - 1)^2 + (k + dk - 1)^2 ≤ spore_rad_lattice^2
-                    if (di, dj, dk) == (0, 0, 0)
-                        included = true
-                    else
-                        included_nbrs += 1
+                for sp_cen_idx in sp_cen_indices
+                    if (i + di - sp_cen_idx[1] - 1)^2 + (j + dj - sp_cen_idx[2] - 1)^2 + (k + dk - sp_cen_idx[3] - 1)^2 ≤ spore_rad_lattice^2
+                        if (di, dj, dk) == (0, 0, 0)
+                            included = true
+                        else
+                            included_nbrs += 1
+                        end
                     end
                 end
             end
             if included && included_nbrs < 26
-                push!(cw_idx_map, (i - 1, j - 1, k - 1))
+                c_init[i, j, k] = 11.0 # Encode cell wall 1.0 + 10
+                # region_ids[i, j, k] = 1
+            elseif included && included_nbrs == 26
+                c_init[i, j, k] = 100.0 # Encode interior 0.0 + 100
+                # region_ids[i, j, k] = 2
+            else
+                c_init[i, j, k] = 0.0 # Encode exterior 0.0 + 0
+                # region_ids[i, j, k] = 0
             end
         end
-        println(length(cw_idx_map), " cell wall indices found.")
-
-        # Initialise concentrations in cell wall
-        for sp_cen_idx in sp_cen_indices
-            steps = [-1, 1]
-            full_octants = [1, 4, 6, 7]
-            transformations = vec(collect(IterTools.product(steps, steps, steps)))
-            cw_indices_2D = vcat([
-                [(i * t[1] + sp_cen_idx[1], j * t[2] + sp_cen_idx[2], k * t[3] + sp_cen_idx[3])
-                    for (i, j, k) in cw_idx_map if (n ∉ full_octants && i > 0 && j > 0 && k > 0) || (n in full_octants)]
-                for (n, t) in enumerate(transformations)
-            ]...)
-            cw_indices_cartesian = CartesianIndex.(cw_indices_2D)
-            c_init[cw_indices_cartesian] .= c₀
-        end
+        println("Concentrations initialised.")
 
         # Determine number of frames
         n_frames = Int(floor(t_max / dt))
@@ -810,22 +703,9 @@ __precompile__(false)
         # Initialise arrays on GPU
         c_A_gpu = cu(c_init)
         c_B_gpu = CUDA.zeros(N, N, H)
-        cw_idx_map_x = [Int(x[1]) for x in cw_idx_map]
-        cw_idx_map_y = [Int(x[2]) for x in cw_idx_map]
-        cw_idx_map_z = [Int(x[3]) for x in cw_idx_map]
-        cw_idx_map_x_gpu = cu(cw_idx_map_x)
-        cw_idx_map_y_gpu = cu(cw_idx_map_y)
-        cw_idx_map_z_gpu = cu(cw_idx_map_z)
-        flat_sp_cen_indices = vcat([collect(t) for t in sp_cen_indices]...)
-        sp_cen_indices_gpu = cu(flat_sp_cen_indices)
-
-        # Precompute squared radii
-        spore_rad_sq = spore_rad_lattice^2
-        sp_inner_rad_sq = (spore_rad_lattice - 3)^2
-        sp_outer_rad_sq = (spore_rad_lattice + 3)^2
+        # region_ids_gpu = cu(region_ids)
 
         kernel_blocks, kernel_threads = invoke_smart_kernel_3D(size(c_init))
-        println("Kernel blocks: $kernel_blocks, kernel threads: $kernel_threads")
 
         # Run the simulation
         for t in 1:n_frames
@@ -834,21 +714,19 @@ __precompile__(false)
 
             # Save frame
             if (t - 1) % save_interval == 0 && save_ct ≤ n_save_frames
-                println(maximum(Array(c_A_gpu)))
-                c_evolution[save_ct, :, :] .= Array(c_A_gpu)[:, N ÷ 2, :]
+                c_A_temp = Array(c_A_gpu)[:, N ÷ 2, :]
+                c_evolution[save_ct, :, :] .= @. ifelse(c_A_temp ≥ 100, rem(c_A_temp, 100), ifelse(c_A_temp ≥ 10, rem(c_A_temp, 10), 0.0)).*c₀
+                # c_evolution[save_ct, :, :] .= Array(c_A_gpu)[: , N ÷ 2, :]
+                # println(maximum(c_evolution[save_ct, :, :]))
                 times[save_ct] = t * dt
-                # println("Frame $save_ct saved.")
+                println("Frame $save_ct saved.")
                 save_ct += 1
             end
 
             # Update the lattice
-            @cuda threads=kernel_threads blocks=kernel_blocks update_GPU_hi_res!(c_A_gpu, c_B_gpu, N, H, dtdx2, D, Db, Deff,
-                                                                                sp_cen_indices_gpu, cw_idx_map_x_gpu, cw_idx_map_y_gpu, cw_idx_map_z_gpu,
-                                                                                spore_rad_sq, sp_inner_rad_sq, sp_outer_rad_sq, neumann_z)
+            @cuda threads=kernel_threads blocks=kernel_blocks update_GPU_hi_res!(c_A_gpu, c_B_gpu, N, H, dtdx2, D, Db, Deff, neumann_z)
             CUDA.synchronize()
             c_A_gpu, c_B_gpu = c_B_gpu, c_A_gpu
-            
-            # println("Kernel execution completed for Frame $t")
 
             # Check for threshold crossing
             if !isnothing(c_thresholds)
@@ -860,20 +738,13 @@ __precompile__(false)
         end
 
         # Save final frame
-        c_evolution[save_ct, :, :] .= Array(c_A_gpu)[:, N ÷ 2, :]
-
-        # c_test = zeros(N, H)
-        # cw_indices_2D_ne = [(i + sp_cen_indices[1][1], k + sp_cen_indices[1][3]) for (i, j, k) in cw_idx_map if j == 1]
-        # cw_indices_2D_se = [(i + sp_cen_indices[1][1], -k + sp_cen_indices[1][3]) for (i, j, k) in cw_idx_map if i > 0 && j == 1 && k > 0]
-        # cw_indices_2D_sw = [(-i + sp_cen_indices[1][1], -k + sp_cen_indices[1][3]) for (i, j, k) in cw_idx_map if j == 1]
-        # cw_indices_2D_nw = [(-i + sp_cen_indices[1][1], k + sp_cen_indices[1][3]) for (i, j, k) in cw_idx_map if i > 0 && j == 1 && k > 0]
-        # cw_indices_2D = vcat(cw_indices_2D_ne, cw_indices_2D_se, cw_indices_2D_sw, cw_indices_2D_nw)
-        # cw_indices_cartesian = CartesianIndex.(cw_indices_2D)
-        # println("Number of cell wall indices: ", length(cw_indices_cartesian))
-        # c_test[cw_indices_cartesian] .= c₀
-        # # count nonzero elements
-        # println("Nonzero elements: ", count(!iszero, c_test))
-        # c_evolution[1, :, :] .= c_test
+        c_A_temp = Array(c_A_gpu)[:, N ÷ 2, :]
+        # c_evolution[save_ct, :, :] .= rem.(c_A_temp, floor.(Int, log10.(c_A_temp.+1e-12))).*c₀
+        # c_evolution[save_ct, :, :] .= rem.(c_A_temp, 10.0 .^floor.(Int, log10.(c_A_temp.+1e-12))).*c₀
+        # c_evolution[save_ct, :, :] .= c_A_temp .≥ 10 ? (c_A_temp .≥ 100 ? rem.(c_A_temp, 100) : rem.(c_A_temp, 10)) : 0.0
+        c_evolution[save_ct, :, :] .= @. ifelse(c_A_temp ≥ 100, rem(c_A_temp, 100), ifelse(c_A_temp ≥ 10, rem(c_A_temp, 10), 0.0)).*c₀
+        # c_evolution[save_ct, :, :] .= @. ifelse(c_A_temp ≥ 100, 2, ifelse(c_A_temp ≥ 10, 1, 0))
+        # println(maximum(c_evolution[save_ct, :, :]))
 
         return c_evolution, times, t_thresholds
     end
