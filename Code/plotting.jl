@@ -8,12 +8,70 @@ __precompile__(false)
     using PyPlot
     using GLMakie
     using GeometryBasics
+    using Revise
 
-    export plot_spheres
+    include("./setup.jl")
+    include("./conversions.jl")
+    # using .Setup
+    # using .Conversions
+    Revise.includet("./conversions.jl")
+    Revise.includet("./setup.jl")
+    using .Conversions
+    using .Setup
+
+    export generate_ax_grid_pyplot
+    export generate_grid_layout_glmakie
+    export plot_spheres!
+    export plot_spore_clusters
     export plot_concentration_lattice
     export plot_concentration_evolution_hi_res
+    
 
-    function plot_spheres(centers, rad, L; inline=true, title=nothing)
+    function generate_ax_grid_pyplot(n_rows, n_cols, figsize=(8, 4))
+        """
+        Generates a grid of axes for PyPlot.
+        inputs:
+            n_rows (int): number of rows
+            n_cols (int): number of columns
+            figsize (Tuple): figure size
+        """
+        fig, axs = subplots(n_rows, n_cols, figsize=figsize)
+        axs = reshape(axs, length(axs))
+        return fig, axs
+    end
+
+
+    function generate_grid_layout_glmakie(n_rows, n_cols, figsize, _3D=true)
+        """
+        Generates a grid layout for GLMakie.
+        inputs:
+            n_rows (int): number of rows
+            n_cols (int): number of columns
+            figsize (Tuple): figure size
+            _3D (bool): whether to plot in 3D
+        """
+        fig = GLMakie.Figure(size=figsize)
+        if _3D
+            axs = Array{Axis3}(undef, n_rows, n_cols)
+        else
+            axs = Array{Axis}(undef, n_rows, n_cols)
+        end
+        for i in 1:n_rows
+            for j in 1:n_cols
+                if _3D
+                    axs[i, j] = Axis3(fig[i, j], viewmode=:fit, aspect=(1.0, 1.0, 1.0))
+                    scale!(axs[i, j].scene, 1.0, 1.0, 2.5)
+                else
+                    axs[i, j] = Axis(fig[i, j])
+                end
+            end
+        end
+        axs = reshape(axs, length(axs))
+        return fig, axs
+    end
+
+
+    function plot_spheres!(centers, rad, L; inline=true, title=nothing, ax=nothing::Union{Axis, Nothing})
         """
         Plots spheres in an interactive 3D plot.
         inputs:
@@ -22,6 +80,7 @@ __precompile__(false)
             L (int): the size of the domain
             inline (bool): whether to display the plot inline
             title (str): title of the plot
+            ax (Axis): axis to plot on
         """
 
         if inline
@@ -32,9 +91,17 @@ __precompile__(false)
             Makie.inline!(false)
         end
 
-        fig = GLMakie.Figure()
-        ax = Axis3(fig[1, 1], viewmode=:fit, aspect=(1.0, 1.0, 1.0), title=title)
-        scale!(ax.scene, 1.0, 1.0, 2.5)
+        if isnothing(ax)
+            fig = GLMakie.Figure()
+            ax = Axis3(fig[1, 1], viewmode=:fit, aspect=(1.0, 1.0, 1.0), title=title)
+            scale!(ax.scene, 1.0, 1.0, 2.5)
+            plotself = true
+        else
+            ax.title = title
+            fig = ax.scene
+            plotself = false
+        end
+        
         ax.xgridvisible = true
         ax.ygridvisible = true
         ax.zgridvisible = true
@@ -49,6 +116,42 @@ __precompile__(false)
             sphere = Sphere(Point3f(center[1], center[2], center[3]), rad)
             mesh!(ax.scene, sphere, color = RGBAf(0.993, 0.906, 0.145, 0.5))
         end
+        
+        if plotself
+            display(fig)
+        end
+
+        return ax
+    end
+
+
+    function plot_spore_clusters(cluster_sizes, spore_rad, L, per_row=2; savefig=false)
+        """
+        Create multiple plots for a range of spore cluster sizes.
+        inputs:
+            cluster_sizes (Array{Int}): sizes of the clusters
+            spore_rad (float): radius of the spores
+            L (int): size of the domain
+            per_row (int): number of plots per row
+            save (bool): whether to save the plots
+        """
+
+        n_rows = ceil(Int, length(cluster_sizes) / per_row)
+
+        fig, axs = generate_grid_layout_glmakie(n_rows, per_row, (800, 400*n_rows), true)
+
+        for (i, cluster_size) in enumerate(cluster_sizes)
+            centers = setup_spore_cluster(cluster_size, L, spore_rad)
+            sample_sphere_center = centers[1, :]
+            nbr_sphere_centers = centers[2:end, :]
+            coverage = measure_coverage(sample_sphere_center, nbr_sphere_centers, spore_rad)
+            plot_spheres!(centers, spore_rad, L, inline=true, title="Cluster size: $cluster_size + 1, Q = $(round(coverage,digits=5))", ax=axs[i])
+        end
+
+        if savefig
+            save("./spore_clusters.png", fig)
+        end
+
         display(fig)
     end
 
@@ -63,7 +166,7 @@ __precompile__(false)
             title (str): title of the plot
         """
 
-        if frame_indices != nothing
+        if !isnothing(frame_indices)
             @argcheck typeof(frame_indices) in [Array{Int}, Vector{Int}] "frame_indices must be an array of integers"
             println("Plotting frames: ", frame_indices)
             c_frames = c_frames[frame_indices, :, :]
@@ -83,7 +186,7 @@ __precompile__(false)
         axs = reshape(axs, length(axs))
         img = nothing
         for i in 1:size(c_frames)[1]
-            if times != nothing && frame_indices != nothing
+            if !isnothing(times) && !isnothing(frame_indices)
                 time = round(times[frame_indices[i]], digits=4)
                 ax_title = "t = $time s"
             else
@@ -118,11 +221,6 @@ __precompile__(false)
 
         # Add new axis to region_ids
         region_ids = reshape(region_ids, 1, size(region_ids)[1], size(region_ids)[2])
-        
-        # Reshape region_ids to match the size of c_frames
-        # println("Region IDs shape: ", size(region_ids))
-        # region_ids = repeat(region_ids, outer=(size(c_frames)[1], 1, 1))
-        # println("Region IDs shape: ", size(region_ids))
 
         # Mask the cell wall region and take the average concentration
         c_cell_wall = c_frames .* (region_ids .== 1)

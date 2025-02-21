@@ -2,6 +2,9 @@ module Conversions
     """
     Contains conversion utilites
     """
+    
+    using QuadGK
+    using LinearAlgebra
 
     export mL_to_cubic_um
     export inverse_mL_to_cubic_um
@@ -9,6 +12,7 @@ module Conversions
     export inverse_uL_to_mL
     export convert_D_to_Ps
     export convert_Ps_to_D
+    export measure_coverage
 
     function mL_to_cubic_um(mL)
         """
@@ -66,5 +70,36 @@ module Conversions
             d (float): thickness of the membrane in micrometers
         """
         return Ps * d / K
+    end
+
+    function coverage_integral(ϕ, R, d)
+        """
+        The coverage function for a sphere.
+        inputs:
+            phi (float): vertical angle in radians
+            R (float): radius of the sphere
+            d (float): distance between the centers of the spheres
+        """
+        Δ = d * cos(ϕ) - sqrt(R^2 - (d * sin(ϕ))^2) - R
+        return exp(-Δ) * sin(ϕ)
+    end
+
+    function measure_coverage(sample_shere_center, nbr_sphere_centers, rad=1)
+        """
+        Measure the cumulative shadow intensity of neighboring spheres on a sample sphere.
+        inputs:
+            sample_shere_center (Array{Float64, 1}): center of the sample sphere
+            nbr_sphere_centers (Array{Array{Float64, 1}, 1}): centers of the neighboring spheres
+            rad (float): radius of the spheres
+        """
+        intsum = 0.0
+        for center in eachrow(nbr_sphere_centers)
+            d = norm(center .- sample_shere_center)
+            ϕ₀ = asin(rad / d)
+            integral, err = quadgk(ϕ -> coverage_integral(ϕ, rad, d), 0, ϕ₀)
+            intsum += integral
+        end
+
+        return 0.5 * intsum
     end
 end
