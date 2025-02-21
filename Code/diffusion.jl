@@ -6,8 +6,14 @@ __precompile__(false)
 
     using ArgCheck
     using CUDA
+    using CUDA.CUSPARSE
+    using CUDA.CUSOLVER
     using IterTools
-    # using StaticArrays
+    using Revise
+
+    include("./solver.jl")
+    Revise.includet("./solver.jl")
+    using .Solver
 
     export permeation_time_dependent_analytical
     export diffusion_time_dependent_analytical_src
@@ -15,6 +21,7 @@ __precompile__(false)
     export diffusion_time_dependent_GPU
     export diffusion_time_dependent_GPU_low_res
     export diffusion_time_dependent_GPU_hi_res
+    export diffusion_time_dependent_GPU_hi_res_implicit
     
     # ===== ANALYTICAL SOLUTIONS =====
     function permeation_time_dependent_analytical(c_in, c_out, t, Ps, A, V; alpha=1.0)
@@ -73,284 +80,6 @@ __precompile__(false)
     end
 
     # ===== NUMERICAL SOLUTIONS =====
-    function invoke_smart_kernel_3D(size, threads_per_block=(8, 8, 8))
-        """
-        Invoke a kernel with the appropriate number of blocks and threads per block.
-        """
-        blocks_per_grid = (Int(round(size[1] / threads_per_block[1])),
-                           Int(round(size[2] / threads_per_block[2])),
-                           Int(round(size[3] / threads_per_block[3])))
-        return blocks_per_grid, threads_per_block
-    end
-
-    function max_reduce_kernel(a, b)
-        return max(a, b)
-    end
-
-    function update_GPU!(c_old, c_new, N, H, dtdx2, D, Db, spore_idx, neumann_z)
-        """
-        Update the concentration values on the lattice
-        using the time-dependent diffusion equation.
-        inputs:
-            c_old (array) - the current state of the lattice
-            c_new (array) - the updated state of the lattice
-            N (int) - the number of lattice rows/columns
-            H (int) - the number of lattice layers
-            dtdx2 (float) - the update factor
-            D (float) - the diffusion constant
-            Db (float) - the diffusion constant through the spore
-            spore_idx (tuple) - the indices of the spore location
-            neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction
-        """
-        i, j, k = CUDA.blockIdx().x, CUDA.blockIdx().y, CUDA.blockIdx().z
-        ti, tj, tk = CUDA.threadIdx().x, CUDA.threadIdx().y, CUDA.threadIdx().z
-    
-        # Determine the indices of the current cell
-        idx = ((i - 1) * blockDim().x + ti, (j - 1) * blockDim().y + tj, (k - 1) * blockDim().z + tk)
-    
-        # Update the concentration value
-        if 1 ≤ idx[1] ≤ N && 1 ≤ idx[2] ≤ N && 1 ≤ idx[3] ≤ H
-            
-            center = c_old[idx...]
-            bottom = c_old[idx[1], idx[2], mod1(idx[3] - 1, H)]
-            top = c_old[idx[1], idx[2], mod1(idx[3] + 1, H)]
-            left = c_old[idx[1], mod1(idx[2] - 1, N), idx[3]]
-            right = c_old[idx[1], mod1(idx[2] + 1, N), idx[3]]
-            front = c_old[mod1(idx[1] - 1, N), idx[2], idx[3]]
-            back = c_old[mod1(idx[1] + 1, N), idx[2], idx[3]]
-
-            # Neumann boundary conditions in the z-direction
-            if neumann_z
-                if idx[3] == 1
-                    bottom = center
-                elseif idx[3] == H
-                    top = center
-                end
-            end
-
-            spore_dist_vec = (idx[1] - spore_idx[1], idx[2] - spore_idx[2], idx[3] - spore_idx[3])
-            at_spore = spore_dist_vec == (0, 0, 0)
-            Ddtdx2bottom = spore_dist_vec == (0, 0, 1) || at_spore ? Db * dtdx2 : D * dtdx2
-            Ddtdx2top = spore_dist_vec == (0, 0, -1) || at_spore ? Db * dtdx2 : D * dtdx2
-            Ddtdx2left = spore_dist_vec == (0, 1, 0) || at_spore ? Db * dtdx2 : D * dtdx2
-            Ddtdx2right = spore_dist_vec == (0, -1, 0) || at_spore ? Db * dtdx2 : D * dtdx2
-            Ddtdx2front = spore_dist_vec == (1, 0, 0) || at_spore ? Db * dtdx2 : D * dtdx2
-            Ddtdx2back = spore_dist_vec == (-1, 0, 0) || at_spore ? Db * dtdx2 : D * dtdx2
-
-            weighted_nbrs = Ddtdx2bottom * bottom + Ddtdx2top * top +
-                Ddtdx2left * left + Ddtdx2right * right +
-                Ddtdx2front * front + Ddtdx2back * back
-
-            c_new[idx...] = center + weighted_nbrs - (Ddtdx2bottom + Ddtdx2top + Ddtdx2left + Ddtdx2right + Ddtdx2front + Ddtdx2back) * center
-        end
-    
-        return nothing
-    end
-
-    function update_GPU_low_res!(c_old, c_new, N, H, inv_dx2, D, spore_vol_idx, c_spore, inv_tau, dt, neumann_z)
-        """
-        Update the concentration values on the lattice
-        using the time-dependent diffusion equation.
-        inputs:
-            c_old (array) - the current state of the lattice
-            c_new (array) - the updated state of the lattice
-            N (int) - the number of lattice rows/columns
-            H (int) - the number of lattice layers
-            inv_dx2 (float) - inverse of the squared spatial increment
-            D (float) - the diffusion constant
-            spore_vol_idx (tuple) - the indices of the volume containing the spore location
-            c_spore (array) - the concentration at the spore (only nonzero at the spore location)
-            inv_tau (float) - reciprocal of the characteristic time for permeation
-            dt (float) - timestep
-            neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction
-        """
-        i, j, k = CUDA.blockIdx().x, CUDA.blockIdx().y, CUDA.blockIdx().z
-        ti, tj, tk = CUDA.threadIdx().x, CUDA.threadIdx().y, CUDA.threadIdx().z
-    
-        # Determine the indices of the current cell
-        idx = ((i - 1) * blockDim().x + ti, (j - 1) * blockDim().y + tj, (k - 1) * blockDim().z + tk)
-        
-        # Factors
-        dtdx2 = dt * inv_dx2
-        dttau = dt * inv_tau
-
-        # Update the concentration value
-        if 1 ≤ idx[1] ≤ N && 1 ≤ idx[2] ≤ N && 1 ≤ idx[3] ≤ H
-
-            center = c_old[idx...]
-            bottom = c_old[idx[1], idx[2], mod1(idx[3] - 1, H)]
-            top = c_old[idx[1], idx[2], mod1(idx[3] + 1, H)]
-            left = c_old[idx[1], mod1(idx[2] - 1, N), idx[3]]
-            right = c_old[idx[1], mod1(idx[2] + 1, N), idx[3]]
-            front = c_old[mod1(idx[1] - 1, N), idx[2], idx[3]]
-            back = c_old[mod1(idx[1] + 1, N), idx[2], idx[3]]
-
-            # Neumann boundary conditions in the z-direction
-            if neumann_z
-                if idx[3] == 1
-                    bottom = center
-                elseif idx[3] == H
-                    top = center
-                end
-            end
-
-            # Special handling of spore-containing volume
-            if idx[1] == spore_vol_idx[1] && idx[2] == spore_vol_idx[2] && idx[3] == spore_vol_idx[3]
-                delta_c_half = (c_spore[idx...] - center) * (1 - 0.5 * dttau)
-                c_new[idx...] = center + D * dtdx2 * (bottom + top + left + right + front + back - 6 * center) + dttau * delta_c_half
-                c_spore[idx...] = c_new[idx...] + delta_c_half * (1 - 0.5 * dttau)
-            else
-                c_new[idx...] = center + D * dtdx2 * (bottom + top + left + right + front + back - 6 * center)
-            end
-        end
-
-        return nothing
-    end
-
-    @inline function device_norm3_sq(v::NTuple{3, Int})
-        s = v[1]*v[1] + v[2]*v[2] + v[3]*v[3]
-        return s
-    end
-
-    function update_GPU_hi_res!(lattice_old, lattice_new, N, H, dtdx2, D, Db, Deff, neumann_z)
-        """
-        Update the concentration values on the lattice
-        using the time-dependent diffusion equation.
-        inputs:
-            lattice_old (array) - the current state of the lattice (concentrations + region IDs)
-            lattice_new (array) - the updated state of the lattice (concentrations + region IDs)
-            N (int) - the number of lattice rows/columns
-            H (int) - the number of lattice layers
-            dtdx2 (float) - the update factor
-            D (float) - the diffusion constant
-            Db (float) - the diffusion constant through the spore
-            Deff (float) - the effective diffusion constant at the spore interface
-            neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction
-        """
-        i, j, k = CUDA.blockIdx().x, CUDA.blockIdx().y, CUDA.blockIdx().z
-        ti, tj, tk = CUDA.threadIdx().x, CUDA.threadIdx().y, CUDA.threadIdx().z
-    
-        # Determine the indices of the current cell
-        idx = ((i - 1) * blockDim().x + ti, (j - 1) * blockDim().y + tj, (k - 1) * blockDim().z + tk)
-
-        # Update the concentration value
-        if 1 ≤ idx[1] ≤ N && 1 ≤ idx[2] ≤ N && 1 ≤ idx[3] ≤ H
-
-            # Decode spore indices
-            if lattice_old[idx...] < 10
-                # Exterior site
-                region_id = 0
-                center = lattice_old[idx...]
-            elseif lattice_old[idx...] < 100
-                # Cell wall
-                region_id = 1
-                center = rem(lattice_old[idx...], 10)
-            else
-                # Interior site
-                lattice_new[idx...] = lattice_old[idx...]
-                return nothing
-            end
-            
-            bottom = lattice_old[idx[1], idx[2], mod1(idx[3] - 1, H)]
-            top = lattice_old[idx[1], idx[2], mod1(idx[3] + 1, H)]
-            left = lattice_old[idx[1], mod1(idx[2] - 1, N), idx[3]]
-            right = lattice_old[idx[1], mod1(idx[2] + 1, N), idx[3]]
-            front = lattice_old[mod1(idx[1] - 1, N), idx[2], idx[3]]
-            back = lattice_old[mod1(idx[1] + 1, N), idx[2], idx[3]]
-
-            diff_bottom, diff_top, diff_left, diff_right, diff_front, diff_back = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
-
-            if region_id == 0 # Exterior site
-                # Check bottom neighbour
-                if bottom < 10 # Exterior - exterior
-                    diff_bottom = D * (bottom - center)
-                elseif bottom < 100 # Exterior - cell wall
-                    diff_bottom = Deff * (rem(bottom, 10) - center)
-                end
-                # Check top neighbour
-                if top < 10 # Exterior - exterior
-                    diff_top = D * (top - center)
-                elseif top < 100 # Exterior - cell wall
-                    diff_top = Deff * (rem(top, 10) - center)
-                end
-                # Check left neighbour
-                if left < 10 # Exterior - exterior
-                    diff_left = D * (left - center)
-                elseif left < 100 # Exterior - cell wall
-                    diff_left = Deff * (rem(left, 10) - center)
-                end
-                # Check right neighbour
-                if right < 10 # Exterior - exterior
-                    diff_right = D * (right - center)
-                elseif right < 100 # Exterior - cell wall
-                    diff_right = Deff * (rem(right, 10) - center)
-                end
-                # Check front neighbour
-                if front < 10 # Exterior - exterior
-                    diff_front = D * (front - center)
-                elseif front < 100 # Exterior - cell wall
-                    diff_front = Deff * (rem(front, 10) - center)
-                end
-                # Check back neighbour
-                if back < 10 # Exterior - exterior
-                    diff_back = D * (back - center)
-                elseif back < 100 # Exterior - cell wall
-                    diff_back = Deff * (rem(back, 10) - center)
-                end
-            elseif region_id == 1 # Cell wall site
-                # Check bottom neighbour
-                if bottom < 10 # Cell wall - exterior
-                    diff_bottom = Deff * (bottom - center)
-                elseif bottom < 100 # Cell wall - cell wall
-                    diff_bottom = Db * (rem(bottom, 10) - center)
-                end
-                # Check top neighbour
-                if top < 10 # Cell wall - exterior
-                    diff_top = Deff * (top - center)
-                elseif top < 100 # Cell wall - cell wall
-                    diff_top = Db * (rem(top, 10) - center)
-                end
-                # Check left neighbour
-                if left < 10 # Cell wall - exterior
-                    diff_left = Deff * (left - center)
-                elseif left < 100 # Cell wall - cell wall
-                    diff_left = Db * (rem(left, 10) - center)
-                end
-                # Check right neighbour
-                if right < 10 # Cell wall - exterior
-                    diff_right = Deff * (right - center)
-                elseif right < 100 # Cell wall - cell wall
-                    diff_right = Db * (rem(right, 10) - center)
-                end
-                # Check front neighbour
-                if front < 10 # Cell wall - exterior
-                    diff_front = Deff * (front - center)
-                elseif front < 100 # Cell wall - cell wall
-                    diff_front = Db * (rem(front, 10) - center)
-                end
-                # Check back neighbour
-                if back < 10 # Cell wall - exterior
-                    diff_back = Deff * (back - center)
-                elseif back < 100 # Cell wall - cell wall
-                    diff_back = Db * (rem(back, 10) - center)
-                end
-            # else # Interior site
-            #     return nothing
-            end
-
-            c_new = center + dtdx2 * (diff_bottom + diff_top + diff_left + diff_right + diff_front + diff_back)
-
-            if region_id == 0
-                lattice_new[idx...] = c_new
-            elseif region_id == 1
-                lattice_new[idx...] = 10.0 + c_new
-            end
-        end
-        
-        return nothing
-    end
-
-
     function diffusion_time_dependent_GPU(c_init, t_max; D=1.0, Db=nothing, Ps=1.0, dt=0.005, dx=5, n_save_frames=100,
         spore_idx=nothing, spore_idx_spacing=nothing, c_thresholds=nothing, neumann_z=false)
         """
@@ -632,6 +361,7 @@ __precompile__(false)
         # D = Float32(D)
         # Db = Float32(Db)
         # Deff = Float32(Deff)
+        println("D*dt/dx2 = $(D*dtdx2), Db*dt/dx2 = $(Db*dtdx2), Deff*dt/dx2 = $(Deff*dtdx2)")
 
         # Check stability
         if D * dtdx2 ≥ 0.2
@@ -749,5 +479,117 @@ __precompile__(false)
         # println(maximum(c_evolution[save_ct, :, :]))
 
         return c_evolution, times, region_ids, t_thresholds
+    end
+
+    function diffusion_time_dependent_GPU_hi_res_implicit(c_init, c₀, sp_cen_indices, spore_rad, t_max; D=1.0, Db=1.0, dt=0.005, dx=0.2, n_save_frames=100,
+        c_thresholds=nothing, neumann_z=false)
+        """
+        Compute the evolution of a square lattice of concentration scalars
+        based on the time-dependent diffusion equation using the Crank–Nicolson method.
+        inputs:
+            c_init (vector of float) - the initial state of the lattice
+            c₀ (float) - the initial concentration at the spore
+            sp_cen_indices (array of tuples) - the indices of the spore locations
+            spore_rad (float) - the radius of the spore
+            t_max (int) - a maximum number of iterations
+            D (float) - the diffusion constant; defaults to 1
+            Db (float) - the diffusion constant through the spore cell wall; defaults to 1
+            dt (float) - timestep; defaults to 0.001
+            dx (float) - spatial increment; defaults to 0.005
+            n_save_frames (int) - determines the number of frames to save during the simulation; detaults to 100
+            c_thresholds (vector of float) - threshold values for the concentration; defaults to nothing
+            neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction; defaults to false
+        outputs:
+            c_evolotion (array) - the states of the lattice at all moments in time
+            times (array) - the times at which the states were saved
+            t_thresholds (array) - the times at which the concentration crossed the threshold
+        """
+
+        @assert length(sp_cen_indices[1]) == 3 "spore_idx must be a 3D array"
+        @assert typeof(sp_cen_indices[1]) == Tuple{Int, Int, Int} "spore_idx must be an array of tuples"
+
+        GC.gc()
+
+        # Determine number of lattice rows/columns
+        N = size(c_init)[1]
+        H = size(c_init)[3]
+
+        @assert spore_rad < N * dx && spore_rad < H * dx "spore_rad must be less than N and H"
+
+        # Save update factor
+        dtdx2 = dt / (dx^2)
+
+        # Compute effective diffusion constant at interface
+        Deff = 2 * D * Db / (D + Db)
+        println("Using D = $D, Db = $Db, Deff = $Deff")
+        println("D*dt/dx2 = $(D*dtdx2), Db*dt/dx2 = $(Db*dtdx2), Deff*dt/dx2 = $(Deff*dtdx2)")
+
+        # Radus in lattice units
+        spore_rad_lattice = spore_rad / dx
+        println("Spore radius in lattice units: ", spore_rad_lattice)
+
+        # Initialise concentrations and operators
+        op_A, op_B, region_ids = initialise_lattice_and_build_operator!(c_init, c₀, sp_cen_indices, spore_rad_lattice, D, Db, Deff, dtdx2)
+
+        # Determine number of frames
+        n_frames = Int(floor(t_max / dt))
+
+        # Allocate arrays for saving data
+        c_evolution = zeros(n_save_frames + 1, N, H) # Only a cross-section is saved
+        times = zeros(n_save_frames + 1)
+        println("Storage arrays allocated.")
+        save_interval = floor(n_frames / n_save_frames)
+        save_ct = 1
+
+        # Allocate arrays for saving threshold crossing times
+        if isnothing(c_thresholds)
+            t_thresholds = nothing
+        else
+            t_thresholds = zeros(length(c_thresholds))
+        end
+        thresh_ct = 0
+
+        # Initialise arrays on GPU
+        # c_gpu = CuArray(reshape(c_init, :, 1))
+        # op_A_gpu = CuSparseMatrixCSR(op_A)
+        # op_B_gpu = CuSparseMatrixCSR(op_B)
+        c_gpu = cu(reshape(c_init, :, 1))
+        op_A_gpu = cu(op_A)
+        op_B_gpu = cu(op_B)
+        # region_ids_gpu = cu(region_ids)
+
+        # kernel_blocks, kernel_threads = invoke_smart_kernel_3D(size(c_init))
+
+        # Run the simulation
+        for t in 1:n_frames
+
+            # println("Frame $t")
+
+            # Save frame
+            if (t - 1) % save_interval == 0 && save_ct ≤ n_save_frames
+                c_evolution[save_ct, :, :] .= reshape(Array(c_gpu), (N, N, H))[:, N ÷ 2, :]
+                times[save_ct] = t * dt
+                println("Frame $save_ct saved.")
+                save_ct += 1
+            end
+
+            # Update the lattice
+            # c_gpu = op_B_gpu \ (op_A_gpu * c_gpu)
+            c_gpu = CUDA.CUSOLVER.csrlsvqr!(op_A_gpu, op_B_gpu, c_gpu, tol=1e-6) 
+
+            # Check for threshold crossing
+            if !isnothing(c_thresholds)
+                if thresh_ct < length(t_thresholds) && t_thresholds[thresh_ct] == 0 && CUDA.reduce(max_reduce_kernel, c_gpu) < c_thresholds[thresh_ct]
+                    t_thresholds[thresh_ct] = t * dt
+                    thresh_ct += 1
+                end
+            end
+        end
+
+        # Save final frame
+        c_evolution[save_ct, :, :] .= reshape(Array(c_gpu), (N, N, H))[:, N ÷ 2, :]
+        times[save_ct] = t_max
+
+        return c_evolution, times, region_ids[:, N ÷ 2, :], t_thresholds
     end
 end

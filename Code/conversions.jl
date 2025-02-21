@@ -19,6 +19,8 @@ module Conversions
         Convert milliliters to micrometers cubed.
         inputs:
             mL (float): volume in milliliters
+        outputs:
+            (float) volume in micrometers cubed
         """
         return mL * 1e12
     end
@@ -28,6 +30,8 @@ module Conversions
         Convert inverse milliliters to inverse micrometers cubed.
         inputs:
             mL_inv (float): volume in inverse milliliters
+        outputs:
+            (float) volume in inverse micrometers cubed
         """
         return mL_inv * 1e-12
     end
@@ -37,6 +41,8 @@ module Conversions
         Convert inverse micrometers cubed to inverse milliliters.
         inputs:
             microns_cubed_inv (float): number density in inverse micrometers cubed
+        outputs:
+            (float) number density in inverse milliliters
         """
         return cubic_um_inv * 1e12
     end
@@ -46,6 +52,8 @@ module Conversions
         Convert inverse milliliters to inverse micrometers cubed.
         inputs:
             uL_inv (float): number density in inverse microliters
+        outputs:
+            (float) number density in inverse milliliters
         """
         return uL_inv * 1000
     end
@@ -57,6 +65,8 @@ module Conversions
             D (float): diffusion coefficient in micrometers squared per second
             K (float): partition coefficient
             d (float): thickness of the membrane in micrometers
+        outputs:
+            (float) permeation constant in micrometers per second
         """
         return D * K / d
     end
@@ -68,6 +78,8 @@ module Conversions
             Ps (float): permeability in micrometers per second
             K (float): partition coefficient
             d (float): thickness of the membrane in micrometers
+        outputs:
+            (float) diffusion constant in micrometers squared per second
         """
         return Ps * d / K
     end
@@ -79,6 +91,8 @@ module Conversions
             phi (float): vertical angle in radians
             R (float): radius of the sphere
             d (float): distance between the centers of the spheres
+        outputs:
+            (float) coverage function value
         """
         Δ = d * cos(ϕ) - sqrt(R^2 - (d * sin(ϕ))^2) - R
         return exp(-Δ) * sin(ϕ)
@@ -91,6 +105,8 @@ module Conversions
             sample_shere_center (Array{Float64, 1}): center of the sample sphere
             nbr_sphere_centers (Array{Array{Float64, 1}, 1}): centers of the neighboring spheres
             rad (float): radius of the spheres
+        outputs:
+            (float) cumulative shadow intensity
         """
         intsum = 0.0
         for center in eachrow(nbr_sphere_centers)

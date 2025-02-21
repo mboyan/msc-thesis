@@ -22,6 +22,8 @@ __precompile__(false)
             N (int): number of spheres
             spore_rad (float): radius of the spores
             cut_half (bool): whether to cut the cluster in half
+        outputs:
+            spore_centers (Array): centers of the spores
         """
 
         @argcheck n_nbrs in [2, 3, 4, 6, 8, 12] "n_nbrs must be in [2, 3, 4, 6, 8, 12]"

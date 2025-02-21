@@ -34,9 +34,12 @@ __precompile__(false)
             n_rows (int): number of rows
             n_cols (int): number of columns
             figsize (Tuple): figure size
+        outputs:
+            fig (Figure): figure object
+            axs (Array): axes objects
         """
         fig, axs = subplots(n_rows, n_cols, figsize=figsize)
-        axs = reshape(axs, length(axs))
+        axs = reshape(permutedims(axs, (2, 1)), length(axs))
         return fig, axs
     end
 
@@ -49,6 +52,9 @@ __precompile__(false)
             n_cols (int): number of columns
             figsize (Tuple): figure size
             _3D (bool): whether to plot in 3D
+        outputs:
+            fig (Figure): figure object
+            axs (Array): axes objects
         """
         fig = GLMakie.Figure(size=figsize)
         if _3D
@@ -66,7 +72,7 @@ __precompile__(false)
                 end
             end
         end
-        axs = reshape(axs, length(axs))
+        axs = reshape(permutedims(axs, (2, 1)), length(axs))
         return fig, axs
     end
 
@@ -81,6 +87,8 @@ __precompile__(false)
             inline (bool): whether to display the plot inline
             title (str): title of the plot
             ax (Axis): axis to plot on
+        outputs:
+            ax (Axis): axis object
         """
 
         if inline
@@ -133,6 +141,7 @@ __precompile__(false)
             spore_rad (float): radius of the spores
             L (int): size of the domain
             per_row (int): number of plots per row
+            cut_half (bool): whether to cut the cluster in half
         """
 
         n_rows = ceil(Int, length(cluster_sizes) / per_row)
@@ -178,7 +187,8 @@ __precompile__(false)
         
         fig, axs = subplots(n_rows, 2, figsize=(8, 4*n_rows))
         # Flatten axes
-        axs = reshape(axs, length(axs))
+        println(typeof(axs))
+        axs = reshape(permutedims(axs, (2, 1)), length(axs))
         img = nothing
         for i in 1:size(c_frames)[1]
             if !isnothing(times) && !isnothing(frame_indices)
