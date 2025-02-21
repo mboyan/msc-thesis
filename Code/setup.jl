@@ -12,7 +12,7 @@ __precompile__(false)
 
     export setup_spore_cluster
 
-    function setup_spore_cluster(n_nbrs::Int, N::Int, spore_rad::Float64)
+    function setup_spore_cluster(n_nbrs::Int, N::Int, spore_rad::Float64, cut_half::Bool=false)
         """
         Compute the centers of a cluster of spheres,
         one placed in the center of the lattice and the rest
@@ -20,6 +20,8 @@ __precompile__(false)
         inputs:
             n_nbrs (int): number of neighbors
             N (int): number of spheres
+            spore_rad (float): radius of the spores
+            cut_half (bool): whether to cut the cluster in half
         """
 
         @argcheck n_nbrs in [2, 3, 4, 6, 8, 12] "n_nbrs must be in [2, 3, 4, 6, 8, 12]"
@@ -39,8 +41,8 @@ __precompile__(false)
             # Three neighbours at equilateral triangle
             for i in 1:3
                 spore_centers[i + 1, :] = [center[1] + spore_dia * cos(2 * π * i / 3),
-                                           center[2] + spore_dia * sin(2 * π * i / 3),
-                                           center[3]]
+                                           center[2],
+                                           center[3] + spore_dia * sin(2 * π * i / 3)]
             end
         elseif n_nbrs == 4
             # Four neighbours at tetrahedron vertices
@@ -78,6 +80,12 @@ __precompile__(false)
                 coordshift = circshift(coords, floor(Int, i/4))
                 spore_centers[i + 1, :] = center .+ coordshift
             end
+        end
+
+        # Take only the upper half of the cluster`
+        if cut_half
+            mask = spore_centers[:, 3] .≤ center[3]
+            spore_centers = spore_centers[mask, :]
         end
 
         return spore_centers

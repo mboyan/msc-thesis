@@ -125,7 +125,7 @@ __precompile__(false)
     end
 
 
-    function plot_spore_clusters(cluster_sizes, spore_rad, L, per_row=2; savefig=false)
+    function plot_spore_clusters(cluster_sizes, spore_rad, L, per_row=2; cut_half=false)
         """
         Create multiple plots for a range of spore cluster sizes.
         inputs:
@@ -133,7 +133,6 @@ __precompile__(false)
             spore_rad (float): radius of the spores
             L (int): size of the domain
             per_row (int): number of plots per row
-            save (bool): whether to save the plots
         """
 
         n_rows = ceil(Int, length(cluster_sizes) / per_row)
@@ -141,15 +140,11 @@ __precompile__(false)
         fig, axs = generate_grid_layout_glmakie(n_rows, per_row, (800, 400*n_rows), true)
 
         for (i, cluster_size) in enumerate(cluster_sizes)
-            centers = setup_spore_cluster(cluster_size, L, spore_rad)
+            centers = setup_spore_cluster(cluster_size, L, spore_rad, cut_half)
             sample_sphere_center = centers[1, :]
             nbr_sphere_centers = centers[2:end, :]
             coverage = measure_coverage(sample_sphere_center, nbr_sphere_centers, spore_rad)
-            plot_spheres!(centers, spore_rad, L, inline=true, title="Cluster size: $cluster_size + 1, Q = $(round(coverage,digits=5))", ax=axs[i])
-        end
-
-        if savefig
-            save("./spore_clusters.png", fig)
+            plot_spheres!(centers, spore_rad, L, inline=true, title="Cluster size: $(size(nbr_sphere_centers)[1]) + 1, Q = $(round(coverage,digits=5))", ax=axs[i])
         end
 
         display(fig)
