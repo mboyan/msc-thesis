@@ -8,6 +8,10 @@ __precompile__(false)
     using CUDA
     using CUDA.CUSPARSE
     using CUDA.CUSOLVER
+    using IterativeSolvers
+    using Krylov
+    # using AMGX
+    using LinearAlgebra
     using IterTools
     using Revise
 
@@ -510,6 +514,10 @@ __precompile__(false)
 
         GC.gc()
 
+        # Preconditioner
+        # AMGX.initialize()
+        # cfg = AMGX.Config("config_version=2, solver(amg_solver, algorithm=AGGREGATION, presweeps=2, postsweeps=2)")
+
         # Determine number of lattice rows/columns
         N = size(c_init)[1]
         H = size(c_init)[3]
@@ -551,12 +559,20 @@ __precompile__(false)
 
         # Initialise arrays on GPU
         # c_gpu = CuArray(reshape(c_init, :, 1))
-        # op_A_gpu = CuSparseMatrixCSR(op_A)
-        # op_B_gpu = CuSparseMatrixCSR(op_B)
+        # println(typeof(op_A))
+        # println(typeof(op_B))
+        op_A_gpu = CuSparseMatrixCSR(op_A)
+        op_B_gpu = CuSparseMatrixCSR(op_B)
         c_gpu = cu(reshape(c_init, :, 1))
-        op_A_gpu = cu(op_A)
-        op_B_gpu = cu(op_B)
+        println(typeof(c_gpu))
+        println(typeof(op_A_gpu))
+        println(typeof(op_B_gpu))
+        # op_A_gpu = cu(op_A)
+        # op_B_gpu = cu(op_B)
         # region_ids_gpu = cu(region_ids)
+
+        # Create Preconditioner
+        # P = AMGX.Preconditioner(cfg, A_gpu)
 
         # kernel_blocks, kernel_threads = invoke_smart_kernel_3D(size(c_init))
 
@@ -575,7 +591,26 @@ __precompile__(false)
 
             # Update the lattice
             # c_gpu = op_B_gpu \ (op_A_gpu * c_gpu)
-            c_gpu = CUDA.CUSOLVER.csrlsvqr!(op_A_gpu, op_B_gpu, c_gpu, tol=1e-6) 
+            # c_gpu .= CUDA.CUSOLVER.csrlsvqr!(op_A_gpu, (op_B_gpu *  c_gpu), tol=Float32(1e-6))
+            b_gpu = op_B_gpu * c_gpu  # Right-hand side
+            # c_gpu = CUDA.CUSOLVER.cg(op_A_gpu, b_gpu; abstol=1e-12, maxiter=1000)
+            # c_gpu = cg(op_A_gpu, b_gpu; M=P, tol=1e-12, maxiter=1000)
+
+            # Extract the diagonal of the sparse matrix
+            # diagonal_elements = CUDA.sparse(diagm(1, op_A_gpu))  # Convert sparse matrix to dense
+
+            # # Make sure it's in the correct type (Float32)
+            # diagonal_elements = Float32.(diagonal_elements)
+
+            # # Replace zero values with a small value to avoid division by zero
+            # diagonal_elements_safe = ifelse.(diagonal_elements .== 0, 1e-6f0, diagonal_elements)
+
+            # # Now build the preconditioner with the safe diagonal
+            # M_gpu = diagm(1.0f0 ./ diagonal_elements_safe)  # Ensure Float32 division
+
+            # Solve with CG + Jacobi Preconditioning
+            # c_gpu, history = cg(A_gpu, b_gpu; maxiter=1000, abstol=1e-6)
+            c_gpu_stats = Krylov.cg(op_A_gpu, b_gpu; tol=1e-6, maxiter=1000)
 
             # Check for threshold crossing
             if !isnothing(c_thresholds)
@@ -589,6 +624,8 @@ __precompile__(false)
         # Save final frame
         c_evolution[save_ct, :, :] .= reshape(Array(c_gpu), (N, N, H))[:, N ÷ 2, :]
         times[save_ct] = t_max
+
+        # AMGX.finalize()
 
         return c_evolution, times, region_ids[:, N ÷ 2, :], t_thresholds
     end

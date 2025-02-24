@@ -407,8 +407,8 @@ module Solver
         H = size(c_init)[3]
         Nt = N * N * H
 
-        op_A = spzeros(Nt, Nt)
-        op_B = spzeros(Nt, Nt)
+        op_A = spzeros(Float32, Nt, Nt)
+        op_B = spzeros(Float32, Nt, Nt)
         region_ids = zeros(Int, N, N, H)
 
         ddia = sqrt(2)
@@ -419,7 +419,7 @@ module Solver
         for i in 1:N, j in 1:N, k in 1:H
 
             idx = lin_idx(i, j, k, N, H)
-            diag_val = 0.0
+            diag_val = 0f0
 
             vneum_nbrs = [(i, j, mod1(k - 1, H)), (i, j, mod1(k + 1, H)),
                         (i, mod1(j - 1, N), k), (i, mod1(j + 1, N), k),
@@ -458,22 +458,22 @@ module Solver
                         
                         n_idx = lin_idx(ni, nj, nk, N, H)
                         dist = norm([ni - sp_cen_idx[1] - 1, nj- sp_cen_idx[2] - 1, nk - sp_cen_idx[3] - 1])
-                        coeff = 0.0
+                        coeff = 0f0
 
                         if spore_rad_lattice - ddia ≤ dist ≤ spore_rad_lattice
                             # Cell wall neighbour
                             if region_id == 0 # Exterior - cell wall
-                                coeff = Deff * dtdx2 * 0.5
+                                coeff = Deff * dtdx2 * 0f5
                             elseif region_id == 1 # Cell wall - cell wall
-                                coeff = Db * dtdx2 * 0.5
+                                coeff = Db * dtdx2 * 0f5
                             end
 
                         elseif dist ≤ spore_rad_lattice - ddia
                             # Exterior neighbour
                             if region_id == 0 # Exterior - exterior
-                                coeff = D * dtdx2 * 0.5
+                                coeff = D * dtdx2 * 0f5
                             elseif region_id == 1 # Cell wall - exterior
-                                coeff = Deff * dtdx2 * 0.5
+                                coeff = Deff * dtdx2 * 0f5
                             end
                         end
 
