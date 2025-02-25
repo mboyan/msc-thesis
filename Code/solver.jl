@@ -384,7 +384,7 @@ module Solver
     end
 
 
-    function initialise_lattice_and_build_operator!(c_init, c₀, sp_cen_indices, spore_rad_lattice, D, Db, Deff, dtdx2)
+    function initialise_lattice_and_build_operator!(c_init, c₀, sp_cen_indices, spore_rad_lattice, D, Db, Deff, dtdx2, crank_nicolson=true)
         """
         Build operator sparse matrix for implicitly solving the diffusion equation
         using the Crank-Nicolson method.
@@ -397,6 +397,7 @@ module Solver
             Db (float) - the diffusion constant through the spore
             Deff (float) - the effective diffusion constant at the spore interface
             dtdx2 (float) - the update factor
+            crank_nicolson (bool) - whether the operators are suited for Crank-Nicolson method
         outputs:
             op_A (sparse matrix) - the operator matrix A
             op_B (sparse matrix) - the operator matrix B
@@ -457,37 +458,59 @@ module Solver
                     for sp_cen_idx in sp_cen_indices
                         
                         n_idx = lin_idx(ni, nj, nk, N, H)
+                        # println("Index: $idx, Neighbour: $n_idx")
                         dist = norm([ni - sp_cen_idx[1] - 1, nj- sp_cen_idx[2] - 1, nk - sp_cen_idx[3] - 1])
                         coeff = 0f0
 
                         if spore_rad_lattice - ddia ≤ dist ≤ spore_rad_lattice
                             # Cell wall neighbour
                             if region_id == 0 # Exterior - cell wall
-                                coeff = Deff * dtdx2 * 0f5
+                                coeff = Float32(Deff * dtdx2 * 0.5)
                             elseif region_id == 1 # Cell wall - cell wall
-                                coeff = Db * dtdx2 * 0f5
+                                coeff = Float32(Db * dtdx2 * 0.5)
                             end
 
                         elseif dist ≤ spore_rad_lattice - ddia
                             # Exterior neighbour
                             if region_id == 0 # Exterior - exterior
-                                coeff = D * dtdx2 * 0f5
+                                coeff = Float32(D * dtdx2 * 0.5)
                             elseif region_id == 1 # Cell wall - exterior
-                                coeff = Deff * dtdx2 * 0f5
+                                coeff = Float32(Deff * dtdx2 * 0.5)
                             end
                         end
 
                         diag_val += coeff
                         op_A[idx, n_idx] = - coeff
-                        op_B[idx, n_idx] = coeff
+                        op_B[idx, n_idx] = coeff #crank_nicolson ? coeff : 0f0
+                        # if crank_nicolson
+                        #     op_B[idx, n_idx] = coeff
+                        # else
+                        #     op_B[idx, n_idx] = 0f0
+                        # end
                     end
                 end
-
-                op_A[idx, idx] = 1 + diag_val 
-                op_B[idx, idx] = 1 - diag_val
             end
+
+            op_A[idx, idx] = 1 + diag_val 
+            op_B[idx, idx] = 1 - diag_val
         end
         println("Concentrations initialised.")
+
+        # Check if matrices are singular
+        if iszero(det(op_A))
+            println("Matrix A is singular.")
+        end
+        if iszero(det(op_B))
+            println("Matrix B is singular.")
+        end
+
+        # Check if non-diagonal elements are non-zero
+        if iszero(sum(op_A) - sum(diag(op_A)))
+            println("Matrix A has all zero non-diagonal elements.")
+        end
+        if iszero(sum(op_B) - sum(diag(op_B)))
+            println("Matrix B has all zero non-diagonal elements.")
+        end
 
         return op_A, op_B, region_ids
     end

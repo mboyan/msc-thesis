@@ -229,6 +229,7 @@ __precompile__(false)
 
         # Mask the cell wall region and take the average concentration
         c_cell_wall = c_frames .* (region_ids .== 1)
+        c_max = maximum(c_cell_wall, dims=(2, 3))
         c_avg = sum(c_cell_wall, dims=(2, 3)) ./ sum(region_ids .== 1)
 
         fig, ax = subplots(1, 1, figsize=(8, 4))

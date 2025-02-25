@@ -8,7 +8,8 @@ __precompile__(false)
     using CUDA
     using CUDA.CUSPARSE
     using CUDA.CUSOLVER
-    using IterativeSolvers
+    # using IterativeSolvers
+    # using LinearMaps
     using Krylov
     # using AMGX
     using LinearAlgebra
@@ -485,11 +486,16 @@ __precompile__(false)
         return c_evolution, times, region_ids, t_thresholds
     end
 
+    function gpu_matvec(x)
+        return op_A_gpu * x  # Sparse matrix-vector multiplication on GPU
+    end
+
     function diffusion_time_dependent_GPU_hi_res_implicit(c_init, c₀, sp_cen_indices, spore_rad, t_max; D=1.0, Db=1.0, dt=0.005, dx=0.2, n_save_frames=100,
-        c_thresholds=nothing, neumann_z=false)
+        c_thresholds=nothing, crank_nicolson=true, neumann_z=false)
         """
         Compute the evolution of a square lattice of concentration scalars
-        based on the time-dependent diffusion equation using the Crank–Nicolson method.
+        based on the time-dependent diffusion equation using the Crank–Nicolson
+        or the Backward Euler method.
         inputs:
             c_init (vector of float) - the initial state of the lattice
             c₀ (float) - the initial concentration at the spore
@@ -502,6 +508,7 @@ __precompile__(false)
             dx (float) - spatial increment; defaults to 0.005
             n_save_frames (int) - determines the number of frames to save during the simulation; detaults to 100
             c_thresholds (vector of float) - threshold values for the concentration; defaults to nothing
+            crank_nicolson (bool) - whether to use the Crank–Nicolson method, else uses Backward Euler; defaults to true
             neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction; defaults to false
         outputs:
             c_evolotion (array) - the states of the lattice at all moments in time
@@ -531,13 +538,14 @@ __precompile__(false)
         Deff = 2 * D * Db / (D + Db)
         println("Using D = $D, Db = $Db, Deff = $Deff")
         println("D*dt/dx2 = $(D*dtdx2), Db*dt/dx2 = $(Db*dtdx2), Deff*dt/dx2 = $(Deff*dtdx2)")
+        println("Timescale for accuracy: ", dx^2 / max([D, Db]...))
 
         # Radus in lattice units
         spore_rad_lattice = spore_rad / dx
         println("Spore radius in lattice units: ", spore_rad_lattice)
 
         # Initialise concentrations and operators
-        op_A, op_B, region_ids = initialise_lattice_and_build_operator!(c_init, c₀, sp_cen_indices, spore_rad_lattice, D, Db, Deff, dtdx2)
+        op_A, op_B, region_ids = initialise_lattice_and_build_operator!(c_init, c₀, sp_cen_indices, spore_rad_lattice, D, Db, Deff, dtdx2, false)
 
         # Determine number of frames
         n_frames = Int(floor(t_max / dt))
@@ -563,16 +571,7 @@ __precompile__(false)
         # println(typeof(op_B))
         op_A_gpu = CuSparseMatrixCSR(op_A)
         op_B_gpu = CuSparseMatrixCSR(op_B)
-        c_gpu = cu(reshape(c_init, :, 1))
-        println(typeof(c_gpu))
-        println(typeof(op_A_gpu))
-        println(typeof(op_B_gpu))
-        # op_A_gpu = cu(op_A)
-        # op_B_gpu = cu(op_B)
-        # region_ids_gpu = cu(region_ids)
-
-        # Create Preconditioner
-        # P = AMGX.Preconditioner(cfg, A_gpu)
+        c_gpu = cu(vec(c_init))
 
         # kernel_blocks, kernel_threads = invoke_smart_kernel_3D(size(c_init))
 
@@ -585,32 +584,15 @@ __precompile__(false)
             if (t - 1) % save_interval == 0 && save_ct ≤ n_save_frames
                 c_evolution[save_ct, :, :] .= reshape(Array(c_gpu), (N, N, H))[:, N ÷ 2, :]
                 times[save_ct] = t * dt
+                println(maximum(c_evolution[save_ct, :, :]))
                 println("Frame $save_ct saved.")
                 save_ct += 1
             end
 
             # Update the lattice
-            # c_gpu = op_B_gpu \ (op_A_gpu * c_gpu)
-            # c_gpu .= CUDA.CUSOLVER.csrlsvqr!(op_A_gpu, (op_B_gpu *  c_gpu), tol=Float32(1e-6))
-            b_gpu = op_B_gpu * c_gpu  # Right-hand side
-            # c_gpu = CUDA.CUSOLVER.cg(op_A_gpu, b_gpu; abstol=1e-12, maxiter=1000)
-            # c_gpu = cg(op_A_gpu, b_gpu; M=P, tol=1e-12, maxiter=1000)
-
-            # Extract the diagonal of the sparse matrix
-            # diagonal_elements = CUDA.sparse(diagm(1, op_A_gpu))  # Convert sparse matrix to dense
-
-            # # Make sure it's in the correct type (Float32)
-            # diagonal_elements = Float32.(diagonal_elements)
-
-            # # Replace zero values with a small value to avoid division by zero
-            # diagonal_elements_safe = ifelse.(diagonal_elements .== 0, 1e-6f0, diagonal_elements)
-
-            # # Now build the preconditioner with the safe diagonal
-            # M_gpu = diagm(1.0f0 ./ diagonal_elements_safe)  # Ensure Float32 division
-
-            # Solve with CG + Jacobi Preconditioning
-            # c_gpu, history = cg(A_gpu, b_gpu; maxiter=1000, abstol=1e-6)
-            c_gpu_stats = Krylov.cg(op_A_gpu, b_gpu; tol=1e-6, maxiter=1000)
+            b_gpu = crank_nicolson ? op_B_gpu * c_gpu : c_gpu#  # Right-hand side
+            # c_gpu .= CUDA.CUSOLVER.csrlsvqr!(op_A_gpu, b_gpu, c_gpu, Float32(1e-6), one(Cint), 'O')
+            c_gpu, stats = Krylov.cg(op_A_gpu, b_gpu; atol=Float32(1e-12), itmax=1000)
 
             # Check for threshold crossing
             if !isnothing(c_thresholds)
@@ -624,6 +606,7 @@ __precompile__(false)
         # Save final frame
         c_evolution[save_ct, :, :] .= reshape(Array(c_gpu), (N, N, H))[:, N ÷ 2, :]
         times[save_ct] = t_max
+        println(maximum(c_evolution[save_ct, :, :]))
 
         # AMGX.finalize()
 
