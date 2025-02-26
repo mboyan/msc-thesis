@@ -13,6 +13,7 @@ module Conversions
     export convert_D_to_Ps
     export convert_Ps_to_D
     export measure_coverage
+    export extract_mean_cw_concentration
 
     function mL_to_cubic_um(mL)
         """
@@ -128,6 +129,9 @@ module Conversions
         outputs:
             c_avg (Array{Float32, 1}): average concentrations
         """
+
+        # Add new axis to region_ids
+        region_ids = reshape(region_ids, 1, size(region_ids)[1], size(region_ids)[2])
 
         # Mask the cell wall region and take the average concentration
         c_cell_wall = c_frames .* (region_ids .== 1)
