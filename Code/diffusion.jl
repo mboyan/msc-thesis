@@ -486,9 +486,6 @@ __precompile__(false)
         return c_evolution, times, region_ids, t_thresholds
     end
 
-    function gpu_matvec(x)
-        return op_A_gpu * x  # Sparse matrix-vector multiplication on GPU
-    end
 
     function diffusion_time_dependent_GPU_hi_res_implicit(c_init, c₀, sp_cen_indices, spore_rad, t_max; D=1.0, Db=1.0, dt=0.005, dx=0.2, n_save_frames=100,
         c_thresholds=nothing, crank_nicolson=true, neumann_z=false)
@@ -545,7 +542,7 @@ __precompile__(false)
         println("Spore radius in lattice units: ", spore_rad_lattice)
 
         # Initialise concentrations and operators
-        op_A, op_B, region_ids = initialise_lattice_and_build_operator!(c_init, c₀, sp_cen_indices, spore_rad_lattice, D, Db, Deff, dtdx2, false)
+        op_A, op_B, region_ids = initialise_lattice_and_build_operator!(c_init, c₀, sp_cen_indices, spore_rad_lattice, D, Db, Deff, dtdx2, crank_nicolson)
 
         # Determine number of frames
         n_frames = Int(floor(t_max / dt))

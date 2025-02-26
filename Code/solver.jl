@@ -481,7 +481,7 @@ module Solver
 
                         diag_val += coeff
                         op_A[idx, n_idx] = - coeff
-                        op_B[idx, n_idx] = coeff #crank_nicolson ? coeff : 0f0
+                        op_B[idx, n_idx] = crank_nicolson ? coeff : 0f0
                         # if crank_nicolson
                         #     op_B[idx, n_idx] = coeff
                         # else

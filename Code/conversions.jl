@@ -118,4 +118,22 @@ module Conversions
 
         return 0.5 * intsum
     end
+
+    function extract_mean_cw_concentration(c_frames, region_ids)
+        """
+        Extract the mean concentration from the cell wall region.
+        inputs:
+            c_lattice (Array{Float64, 3}): concentration lattice
+            region_ids (Array{Int, 1}): region ids
+        outputs:
+            c_avg (Array{Float32, 1}): average concentrations
+        """
+
+        # Mask the cell wall region and take the average concentration
+        c_cell_wall = c_frames .* (region_ids .== 1)
+        c_avg = sum(c_cell_wall, dims=(2, 3)) ./ sum(region_ids .== 1)
+
+        return c_avg
+    end
+
 end

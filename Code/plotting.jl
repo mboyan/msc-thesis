@@ -228,9 +228,7 @@ __precompile__(false)
         region_ids = reshape(region_ids, 1, size(region_ids)[1], size(region_ids)[2])
 
         # Mask the cell wall region and take the average concentration
-        c_cell_wall = c_frames .* (region_ids .== 1)
-        c_max = maximum(c_cell_wall, dims=(2, 3))
-        c_avg = sum(c_cell_wall, dims=(2, 3)) ./ sum(region_ids .== 1)
+        c_avg = extract_mean_cw_concentration(c_frames, region_ids)
 
         fig, ax = subplots(1, 1, figsize=(8, 4))
         ax.plot(times, c_avg[:], label="Cell wall region")
