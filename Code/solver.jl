@@ -199,6 +199,12 @@ module Solver
             right = lattice_old[idx[1], mod1(idx[2] + 1, N), idx[3]]
             front = lattice_old[mod1(idx[1] - 1, N), idx[2], idx[3]]
             back = lattice_old[mod1(idx[1] + 1, N), idx[2], idx[3]]
+            # bottom = view(lattice_old, idx[1], idx[2], mod1(idx[3] - 1, H))
+            # top = view(lattice_old, idx[1], idx[2], mod1(idx[3] + 1, H))
+            # left = view(lattice_old, idx[1], mod1(idx[2] - 1, N), idx[3])
+            # right = view(lattice_old, idx[1], mod1(idx[2] + 1, N), idx[3])
+            # front = view(lattice_old, mod1(idx[1] - 1, N), idx[2], idx[3])
+            # back = view(lattice_old, mod1(idx[1] + 1, N), idx[2], idx[3])
 
             diff_bottom, diff_top, diff_left, diff_right, diff_front, diff_back = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
             # self_contributions = 0.0
