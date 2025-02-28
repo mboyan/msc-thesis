@@ -25,6 +25,7 @@ __precompile__(false)
     export plot_spore_clusters
     export plot_concentration_lattice
     export plot_concentration_evolution_hi_res
+    export plot_lattice_regions
     
 
     function generate_ax_grid_pyplot(n_rows, n_cols, figsize=(8, 4))
@@ -235,6 +236,23 @@ __precompile__(false)
         ax.set_title("Average concentration in the cell wall region")
         ax.grid()
 
+        gcf()
+    end
+
+
+    function plot_lattice_regions(region_ids)
+        """
+        Plots the exterior, cell wall and interior lattice regions.
+        inputs
+            region_ids (Array{Int}): region IDs
+        """
+
+        fig, ax = subplots(1, 1, figsize=(8, 4))
+        ax.imshow(region_ids, cmap="viridis", interpolation="nearest")
+        ax.set_title("Lattice regions")
+        ax.set_xlabel(@L_str"x [\\mu m]")
+        ax.set_ylabel(@L_str"y [\\mu m]")
+        
         gcf()
     end
 end

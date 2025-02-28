@@ -8,6 +8,7 @@ __precompile__(false)
     using CUDA
     using CUDA.CUSPARSE
     using CUDA.CUSOLVER
+    using SparseArrays
     # using IterativeSolvers
     # using LinearMaps
     using Krylov
@@ -674,8 +675,58 @@ __precompile__(false)
         spore_rad_lattice = spore_rad / dx
         println("Spore radius in lattice units: ", spore_rad_lattice)
 
+        kernel_blocks, kernel_threads = invoke_smart_kernel_3D(size(c_init))
+
         # Initialise concentrations and operators
-        op_A, op_B, region_ids = initialise_lattice_and_build_operator!(c_init, c₀, sp_cen_indices, spore_rad_lattice, D, Db, Deff, dtdx2, crank_nicolson)
+        # op_A, op_B, region_ids = initialise_lattice_and_build_operator!(c_init, c₀, sp_cen_indices, spore_rad_lattice, D, Db, Deff, dtdx2, crank_nicolson)
+        Nt = N * N * H
+        nnz = Nt * 7
+        valsA_gpu = CUDA.zeros(Float32, nnz)
+        valsB_gpu = CUDA.zeros(Float32, nnz)
+        colidx_gpu = CUDA.zeros(Int, nnz)
+        rowptr = 1:7:nnz+1
+        rowptr_gpu = cu(collect(rowptr))
+        c_gpu = cu(vec(c_init))
+        region_ids_gpu = CUDA.zeros(Int, N, N, H)
+        debugger_gpu = CUDA.zeros(Int, N, N, H)
+        for sp_cen_idx in sp_cen_indices
+            @cuda threads=kernel_threads blocks=kernel_blocks initialise_lattice_and_operator_GPU!(c_gpu, colidx_gpu, valsA_gpu, valsB_gpu, region_ids_gpu, debugger_gpu,
+                                                                                                    c₀, sp_cen_idx[1], sp_cen_idx[2], sp_cen_idx[3],
+                                                                                                    spore_rad_lattice, sqrt(2), D, Db, Deff, dtdx2, N, H, crank_nicolson)
+        end
+        CUDA.synchronize()
+        op_A_gpu = CuSparseMatrixCSR(rowptr_gpu, colidx_gpu, valsA_gpu, (Nt, Nt))
+        op_B_gpu = CuSparseMatrixCSR(rowptr_gpu, colidx_gpu, valsB_gpu, (Nt, Nt))
+        # println(unique(Array(region_ids_gpu)))
+        # println(unique(Array(valsA_gpu)))
+        # println(unique(Array(valsB_gpu)))
+        # println(maximum(Array(c_gpu)))
+        # println(maximum(op_A_gpu.rowPtr))
+        # println(maximum(op_B_gpu.rowPtr))
+        # # println(maximum(op_A_gpu.colIdx))
+        # nzval = Array(op_A_gpu.nzVal)
+        # println(maximum(nzval))
+        # nzval = Array(op_B_gpu.nzVal)
+        # println(maximum(nzval))
+        # # println(crank_nicolson)
+        # # println(unique(Array(debugger_gpu)))
+        # colidx = Array(op_A_gpu.colVal)
+        # println(maximum(colidx))
+        # colidx = Array(op_B_gpu.colVal)
+        # println(maximum(colidx))
+        # colidx_srch = collect(1:Nt)
+        # # for col in colidx_srch
+        # #     if col ∉ colidx
+        # #         println("Warning: column $col not found.")
+        # #     end
+        # # end
+        # b_gpu = op_B_gpu * c_gpu
+        # println(maximum(Array(b_gpu)))
+        # # println(maximum(Array(op_B_gpu * c_gpu)))
+        # println(Tuple(argmax(reshape(Array(c_gpu), (N, N, H)))))
+        # println(minimum(Array(debugger_gpu)))
+        # println(maximum(Array(debugger_gpu)))
+        # println("=====")
 
         # Determine number of frames
         n_frames = Int(floor(t_max / dt))
@@ -696,9 +747,9 @@ __precompile__(false)
         thresh_ct = 0
 
         # Initialise arrays on GPU
-        op_A_gpu = CuSparseMatrixCSR(op_A)
-        op_B_gpu = CuSparseMatrixCSR(op_B)
-        c_gpu = cu(vec(c_init))
+        # op_A_gpu = CuSparseMatrixCSR(op_A)
+        # op_B_gpu = CuSparseMatrixCSR(op_B)
+        # c_gpu = cu(vec(c_init))
 
         # Run the simulation
         for t in 1:n_frames
@@ -707,6 +758,7 @@ __precompile__(false)
 
             # Save frame
             if (t - 1) % save_interval == 0 && save_ct ≤ n_save_frames
+                CUDA.synchronize()
                 c_evolution[save_ct, :, :] .= reshape(Array(c_gpu), (N, N, H))[:, N ÷ 2, :]
                 times[save_ct] = t * dt
                 println(maximum(c_evolution[save_ct, :, :]))
@@ -716,6 +768,14 @@ __precompile__(false)
 
             # Update the lattice
             b_gpu = crank_nicolson ? op_B_gpu * c_gpu : c_gpu#  # Right-hand side
+            # if (t - 1) % save_interval == 0
+            #     println(size(Array(c_gpu)))
+            #     println(size(reshape(Array(c_gpu), (N, N, H))))
+            #     println(Tuple(argmax(reshape(Array(c_gpu), (N, N, H)))))
+            #     println(maximum(Array(c_gpu)))
+            #     println(argmax(Array(c_gpu)))
+            #     # println(maximum(Array(b_gpu)))
+            # end
             # c_gpu .= CUDA.CUSOLVER.csrlsvqr!(op_A_gpu, b_gpu, c_gpu, Float32(1e-6), one(Cint), 'O')
             c_gpu, stats = Krylov.cg(op_A_gpu, b_gpu; atol=Float32(1e-12), itmax=1000)
             # c_gpu, stats = Krylov.cg(op_A_gpu, b_gpu; atol=1e-12, itmax=1000)
@@ -730,12 +790,14 @@ __precompile__(false)
         end
 
         # Save final frame
+        CUDA.synchronize()
         c_evolution[save_ct, :, :] .= reshape(Array(c_gpu), (N, N, H))[:, N ÷ 2, :]
         times[save_ct] = t_max
         println(maximum(c_evolution[save_ct, :, :]))
 
         # AMGX.finalize()
+        region_ids = Array(region_ids_gpu)[:, N ÷ 2, :]
 
-        return c_evolution, times, region_ids[:, N ÷ 2, :], t_thresholds
+        return c_evolution, times, region_ids, t_thresholds, Array(debugger_gpu)[:, N ÷ 2, :]
     end
 end

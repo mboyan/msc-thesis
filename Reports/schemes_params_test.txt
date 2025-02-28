@@ -23,6 +23,10 @@ implicit (CN) - >2m (dt=0.00001) - oscillates like nuts
 6.293303442852838
 
 
+implicit (CN) - 1m43s (dt=0.000025) [FLOAT32]
+6.372846739632743
+
+
 implicit (BE) - 21s (dt=0.0002)
 6.842529773712158
 
@@ -46,4 +50,20 @@ no change - cancellation
 
 
 ===== N = 128 =====
-implicit (CN) - s (dt=0.000025)
+explicit - 6m11s
+6.358122679817189
+
+
+implicit (CN) - 9m (dt=0.000025) [FLOAT32]
+6.384351470640728
+
+implicit (CN) - 4m47s (dt=0.00005) [FLOAT32]
+6.5126849327768594
+
+===== N = 256 =====
+explicit 50m
+6.358067201517828
+
+
+implicit (CN) - 67m (dt=0.000025) [FLOAT32]
+
