@@ -13,6 +13,7 @@ module Solver
     export update_GPU!
     export update_GPU_low_res!
     export update_GPU_hi_res!
+    export update_GPU_hi_res_coeffs!
     export initialise_lattice_and_build_operator!
 
     function invoke_smart_kernel_3D(size, threads_per_block=(8, 8, 8))
@@ -154,7 +155,7 @@ module Solver
         return s
     end
 
-    function update_GPU_hi_res!(lattice_old, lattice_new, N, H, dtdx2, D, Db, Deff, neumann_z)
+    function update_GPU_hi_res!(lattice_old, lattice_new, N, H, dtdx2, D, Db, Deff, region_ids, neumann_z)
         """
         Update the concentration values on the lattice
         using the time-dependent diffusion equation.
@@ -178,191 +179,400 @@ module Solver
         # Update the concentration value
         if 1 ≤ idx[1] ≤ N && 1 ≤ idx[2] ≤ N && 1 ≤ idx[3] ≤ H
 
-            # Decode spore indices
-            if lattice_old[idx...] < 10
-                # Exterior site
-                region_id = 0
-                center = lattice_old[idx...]
-            elseif lattice_old[idx...] < 100
-                # Cell wall
-                region_id = 1
-                center = rem(lattice_old[idx...], 10)
-            else
-                # Interior site
-                lattice_new[idx...] = lattice_old[idx...]
-                return nothing
-            end
-            
-            bottom = lattice_old[idx[1], idx[2], mod1(idx[3] - 1, H)]
-            top = lattice_old[idx[1], idx[2], mod1(idx[3] + 1, H)]
-            left = lattice_old[idx[1], mod1(idx[2] - 1, N), idx[3]]
-            right = lattice_old[idx[1], mod1(idx[2] + 1, N), idx[3]]
-            front = lattice_old[mod1(idx[1] - 1, N), idx[2], idx[3]]
-            back = lattice_old[mod1(idx[1] + 1, N), idx[2], idx[3]]
-
-            diff_bottom, diff_top, diff_left, diff_right, diff_front, diff_back = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
-            # self_contributions = 0.0
-            # nbr_contributions = 0.0
-
-            if region_id == 0 # Exterior site
-                # Check bottom neighbour
-                if bottom < 10 # Exterior - exterior
-                    # diff_bottom = D * bottom
-                    diff_bottom = D * (bottom - center)
-                    # self_contributions += D * center
-                    # nbr_contributions += D * bottom
-                elseif bottom < 100 # Exterior - cell wall
-                    # diff_bottom = Deff * rem(bottom, 10)
-                    diff_bottom = Deff * (rem(bottom, 10.0) - center)
-                    # self_contributions += Deff * center
-                    # nbr_contributions += Deff * rem(bottom, 10.0)
-                end
-                # Check top neighbour
-                if top < 10 # Exterior - exterior
-                    # diff_top = D * top
-                    diff_top = D * (top - center)
-                    # self_contributions += D * center
-                    # nbr_contributions += D * top
-                elseif top < 100 # Exterior - cell wall
-                    # diff_top = Deff * rem(top, 10)
-                    diff_top = Deff * (rem(top, 10.0) - center)
-                    # self_contributions += Deff * center
-                    # nbr_contributions += Deff * rem(top, 10.0)
-                end
-                # Check left neighbour
-                if left < 10 # Exterior - exterior
-                    # diff_left = D * left
-                    diff_left = D * (left - center)
-                    # self_contributions += D * center
-                    # nbr_contributions += D * left
-                elseif left < 100 # Exterior - cell wall
-                    # diff_left = Deff * rem(left, 10)
-                    diff_left = Deff * (rem(left, 10.0) - center)
-                    # self_contributions += Deff * center
-                    # nbr_contributions += Deff * rem(left, 10.0)
-                end
-                # Check right neighbour
-                if right < 10 # Exterior - exterior
-                    # diff_right = D * right
-                    diff_right = D * (right - center)
-                    # self_contributions += D * center
-                    # nbr_contributions += D * right
-                elseif right < 100 # Exterior - cell wall
-                    # diff_right = Deff * rem(right, 10)
-                    diff_right = Deff * (rem(right, 10.0) - center)
-                    # self_contributions += Deff * center
-                    # nbr_contributions += Deff * rem(right, 10.0)
-                end
-                # Check front neighbour
-                if front < 10 # Exterior - exterior
-                    # diff_front = D * front
-                    diff_front = D * (front - center)
-                    # self_contributions += D * center
-                    # nbr_contributions += D * front
-                elseif front < 100 # Exterior - cell wall
-                    # diff_front = Deff * rem(front, 10)
-                    diff_front = Deff * (rem(front, 10.0) - center)
-                    # self_contributions += Deff * center
-                    # nbr_contributions += Deff * rem(front, 10.0)
-                end
-                # Check back neighbour
-                if back < 10 # Exterior - exterior
-                    # diff_back = D * back
-                    diff_back = D * (back - center)
-                    # self_contributions += D * center
-                    # nbr_contributions += D * back
-                elseif back < 100 # Exterior - cell wall
-                    # diff_back = Deff * rem(back, 10)
-                    diff_back = Deff * (rem(back, 10.0) - center)
-                    # self_contributions += Deff * center
-                    # nbr_contributions += Deff * rem(back, 10.0)
-                end
-            elseif region_id == 1 # Cell wall site
-                # Check bottom neighbour
-                if bottom < 10 # Cell wall - exterior
-                    # diff_bottom = Deff * bottom
-                    diff_bottom = Deff * (bottom - center)
-                    # self_contributions += Deff * center
-                    # nbr_contributions += Deff * bottom
-                elseif bottom < 100 # Cell wall - cell wall
-                    # diff_bottom = Db * rem(bottom, 10)
-                    diff_bottom = Db * (rem(bottom, 10.0) - center)
-                    # self_contributions += Db * center
-                    # nbr_contributions += Db * rem(bottom, 10.0)
-                end
-                # Check top neighbour
-                if top < 10 # Cell wall - exterior
-                    # diff_top = Deff * top
-                    diff_top = Deff * (top - center)
-                    # self_contributions += Deff * center
-                    # nbr_contributions += Deff * top
-                elseif top < 100 # Cell wall - cell wall
-                    # diff_top = Db * rem(top, 10)
-                    diff_top = Db * (rem(top, 10.0) - center)
-                    # self_contributions += Db * center
-                    # nbr_contributions += Db * rem(top, 10.0)
-                end
-                # Check left neighbour
-                if left < 10 # Cell wall - exterior
-                    # diff_left = Deff * left
-                    diff_left = Deff * (left - center)
-                    # self_contributions += Deff * center
-                    # nbr_contributions += Deff * left
-                elseif left < 100 # Cell wall - cell wall
-                    # diff_left = Db * rem(left, 10)
-                    diff_left = Db * (rem(left, 10.0) - center)
-                    # self_contributions += Db * center
-                    # nbr_contributions += Db * rem(left, 10.0)
-                end
-                # Check right neighbour
-                if right < 10 # Cell wall - exterior
-                    # diff_right = Deff * right
-                    diff_right = Deff * (right - center)
-                    # self_contributions += Deff * center
-                    # nbr_contributions += Deff * right
-                elseif right < 100 # Cell wall - cell wall
-                    # diff_right = Db * rem(right, 10)
-                    diff_right = Db * (rem(right, 10.0) - center)
-                    # self_contributions += Db * center
-                    # nbr_contributions += Db * rem(right, 10.0)
-                end
-                # Check front neighbour
-                if front < 10 # Cell wall - exterior
-                    # diff_front = Deff * front
-                    diff_front = Deff * (front - center)
-                    # self_contributions += Deff * center
-                    # nbr_contributions += Deff * front
-                elseif front < 100 # Cell wall - cell wall
-                    # diff_front = Db * rem(front, 10)
-                    diff_front = Db * (rem(front, 10.0) - center)
-                    # self_contributions += Db * center
-                    # nbr_contributions += Db * rem(front, 10.0)
-                end
-                # Check back neighbour
-                if back < 10 # Cell wall - exterior
-                    # diff_back = Deff * back
-                    diff_back = Deff * (back - center)
-                    # self_contributions += Deff * center
-                    # nbr_contributions += Deff * back
-                elseif back < 100 # Cell wall - cell wall
-                    # diff_back = Db * rem(back, 10)
-                    diff_back = Db * (rem(back, 10.0) - center)
-                    # self_contributions += Db * center
-                    # nbr_contributions += Db * rem(back, 10.0)
-                end
-            # else # Interior site
+            # # Decode spore indices
+            # if lattice_old[idx...] < 10
+            #     # Exterior site
+            #     region_id = 0
+            #     center = lattice_old[idx...]
+            # elseif lattice_old[idx...] < 100
+            #     # Cell wall
+            #     region_id = 1
+            #     center = rem(lattice_old[idx...], 10)
+            # else
+            #     # Interior site
+            #     lattice_new[idx...] = lattice_old[idx...]
             #     return nothing
+            # end
+            
+            # bottom = lattice_old[idx[1], idx[2], mod1(idx[3] - 1, H)]
+            # top = lattice_old[idx[1], idx[2], mod1(idx[3] + 1, H)]
+            # left = lattice_old[idx[1], mod1(idx[2] - 1, N), idx[3]]
+            # right = lattice_old[idx[1], mod1(idx[2] + 1, N), idx[3]]
+            # front = lattice_old[mod1(idx[1] - 1, N), idx[2], idx[3]]
+            # back = lattice_old[mod1(idx[1] + 1, N), idx[2], idx[3]]
+
+            # diff_bottom, diff_top, diff_left, diff_right, diff_front, diff_back = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+
+            # if region_id == 0 # Exterior site
+            #     # Check bottom neighbour
+            #     if bottom < 10 # Exterior - exterior
+            #         diff_bottom = D * (bottom - center)
+            #     elseif bottom < 100 # Exterior - cell wall
+            #         diff_bottom = Deff * (rem(bottom, 10.0) - center)
+            #     end
+            #     # Check top neighbour
+            #     if top < 10 # Exterior - exterior
+            #         diff_top = D * (top - center)
+            #     elseif top < 100 # Exterior - cell wall
+            #         diff_top = Deff * (rem(top, 10.0) - center)
+            #     end
+            #     # Check left neighbour
+            #     if left < 10 # Exterior - exterior
+            #         diff_left = D * (left - center)
+            #     elseif left < 100 # Exterior - cell wall
+            #         diff_left = Deff * (rem(left, 10.0) - center)
+            #     end
+            #     # Check right neighbour
+            #     if right < 10 # Exterior - exterior
+            #         diff_right = D * (right - center)
+            #     elseif right < 100 # Exterior - cell wall
+            #         diff_right = Deff * (rem(right, 10.0) - center)
+            #     end
+            #     # Check front neighbour
+            #     if front < 10 # Exterior - exterior
+            #         diff_front = D * (front - center)
+            #     elseif front < 100 # Exterior - cell wall
+            #         diff_front = Deff * (rem(front, 10.0) - center)
+            #     end
+            #     # Check back neighbour
+            #     if back < 10 # Exterior - exterior
+            #         diff_back = D * (back - center)
+            #     elseif back < 100 # Exterior - cell wall
+            #         diff_back = Deff * (rem(back, 10.0) - center)
+            #     end
+            # elseif region_id == 1 # Cell wall site
+            #     # Check bottom neighbour
+            #     if bottom < 10 # Cell wall - exterior
+            #         diff_bottom = Deff * (bottom - center)
+            #     elseif bottom < 100 # Cell wall - cell wall
+            #         diff_bottom = Db * (rem(bottom, 10.0) - center)
+            #     end
+            #     # Check top neighbour
+            #     if top < 10 # Cell wall - exterior
+            #         diff_top = Deff * (top - center)
+            #     elseif top < 100 # Cell wall - cell wall
+            #         diff_top = Db * (rem(top, 10.0) - center)
+            #     end
+            #     # Check left neighbour
+            #     if left < 10 # Cell wall - exterior
+            #         diff_left = Deff * (left - center)
+            #     elseif left < 100 # Cell wall - cell wall
+            #         diff_left = Db * (rem(left, 10.0) - center)
+            #     end
+            #     # Check right neighbour
+            #     if right < 10 # Cell wall - exterior
+            #         diff_right = Deff * (right - center)
+            #     elseif right < 100 # Cell wall - cell wall
+            #         diff_right = Db * (rem(right, 10.0) - center)
+            #     end
+            #     # Check front neighbour
+            #     if front < 10 # Cell wall - exterior
+            #         # diff_front = Deff * front
+            #         diff_front = Deff * (front - center)
+            #     elseif front < 100 # Cell wall - cell wall
+            #         # diff_front = Db * rem(front, 10)
+            #         diff_front = Db * (rem(front, 10.0) - center)
+            #     end
+            #     # Check back neighbour
+            #     if back < 10 # Cell wall - exterior
+            #         # diff_back = Deff * back
+            #         diff_back = Deff * (back - center)
+            #     elseif back < 100 # Cell wall - cell wall
+            #         diff_back = Db * (rem(back, 10.0) - center)
+            #     end
+            # end
+
+            # ========================== OPTION B ==========================
+
+            # center = lattice_old[idx...]
+            # reg_center = region_ids[idx...]
+
+            # bottom = lattice_old[idx[1], idx[2], mod1(idx[3] - 1, H)]
+            # top = lattice_old[idx[1], idx[2], mod1(idx[3] + 1, H)]
+            # left = lattice_old[idx[1], mod1(idx[2] - 1, N), idx[3]]
+            # right = lattice_old[idx[1], mod1(idx[2] + 1, N), idx[3]]
+            # front = lattice_old[mod1(idx[1] - 1, N), idx[2], idx[3]]
+            # back = lattice_old[mod1(idx[1] + 1, N), idx[2], idx[3]]
+
+            # reg_bottom = region_ids[idx[1], idx[2], mod1(idx[3] - 1, H)]
+            # reg_top = region_ids[idx[1], idx[2], mod1(idx[3] + 1, H)]
+            # reg_left = region_ids[idx[1], mod1(idx[2] - 1, N), idx[3]]
+            # reg_right = region_ids[idx[1], mod1(idx[2] + 1, N), idx[3]]
+            # reg_front = region_ids[mod1(idx[1] - 1, N), idx[2], idx[3]]
+            # reg_back = region_ids[mod1(idx[1] + 1, N), idx[2], idx[3]]
+
+            # # diff_bottom, diff_top, diff_left, diff_right, diff_front, diff_back = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+            # diff = 0.0
+
+            # if reg_center == 0 # Exterior site
+            #     # Check bottom neighbour
+            #     if reg_bottom == 0 # Exterior - exterior
+            #         diff += D * (bottom - center)
+            #     elseif reg_bottom == 1 # Exterior - cell wall
+            #         diff += Deff * (bottom - center)
+            #     end
+            #     # Check top neighbour
+            #     if reg_top == 0 # Exterior - exterior
+            #         diff += D * (top - center)
+            #     elseif reg_top == 1 # Exterior - cell wall
+            #         diff += Deff * (top - center)
+            #     end
+            #     # Check left neighbour
+            #     if reg_left == 0 # Exterior - exterior
+            #         diff += D * (left - center)
+            #     elseif reg_left == 1 # Exterior - cell wall
+            #         diff += Deff * (left - center)
+            #     end
+            #     # Check right neighbour
+            #     if reg_right == 0 # Exterior - exterior
+            #         diff += D * (right - center)
+            #     elseif reg_right == 1 # Exterior - cell wall
+            #         diff += Deff * (right - center)
+            #     end
+            #     # Check front neighbour
+            #     if reg_front == 0 # Exterior - exterior
+            #         diff += D * (front - center)
+            #     elseif reg_front == 1 # Exterior - cell wall
+            #         diff += Deff * (front - center)
+            #     end
+            #     # Check back neighbour
+            #     if reg_back == 0 # Exterior - exterior
+            #         diff += D * (back - center)
+            #     elseif reg_back == 1 # Exterior - cell wall
+            #         diff += Deff * (back - center)
+            #     end
+            # elseif reg_center == 1 # Cell wall site
+            #     # Check bottom neighbour
+            #     if reg_bottom == 0 # Cell wall - exterior
+            #         diff += Deff * (bottom - center)
+            #     elseif reg_bottom == 1 # Cell wall - cell wall
+            #         diff += Db * (bottom - center)
+            #     end
+            #     # Check top neighbour
+            #     if reg_top == 0 # Cell wall - exterior
+            #         diff += Deff * (top - center)
+            #     elseif reg_top == 1 # Cell wall - cell wall
+            #         diff += Db * (top - center)
+            #     end
+            #     # Check left neighbour
+            #     if reg_left == 0 # Cell wall - exterior
+            #         diff += Deff * (left - center)
+            #     elseif reg_left == 1 # Cell wall - cell wall
+            #         diff += Db * (left - center)
+            #     end
+            #     # Check right neighbour
+            #     if reg_right == 0 # Cell wall - exterior
+            #         diff += Deff * (right - center)
+            #     elseif reg_right == 1 # Cell wall - cell wall
+            #         diff += Db * (right - center)
+            #     end
+            #     # Check front neighbour
+            #     if reg_front == 0 # Cell wall - exterior
+            #         diff += Deff * (front - center)
+            #     elseif reg_front == 1 # Cell wall - cell wall
+            #         diff += Db * (front - center)
+            #     end
+            #     # Check back neighbour
+            #     if reg_back == 0 # Cell wall - exterior
+            #         diff += Deff * (back - center)
+            #     elseif reg_back == 1 # Cell wall - cell wall
+            #         diff += Db * (back - center)
+            #     end
+            # end
+
+            # ========================== OPTION C ==========================
+
+            diff = 0.0
+
+            @inbounds begin
+                if region_ids[idx...] == 0 # Exterior site
+                    # Check bottom neighbour
+                    if region_ids[idx[1], idx[2], mod1(idx[3] - 1, H)] == 0 # Exterior - exterior
+                        diff += D * (lattice_old[idx[1], idx[2], mod1(idx[3] - 1, H)] - lattice_old[idx...])
+                    elseif region_ids[idx[1], idx[2], mod1(idx[3] - 1, H)] == 1 # Exterior - cell wall
+                        diff += Deff * (lattice_old[idx[1], idx[2], mod1(idx[3] - 1, H)] - lattice_old[idx...])
+                    end
+                    # Check top neighbour
+                    if region_ids[idx[1], idx[2], mod1(idx[3] + 1, H)] == 0 # Exterior - exterior
+                        diff += D * (lattice_old[idx[1], idx[2], mod1(idx[3] + 1, H)] - lattice_old[idx...])
+                    elseif region_ids[idx[1], idx[2], mod1(idx[3] + 1, H)] == 1 # Exterior - cell wall
+                        diff += Deff * (lattice_old[idx[1], idx[2], mod1(idx[3] + 1, H)] - lattice_old[idx...])
+                    end
+                    # Check left neighbour
+                    if region_ids[idx[1], mod1(idx[2] - 1, N), idx[3]] == 0 # Exterior - exterior
+                        diff += D * (lattice_old[idx[1], mod1(idx[2] - 1, N), idx[3]] - lattice_old[idx...])
+                    elseif region_ids[idx[1], mod1(idx[2] - 1, N), idx[3]] == 1 # Exterior - cell wall
+                        diff += Deff * (lattice_old[idx[1], mod1(idx[2] - 1, N), idx[3]] - lattice_old[idx...])
+                    end
+                    # Check right neighbour
+                    if region_ids[idx[1], mod1(idx[2] + 1, N), idx[3]] == 0 # Exterior - exterior
+                        diff += D * (lattice_old[idx[1], mod1(idx[2] + 1, N), idx[3]] - lattice_old[idx...])
+                    elseif region_ids[idx[1], mod1(idx[2] + 1, N), idx[3]] == 1 # Exterior - cell wall
+                        diff += Deff * (lattice_old[idx[1], mod1(idx[2] + 1, N), idx[3]] - lattice_old[idx...])
+                    end
+                    # Check front neighbour
+                    if region_ids[mod1(idx[1] - 1, N), idx[2], idx[3]] == 0 # Exterior - exterior
+                        diff += D * (lattice_old[mod1(idx[1] - 1, N), idx[2], idx[3]] - lattice_old[idx...])
+                    elseif region_ids[mod1(idx[1] - 1, N), idx[2], idx[3]] == 1 # Exterior - cell wall
+                        diff += Deff * (lattice_old[mod1(idx[1] - 1, N), idx[2], idx[3]] - lattice_old[idx...])
+                    end
+                    # Check back neighbour
+                    if region_ids[mod1(idx[1] + 1, N), idx[2], idx[3]] == 0 # Exterior - exterior
+                        diff += D * (lattice_old[mod1(idx[1] + 1, N), idx[2], idx[3]] - lattice_old[idx...])
+                    elseif region_ids[mod1(idx[1] + 1, N), idx[2], idx[3]] == 1 # Exterior - cell wall
+                        diff += Deff * (lattice_old[mod1(idx[1] + 1, N), idx[2], idx[3]] - lattice_old[idx...])
+                    end
+                elseif region_ids[idx...] == 1 # Cell wall site
+                    # Check bottom neighbour
+                    if region_ids[idx[1], idx[2], mod1(idx[3] - 1, H)] == 0 # Cell wall - exterior
+                        diff += Deff * (lattice_old[idx[1], idx[2], mod1(idx[3] - 1, H)] - lattice_old[idx...])
+                    elseif region_ids[idx[1], idx[2], mod1(idx[3] - 1, H)] == 1 # Cell wall - cell wall
+                        diff += Db * (lattice_old[idx[1], idx[2], mod1(idx[3] - 1, H)] - lattice_old[idx...])
+                    end
+                    # Check top neighbour
+                    if region_ids[idx[1], idx[2], mod1(idx[3] + 1, H)] == 0 # Cell wall - exterior
+                        diff += Deff * (lattice_old[idx[1], idx[2], mod1(idx[3] + 1, H)] - lattice_old[idx...])
+                    elseif region_ids[idx[1], idx[2], mod1(idx[3] + 1, H)] == 1 # Cell wall - cell wall
+                        diff += Db * (lattice_old[idx[1], idx[2], mod1(idx[3] + 1, H)] - lattice_old[idx...])
+                    end
+                    # Check left neighbour
+                    if region_ids[idx[1], mod1(idx[2] - 1, N), idx[3]] == 0 # Cell wall - exterior
+                        diff += Deff * (lattice_old[idx[1], mod1(idx[2] - 1, N), idx[3]] - lattice_old[idx...])
+                    elseif region_ids[idx[1], mod1(idx[2] - 1, N), idx[3]] == 1 # Cell wall - cell wall
+                        diff += Db * (lattice_old[idx[1], mod1(idx[2] - 1, N), idx[3]] - lattice_old[idx...])
+                    end
+                    # Check right neighbour
+                    if region_ids[idx[1], mod1(idx[2] + 1, N), idx[3]] == 0 # Cell wall - exterior
+                        diff += Deff * (lattice_old[idx[1], mod1(idx[2] + 1, N), idx[3]] - lattice_old[idx...])
+                    elseif region_ids[idx[1], mod1(idx[2] + 1, N), idx[3]] == 1 # Cell wall - cell wall
+                        diff += Db * (lattice_old[idx[1], mod1(idx[2] + 1, N), idx[3]] - lattice_old[idx...])
+                    end
+                    # Check front neighbour
+                    if region_ids[mod1(idx[1] - 1, N), idx[2], idx[3]] == 0 # Cell wall - exterior
+                        diff += Deff * (lattice_old[mod1(idx[1] - 1, N), idx[2], idx[3]] - lattice_old[idx...])
+                    elseif region_ids[mod1(idx[1] - 1, N), idx[2], idx[3]] == 1 # Cell wall - cell wall
+                        diff += Db * (lattice_old[mod1(idx[1] - 1, N), idx[2], idx[3]] - lattice_old[idx...])
+                    end
+                    # Check back neighbour
+                    if region_ids[mod1(idx[1] + 1, N), idx[2], idx[3]] == 0 # Cell wall - exterior
+                        diff += Deff * (lattice_old[mod1(idx[1] + 1, N), idx[2], idx[3]] - lattice_old[idx...])
+                    elseif region_ids[mod1(idx[1] + 1, N), idx[2], idx[3]] == 1 # Cell wall - cell wall
+                        diff += Db * (lattice_old[mod1(idx[1] + 1, N), idx[2], idx[3]] - lattice_old[idx...])
+                    end
+                end
             end
 
-            c_new = center + dtdx2 * (diff_bottom + diff_top + diff_left + diff_right + diff_front + diff_back)
-            # c_new = center + dtdx2 * (diff_bottom + diff_top + diff_left + diff_right + diff_front + diff_back - self_contributions)
-            # c_new = center + dtdx2 * (nbr_contributions - 6 * self_contributions)
+            # ========================== OPTION D ==========================
 
-            if region_id == 0
-                lattice_new[idx...] = c_new
-            elseif region_id == 1
-                lattice_new[idx...] = 10.0 + c_new
-            end
+            # Decode spore indices
+            # if lattice_old[idx...] < 10
+            #     # Exterior site
+            #     region_id = 0
+            #     center = lattice_old[idx...]
+            # elseif lattice_old[idx...] < 100
+            #     # Cell wall
+            #     region_id = 1
+            #     center = rem(lattice_old[idx...], 10)
+            # else
+            #     # Interior site
+            #     lattice_new[idx...] = lattice_old[idx...]
+            #     return nothing
+            # end
+            
+            # diff = 0.0
+
+            # if region_id == 0 # Exterior site
+            #     # Check bottom neighbour
+            #     if lattice_old[idx[1], idx[2], mod1(idx[3] - 1, H)] < 10 # Exterior - exterior
+            #         diff += D * (lattice_old[idx[1], idx[2], mod1(idx[3] - 1, H)] - center)
+            #     elseif lattice_old[idx[1], idx[2], mod1(idx[3] - 1, H)] < 100 # Exterior - cell wall
+            #         diff += Deff * (rem(lattice_old[idx[1], idx[2], mod1(idx[3] - 1, H)], 10.0) - center)
+            #     end
+            #     # Check top neighbour
+            #     if lattice_old[idx[1], idx[2], mod1(idx[3] + 1, H)] < 10 # Exterior - exterior
+            #         diff += D * (lattice_old[idx[1], idx[2], mod1(idx[3] + 1, H)] - center)
+            #     elseif lattice_old[idx[1], idx[2], mod1(idx[3] + 1, H)] < 100 # Exterior - cell wall
+            #         diff += Deff * (rem(lattice_old[idx[1], idx[2], mod1(idx[3] + 1, H)], 10.0) - center)
+            #     end
+            #     # Check left neighbour
+            #     if lattice_old[idx[1], mod1(idx[2] - 1, N), idx[3]] < 10 # Exterior - exterior
+            #         diff += D * (lattice_old[idx[1], mod1(idx[2] - 1, N), idx[3]] - center)
+            #     elseif lattice_old[idx[1], mod1(idx[2] - 1, N), idx[3]] < 100 # Exterior - cell wall
+            #         diff += Deff * (rem(lattice_old[idx[1], mod1(idx[2] - 1, N), idx[3]], 10.0) - center)
+            #     end
+            #     # Check right neighbour
+            #     if lattice_old[idx[1], mod1(idx[2] + 1, N), idx[3]] < 10 # Exterior - exterior
+            #         diff += D * (lattice_old[idx[1], mod1(idx[2] + 1, N), idx[3]] - center)
+            #     elseif lattice_old[idx[1], mod1(idx[2] + 1, N), idx[3]] < 100 # Exterior - cell wall
+            #         diff += Deff * (rem(lattice_old[idx[1], mod1(idx[2] + 1, N), idx[3]], 10.0) - center)
+            #     end
+            #     # Check front neighbour
+            #     if lattice_old[mod1(idx[1] - 1, N), idx[2], idx[3]] < 10 # Exterior - exterior
+            #         diff += D * (lattice_old[mod1(idx[1] - 1, N), idx[2], idx[3]] - center)
+            #     elseif lattice_old[mod1(idx[1] - 1, N), idx[2], idx[3]] < 100 # Exterior - cell wall
+            #         diff += Deff * (rem(lattice_old[mod1(idx[1] - 1, N), idx[2], idx[3]], 10.0) - center)
+            #     end
+            #     # Check back neighbour
+            #     if lattice_old[mod1(idx[1] + 1, N), idx[2], idx[3]] < 10 # Exterior - exterior
+            #         diff += D * (lattice_old[mod1(idx[1] + 1, N), idx[2], idx[3]] - center)
+            #     elseif lattice_old[mod1(idx[1] + 1, N), idx[2], idx[3]] < 100 # Exterior - cell wall
+            #         diff += Deff * (rem(lattice_old[mod1(idx[1] + 1, N), idx[2], idx[3]], 10.0) - center)
+            #     end
+            # elseif region_id == 1 # Cell wall site
+            #     # Check bottom neighbour
+            #     if lattice_old[idx[1], idx[2], mod1(idx[3] - 1, H)] < 10 # Cell wall - exterior
+            #         diff += Deff * (lattice_old[idx[1], idx[2], mod1(idx[3] - 1, H)] - center)
+            #     elseif lattice_old[idx[1], idx[2], mod1(idx[3] - 1, H)] < 100 # Cell wall - cell wall
+            #         diff += Db * (rem(lattice_old[idx[1], idx[2], mod1(idx[3] - 1, H)], 10.0) - center)
+            #     end
+            #     # Check top neighbour
+            #     if lattice_old[idx[1], idx[2], mod1(idx[3] + 1, H)] < 10 # Cell wall - exterior
+            #         diff += Deff * (lattice_old[idx[1], idx[2], mod1(idx[3] + 1, H)] - center)
+            #     elseif lattice_old[idx[1], idx[2], mod1(idx[3] + 1, H)] < 100 # Cell wall - cell wall
+            #         diff += Db * (rem(lattice_old[idx[1], idx[2], mod1(idx[3] + 1, H)], 10.0) - center)
+            #     end
+            #     # Check left neighbour
+            #     if lattice_old[idx[1], mod1(idx[2] - 1, N), idx[3]] < 10 # Cell wall - exterior
+            #         diff += Deff * (lattice_old[idx[1], mod1(idx[2] - 1, N), idx[3]] - center)
+            #     elseif lattice_old[idx[1], mod1(idx[2] - 1, N), idx[3]] < 100 # Cell wall - cell wall
+            #         diff += Db * (rem(lattice_old[idx[1], mod1(idx[2] - 1, N), idx[3]], 10.0) - center)
+            #     end
+            #     # Check right neighbour
+            #     if lattice_old[idx[1], mod1(idx[2] + 1, N), idx[3]] < 10 # Cell wall - exterior
+            #         diff += Deff * (lattice_old[idx[1], mod1(idx[2] + 1, N), idx[3]] - center)
+            #     elseif lattice_old[idx[1], mod1(idx[2] + 1, N), idx[3]] < 100 # Cell wall - cell wall
+            #         diff += Db * (rem(lattice_old[idx[1], mod1(idx[2] + 1, N), idx[3]], 10.0) - center)
+            #     end
+            #     # Check front neighbour
+            #     if lattice_old[mod1(idx[1] - 1, N), idx[2], idx[3]] < 10 # Cell wall - exterior
+            #         diff += Deff * (lattice_old[mod1(idx[1] - 1, N), idx[2], idx[3]] - center)
+            #     elseif lattice_old[mod1(idx[1] - 1, N), idx[2], idx[3]] < 100 # Cell wall - cell wall
+            #         diff += Db * (rem(lattice_old[mod1(idx[1] - 1, N), idx[2], idx[3]], 10.0) - center)
+            #     end
+            #     # Check back neighbour
+            #     if lattice_old[mod1(idx[1] + 1, N), idx[2], idx[3]] < 10 # Cell wall - exterior
+            #         diff += Deff * (lattice_old[mod1(idx[1] + 1, N), idx[2], idx[3]] - center)
+            #     elseif lattice_old[mod1(idx[1] + 1, N), idx[2], idx[3]] < 100 # Cell wall - cell wall
+            #         diff += Db * (rem(lattice_old[mod1(idx[1] + 1, N), idx[2], idx[3]], 10.0) - center)
+            #     end
+            # end
+
+            # c_new = center + dtdx2 * (diff_bottom + diff_top + diff_left + diff_right + diff_front + diff_back)
+            # lattice_new[idx...] = lattice_old[idx...] + D * dtdx2 * (lattice_old[idx[1], idx[2], mod1(idx[3] - 1, H)] +
+            #                                             lattice_old[idx[1], idx[2], mod1(idx[3] + 1, H)] +
+            #                                             lattice_old[idx[1], mod1(idx[2] - 1, N), idx[3]] + 
+            #                                             lattice_old[idx[1], mod1(idx[2] + 1, N), idx[3]] + 
+            #                                             lattice_old[mod1(idx[1] - 1, N), idx[2], idx[3]] + 
+            #                                             lattice_old[mod1(idx[1] + 1, N), idx[2], idx[3]] - 6 * lattice_old[idx...])
+            
+            @inbounds lattice_new[idx...] = lattice_old[idx...] + dtdx2 * diff#(diff_bottom + diff_top + diff_left + diff_right + diff_front + diff_back)
+            # c_new = center + dtdx2 * diff
+
+            # if region_id == 0
+            #     lattice_new[idx...] = c_new
+            # elseif region_id == 1
+            #     lattice_new[idx...] = 10.0 + c_new
+            # end
         end
         
         return nothing
@@ -381,6 +591,59 @@ module Solver
             (int) - the linear index
         """
         return (i - 1) * N * H + (j - 1) * H + k
+    end
+
+
+    function update_GPU_hi_res_coeffs!(lattice_old, lattice_new, N, H, coeffs_colptr, coeffs_rowval, coeffs_nzval, neumann_z)
+        """
+        Update the concentration values on the lattice
+        using the time-dependent diffusion equation.
+        inputs:
+            lattice_old (array) - the current state of the lattice (concentrations + region IDs)
+            lattice_new (array) - the updated state of the lattice (concentrations + region IDs)
+            N (int) - the number of lattice rows/columns
+            H (int) - the number of lattice layers
+            coeffs_colptr (array) - the column pointers of the coefficient matrix
+            coeffs_rowval (array) - the row values of the coefficient matrix
+            coeffs_nzval (array) - the nonzero values of the coefficient matrix
+            neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction
+        """
+        i, j, k = CUDA.blockIdx().x, CUDA.blockIdx().y, CUDA.blockIdx().z
+        ti, tj, tk = CUDA.threadIdx().x, CUDA.threadIdx().y, CUDA.threadIdx().z
+    
+        # Determine the indices of the current cell
+        idx = ((i - 1) * blockDim().x + ti, (j - 1) * blockDim().y + tj, (k - 1) * blockDim().z + tk)
+
+        # Update the concentration value
+        if 1 ≤ idx[1] ≤ N && 1 ≤ idx[2] ≤ N && 1 ≤ idx[3] ≤ H
+
+            idx_lin = lin_idx(idx[1], idx[2], idx[3], N, H)
+
+            vneum_nbrs = ((idx[1], idx[2], mod1(idx[3] - 1, H)),
+                          (idx[1], idx[2], mod1(idx[3] + 1, H)),
+                          (idx[1], mod1(idx[2] - 1, N), idx[3]),
+                          (idx[1], mod1(idx[2] + 1, N), idx[3]),
+                          (mod1(idx[1] - 1, N), idx[2], idx[3]),
+                          (mod1(idx[1] + 1, N), idx[2], idx[3]))
+
+            coeff_col_start = coeffs_colptr[idx_lin]
+            coeff_col_end = coeffs_colptr[idx_lin + 1] - 1
+
+            diffs = 0.0
+            for (i, nbr) in enumerate(vneum_nbrs)
+                nbr_lin = lin_idx(nbr[1], nbr[2], nbr[3], N, H)
+                for j in coeff_col_start:coeff_col_end
+                    if coeffs_rowval[j] == nbr_lin
+                        diffs += coeffs_nzval[j] * (lattice_old[nbr[1], nbr[2], nbr[3]] - lattice_old[idx...])
+                    end
+                end
+            end
+            
+
+            lattice_new[idx...] = lattice_old[idx...] + Float32(diffs)
+        end
+        
+        return nothing
     end
 
 
@@ -482,11 +745,6 @@ module Solver
                         diag_val += coeff
                         op_A[idx, n_idx] = - coeff
                         op_B[idx, n_idx] = crank_nicolson ? coeff : 0f0
-                        # if crank_nicolson
-                        #     op_B[idx, n_idx] = coeff
-                        # else
-                        #     op_B[idx, n_idx] = 0f0
-                        # end
                     end
                 end
             end
@@ -505,12 +763,12 @@ module Solver
         end
 
         # Check if non-diagonal elements are non-zero
-        if iszero(sum(op_A) - sum(diag(op_A)))
-            println("Matrix A has all zero non-diagonal elements.")
-        end
-        if iszero(sum(op_B) - sum(diag(op_B)))
-            println("Matrix B has all zero non-diagonal elements.")
-        end
+        # if iszero(sum(op_A) - sum(diag(op_A)))
+        #     println("Matrix A has all zero non-diagonal elements.")
+        # end
+        # if iszero(sum(op_B) - sum(diag(op_B)))
+        #     println("Matrix B has all zero non-diagonal elements.")
+        # end
 
         return op_A, op_B, region_ids
     end

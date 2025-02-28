@@ -26,6 +26,7 @@ __precompile__(false)
     export diffusion_time_dependent_GPU
     export diffusion_time_dependent_GPU_low_res
     export diffusion_time_dependent_GPU_hi_res
+    export diffusion_time_dependent_GPU_hi_res_alt
     export diffusion_time_dependent_GPU_hi_res_implicit
     
     # ===== ANALYTICAL SOLUTIONS =====
@@ -363,6 +364,7 @@ __precompile__(false)
         println("Using D = $D, Db = $Db, Deff = $Deff")
 
         # Convert to Float32
+        # dtdx2 = Float32(dtdx2)
         # D = Float32(D)
         # Db = Float32(Db)
         # Deff = Float32(Deff)
@@ -387,7 +389,7 @@ __precompile__(false)
         steps = [0, -1, 1]
         moore_nbrs = vec([(di, dj, dk) for di in steps, dj in steps, dk in steps])
         # println("Moore neighbors: ", moore_nbrs)
-        # region_ids = zeros(Int, N, N, H)
+        region_ids = zeros(Int, N, N, H)
 
         # Initialise concentrations in cell wall
         for i in 1:N, j in 1:N, k in 1:H
@@ -405,14 +407,14 @@ __precompile__(false)
                 end
             end
             if included && included_nbrs < 26
-                c_init[i, j, k] = 11.0 # Encode cell wall 1.0 + 10
-                # region_ids[i, j, k] = 1
+                c_init[i, j, k] = c₀# 11.0 # Encode cell wall 1.0 + 10
+                region_ids[i, j, k] = 1
             elseif included && included_nbrs == 26
-                c_init[i, j, k] = 100.0 # Encode interior 0.0 + 100
-                # region_ids[i, j, k] = 2
+                c_init[i, j, k] = 0.0#100.0 # Encode interior 0.0 + 100
+                region_ids[i, j, k] = 2
             else
                 c_init[i, j, k] = 0.0 # Encode exterior 0.0 + 0
-                # region_ids[i, j, k] = 0
+                region_ids[i, j, k] = 0
             end
         end
         println("Concentrations initialised.")
@@ -438,7 +440,7 @@ __precompile__(false)
         # Initialise arrays on GPU
         c_A_gpu = cu(c_init)
         c_B_gpu = CUDA.zeros(Float64, N, N, H)
-        # region_ids_gpu = cu(region_ids)
+        region_ids_gpu = cu(region_ids)
 
         kernel_blocks, kernel_threads = invoke_smart_kernel_3D(size(c_init))
 
@@ -449,9 +451,11 @@ __precompile__(false)
 
             # Save frame
             if (t - 1) % save_interval == 0 && save_ct ≤ n_save_frames
-                c_A_temp = Array(c_A_gpu)[:, N ÷ 2, :]
-                c_evolution[save_ct, :, :] .= @. ifelse(c_A_temp ≥ 100, rem(c_A_temp, 100), ifelse(c_A_temp ≥ 10, rem(c_A_temp, 10), 0.0)).*c₀
-                # c_evolution[save_ct, :, :] .= Array(c_A_gpu)[: , N ÷ 2, :]
+                CUDA.synchronize()
+                # println(maximum(Array(c_A_gpu)[:, N ÷ 2, :]))
+                # c_A_temp = Array(c_A_gpu)[:, N ÷ 2, :]
+                # c_evolution[save_ct, :, :] .= @. ifelse(c_A_temp ≥ 100, rem(c_A_temp, 100.0), ifelse(c_A_temp ≥ 10, rem(c_A_temp, 10.0), 0.0)).*c₀
+                c_evolution[save_ct, :, :] .= Array(c_A_gpu)[: , N ÷ 2, :]
                 # println(maximum(c_evolution[save_ct, :, :]))
                 times[save_ct] = t * dt
                 println("Frame $save_ct saved.")
@@ -459,8 +463,7 @@ __precompile__(false)
             end
 
             # Update the lattice
-            @cuda threads=kernel_threads blocks=kernel_blocks update_GPU_hi_res!(c_A_gpu, c_B_gpu, N, H, dtdx2, D, Db, Deff, neumann_z)
-            CUDA.synchronize()
+            @cuda threads=kernel_threads blocks=kernel_blocks update_GPU_hi_res!(c_A_gpu, c_B_gpu, N, H, dtdx2, D, Db, Deff, region_ids_gpu, neumann_z)
             c_A_gpu, c_B_gpu = c_B_gpu, c_A_gpu
 
             # Check for threshold crossing
@@ -473,17 +476,147 @@ __precompile__(false)
         end
 
         # Save final frame
-        c_A_temp = Array(c_A_gpu)[:, N ÷ 2, :]
-        # c_evolution[save_ct, :, :] .= rem.(c_A_temp, floor.(Int, log10.(c_A_temp.+1e-12))).*c₀
-        # c_evolution[save_ct, :, :] .= rem.(c_A_temp, 10.0 .^floor.(Int, log10.(c_A_temp.+1e-12))).*c₀
-        # c_evolution[save_ct, :, :] .= c_A_temp .≥ 10 ? (c_A_temp .≥ 100 ? rem.(c_A_temp, 100) : rem.(c_A_temp, 10)) : 0.0
-        region_ids = @. ifelse(c_A_temp ≥ 100, 2, ifelse(c_A_temp ≥ 10, 1, 0))
-        c_evolution[save_ct, :, :] .= @. ifelse(c_A_temp ≥ 100, rem(c_A_temp, 100), ifelse(c_A_temp ≥ 10, rem(c_A_temp, 10), 0.0)).*c₀
+        CUDA.synchronize()
+        # c_A_temp = Array(c_A_gpu)[:, N ÷ 2, :]
+        # region_ids = @. ifelse(c_A_temp ≥ 100, 2, ifelse(c_A_temp ≥ 10, 1, 0))
+        # c_evolution[save_ct, :, :] .= @. ifelse(c_A_temp ≥ 100, rem(c_A_temp, 100.0), ifelse(c_A_temp ≥ 10, rem(c_A_temp, 10.0), 0.0)).*c₀
+        c_evolution[save_ct, :, :] .= Array(c_A_gpu)[: , N ÷ 2, :]
         times[save_ct] = t_max
         # c_evolution[save_ct, :, :] .= @. ifelse(c_A_temp ≥ 100, 2, ifelse(c_A_temp ≥ 10, 1, 0))
         # println(maximum(c_evolution[save_ct, :, :]))
 
-        return c_evolution, times, region_ids, t_thresholds
+        return c_evolution, times, region_ids[:, N ÷ 2, :], t_thresholds
+    end
+
+
+    function diffusion_time_dependent_GPU_hi_res_alt(c_init, c₀, sp_cen_indices, spore_rad, t_max; D=1.0, Db=1.0, dt=0.005, dx=0.2, n_save_frames=100,
+        c_thresholds=nothing, neumann_z=false)
+        """
+        Compute the evolution of a square lattice of concentration scalars
+        based on the time-dependent diffusion equation.
+        inputs:
+            c_init (vector of float) - the initial state of the lattice
+            c₀ (float) - the initial concentration at the spore
+            sp_cen_indices (array of tuples) - the indices of the spore locations
+            spore_rad (float) - the radius of the spore
+            t_max (int) - a maximum number of iterations
+            D (float) - the diffusion constant; defaults to 1
+            Db (float) - the diffusion constant through the spore cell wall; defaults to 1
+            dt (float) - timestep; defaults to 0.001
+            dx (float) - spatial increment; defaults to 0.005
+            n_save_frames (int) - determines the number of frames to save during the simulation; detaults to 100
+            c_thresholds (vector of float) - threshold values for the concentration; defaults to nothing
+            neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction; defaults to false
+        outputs:
+            c_evolotion (array) - the states of the lattice at all moments in time
+            times (array) - the times at which the states were saved
+            t_thresholds (array) - the times at which the concentration crossed the threshold
+        """
+
+        @assert length(sp_cen_indices[1]) == 3 "spore_idx must be a 3D array"
+        @assert typeof(sp_cen_indices[1]) == Tuple{Int, Int, Int} "spore_idx must be an array of tuples"
+
+        GC.gc()
+
+        # Determine number of lattice rows/columns
+        N = size(c_init)[1]
+        H = size(c_init)[3]
+
+        @assert spore_rad < N * dx && spore_rad < H * dx "spore_rad must be less than N and H"
+
+        # Save update factor
+        dtdx2 = dt / (dx^2)
+
+        # Compute effective diffusion constant at interface
+        Deff = 2 * D * Db / (D + Db)
+        println("Using D = $D, Db = $Db, Deff = $Deff")
+
+        # Convert to Float32
+        D = Float32(D)
+        Db = Float32(Db)
+        Deff = Float32(Deff)
+        println("D*dt/dx2 = $(D*dtdx2), Db*dt/dx2 = $(Db*dtdx2), Deff*dt/dx2 = $(Deff*dtdx2)")
+
+        # Check stability
+        if D * dtdx2 ≥ 0.2
+            println("Warning: inappropriate scaling of dx and dt due to D, may result in an unstable simulation; Ddt/dx2 = $(D*dtdx2).")
+        end
+        if Db * dtdx2 ≥ 0.2
+            println("Warning: inappropriate scaling of dx and dt due to Db, may result in an unstable simulation; Dbdt/dx2 = $(Db*dtdx2).")
+        end
+        if Deff * dtdx2 ≥ 0.2
+            println("Warning: inappropriate scaling of dx and dt due to Deff, may result in an unstable simulation; Deffdt/dx2 = $(Deff*dtdx2).")
+        end
+
+        # Radus in lattice units
+        spore_rad_lattice = spore_rad / dx
+        println("Spore radius in lattice units: ", spore_rad_lattice)
+
+        # Initialise concentrations and operators
+        _, coeffs, region_ids = initialise_lattice_and_build_operator!(c_init, c₀, sp_cen_indices, spore_rad_lattice, D, Db, Deff, dtdx2, true)
+
+        # Determine number of frames
+        n_frames = Int(floor(t_max / dt))
+
+        # Allocate arrays for saving data
+        c_evolution = zeros(n_save_frames + 1, N, H) # Only a cross-section is saved
+        times = zeros(n_save_frames + 1)
+        println("Storage arrays allocated.")
+        save_interval = floor(n_frames / n_save_frames)
+        save_ct = 1
+
+        # Allocate arrays for saving threshold crossing times
+        if isnothing(c_thresholds)
+            t_thresholds = nothing
+        else
+            t_thresholds = zeros(length(c_thresholds))
+        end
+        thresh_ct = 0
+
+        # Initialise arrays on GPU
+        c_A_gpu = cu(c_init)
+        c_B_gpu = CUDA.zeros(Float64, N, N, H)
+        coeffs_gpu = cu(coeffs)
+
+        kernel_blocks, kernel_threads = invoke_smart_kernel_3D(size(c_init))
+
+        # Run the simulation
+        for t in 1:n_frames
+
+            # println("Frame $t")
+
+            # Save frame
+            if (t - 1) % save_interval == 0 && save_ct ≤ n_save_frames
+                CUDA.synchronize()
+                c_evolution[save_ct, :, :] .= Array(c_A_gpu)[: , N ÷ 2, :]
+                # println(maximum(c_evolution[save_ct, :, :]))
+                times[save_ct] = t * dt
+                println("Frame $save_ct saved.")
+                save_ct += 1
+            end
+
+            # Update the lattice
+            # @cuda threads=kernel_threads blocks=kernel_blocks update_GPU_hi_res_coeffs!(c_A_gpu, c_B_gpu, N, H, coeffs_gpu, neumann_z)
+            @cuda threads=kernel_threads blocks=kernel_blocks update_GPU_hi_res_coeffs!(c_A_gpu, c_B_gpu, N, H, coeffs_gpu.colPtr, coeffs_gpu.rowVal, coeffs_gpu.nzVal, neumann_z)
+            c_A_gpu, c_B_gpu = c_B_gpu, c_A_gpu
+
+            # Check for threshold crossing
+            if !isnothing(c_thresholds)
+                if thresh_ct < length(t_thresholds) && t_thresholds[thresh_ct] == 0 && CUDA.reduce(max_reduce_kernel, c_A_gpu) < c_thresholds[thresh_ct]
+                    t_thresholds[thresh_ct] = t * dt
+                    thresh_ct += 1
+                end
+            end
+        end
+
+        # Save final frame
+        CUDA.synchronize()
+        c_evolution[save_ct, :, :] .= Array(c_A_gpu)[: , N ÷ 2, :]
+        times[save_ct] = t_max
+        # c_evolution[save_ct, :, :] .= @. ifelse(c_A_temp ≥ 100, 2, ifelse(c_A_temp ≥ 10, 1, 0))
+        # println(maximum(c_evolution[save_ct, :, :]))
+
+        return c_evolution, times, region_ids[:, N ÷ 2, :], t_thresholds
     end
 
 
@@ -563,14 +696,9 @@ __precompile__(false)
         thresh_ct = 0
 
         # Initialise arrays on GPU
-        # c_gpu = CuArray(reshape(c_init, :, 1))
-        # println(typeof(op_A))
-        # println(typeof(op_B))
         op_A_gpu = CuSparseMatrixCSR(op_A)
         op_B_gpu = CuSparseMatrixCSR(op_B)
         c_gpu = cu(vec(c_init))
-
-        # kernel_blocks, kernel_threads = invoke_smart_kernel_3D(size(c_init))
 
         # Run the simulation
         for t in 1:n_frames
@@ -590,6 +718,7 @@ __precompile__(false)
             b_gpu = crank_nicolson ? op_B_gpu * c_gpu : c_gpu#  # Right-hand side
             # c_gpu .= CUDA.CUSOLVER.csrlsvqr!(op_A_gpu, b_gpu, c_gpu, Float32(1e-6), one(Cint), 'O')
             c_gpu, stats = Krylov.cg(op_A_gpu, b_gpu; atol=Float32(1e-12), itmax=1000)
+            # c_gpu, stats = Krylov.cg(op_A_gpu, b_gpu; atol=1e-12, itmax=1000)
 
             # Check for threshold crossing
             if !isnothing(c_thresholds)

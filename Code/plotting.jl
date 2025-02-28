@@ -223,12 +223,10 @@ __precompile__(false)
         """
 
         @argcheck size(c_frames)[1] == size(times)[1] "c_frames and times must have the same lengths"
-
-        # Add new axis to region_ids
-        region_ids = reshape(region_ids, 1, size(region_ids)[1], size(region_ids)[2])
-
+        
         # Mask the cell wall region and take the average concentration
         c_avg = extract_mean_cw_concentration(c_frames, region_ids)
+        # c_max = maximum(c_frames, dims=(2, 3))
 
         fig, ax = subplots(1, 1, figsize=(8, 4))
         ax.plot(times, c_avg[:], label="Cell wall region")
