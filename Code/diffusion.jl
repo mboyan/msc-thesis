@@ -10,8 +10,9 @@ __precompile__(false)
     using CUDA.CUSOLVER
     using SparseArrays
     # using IterativeSolvers
-    # using LinearMaps
+    using LinearMaps
     using Krylov
+    using KrylovPreconditioners
     # using AMGX
     using LinearAlgebra
     using IterTools
@@ -689,44 +690,19 @@ __precompile__(false)
         c_gpu = cu(vec(c_init))
         region_ids_gpu = CUDA.zeros(Int, N, N, H)
         debugger_gpu = CUDA.zeros(Int, N, N, H)
+        pc_vals_gpu = CUDA.zeros(Float32, Nt)
+        pc_rowptr = 1:Nt+1
+        pc_rowptr_gpu = cu(collect(pc_rowptr))
+        pc_colidx_gpu = cu(collect(1:Nt))
         for sp_cen_idx in sp_cen_indices
-            @cuda threads=kernel_threads blocks=kernel_blocks initialise_lattice_and_operator_GPU!(c_gpu, colidx_gpu, valsA_gpu, valsB_gpu, region_ids_gpu, debugger_gpu,
+            @cuda threads=kernel_threads blocks=kernel_blocks initialise_lattice_and_operator_GPU!(c_gpu, colidx_gpu, valsA_gpu, valsB_gpu, region_ids_gpu, pc_vals_gpu, debugger_gpu,
                                                                                                     c₀, sp_cen_idx[1], sp_cen_idx[2], sp_cen_idx[3],
                                                                                                     spore_rad_lattice, sqrt(2), D, Db, Deff, dtdx2, N, H, crank_nicolson)
         end
         CUDA.synchronize()
         op_A_gpu = CuSparseMatrixCSR(rowptr_gpu, colidx_gpu, valsA_gpu, (Nt, Nt))
         op_B_gpu = CuSparseMatrixCSR(rowptr_gpu, colidx_gpu, valsB_gpu, (Nt, Nt))
-        # println(unique(Array(region_ids_gpu)))
-        # println(unique(Array(valsA_gpu)))
-        # println(unique(Array(valsB_gpu)))
-        # println(maximum(Array(c_gpu)))
-        # println(maximum(op_A_gpu.rowPtr))
-        # println(maximum(op_B_gpu.rowPtr))
-        # # println(maximum(op_A_gpu.colIdx))
-        # nzval = Array(op_A_gpu.nzVal)
-        # println(maximum(nzval))
-        # nzval = Array(op_B_gpu.nzVal)
-        # println(maximum(nzval))
-        # # println(crank_nicolson)
-        # # println(unique(Array(debugger_gpu)))
-        # colidx = Array(op_A_gpu.colVal)
-        # println(maximum(colidx))
-        # colidx = Array(op_B_gpu.colVal)
-        # println(maximum(colidx))
-        # colidx_srch = collect(1:Nt)
-        # # for col in colidx_srch
-        # #     if col ∉ colidx
-        # #         println("Warning: column $col not found.")
-        # #     end
-        # # end
-        # b_gpu = op_B_gpu * c_gpu
-        # println(maximum(Array(b_gpu)))
-        # # println(maximum(Array(op_B_gpu * c_gpu)))
-        # println(Tuple(argmax(reshape(Array(c_gpu), (N, N, H)))))
-        # println(minimum(Array(debugger_gpu)))
-        # println(maximum(Array(debugger_gpu)))
-        # println("=====")
+        precond = CuSparseMatrixCSR(pc_rowptr_gpu, pc_colidx_gpu, pc_vals_gpu, (Nt, Nt))
 
         # Determine number of frames
         n_frames = Int(floor(t_max / dt))
@@ -768,17 +744,8 @@ __precompile__(false)
 
             # Update the lattice
             b_gpu = crank_nicolson ? op_B_gpu * c_gpu : c_gpu#  # Right-hand side
-            # if (t - 1) % save_interval == 0
-            #     println(size(Array(c_gpu)))
-            #     println(size(reshape(Array(c_gpu), (N, N, H))))
-            #     println(Tuple(argmax(reshape(Array(c_gpu), (N, N, H)))))
-            #     println(maximum(Array(c_gpu)))
-            #     println(argmax(Array(c_gpu)))
-            #     # println(maximum(Array(b_gpu)))
-            # end
-            # c_gpu .= CUDA.CUSOLVER.csrlsvqr!(op_A_gpu, b_gpu, c_gpu, Float32(1e-6), one(Cint), 'O')
+            # c_gpu, stats = Krylov.cg(op_A_gpu, b_gpu; M=precond, atol=Float32(1e-12), itmax=1000)
             c_gpu, stats = Krylov.cg(op_A_gpu, b_gpu; atol=Float32(1e-12), itmax=1000)
-            # c_gpu, stats = Krylov.cg(op_A_gpu, b_gpu; atol=1e-12, itmax=1000)
 
             # Check for threshold crossing
             if !isnothing(c_thresholds)

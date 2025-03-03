@@ -14,6 +14,7 @@ module Conversions
     export convert_Ps_to_D
     export measure_coverage
     export extract_mean_cw_concentration
+    export compute_spore_concentration
 
     function mL_to_cubic_um(mL)
         """
@@ -138,6 +139,46 @@ module Conversions
         c_avg = sum(c_cell_wall, dims=(2, 3)) ./ sum(region_ids .== 1)
 
         return c_avg
+    end
+
+    function compute_spore_concentration(c_frames, region_ids, spore_rad, cw_thickness, dx)
+        """
+        Compute the inhibitor concentration relative to the spore volume
+        from the cell wall region.
+        inputs:
+            c_frames (Array{Float64, 3}): concentration lattice
+            region_ids (Array{Int, 1}): region ids
+            spore_rad (float): spore radius
+            cw_thickness (float): cell wall thickness
+            dx (float): lattice spacing
+        """
+
+        # Add new axis to region_ids
+        region_ids = reshape(region_ids, 1, size(region_ids)[1], size(region_ids)[2])
+
+        # Isolate only central spore region
+        center = size(c_frames[1, :, :]) .÷ 2 .* dx
+        indices = CartesianIndices(c_frames[1, :, :])
+        X = [idx[1] * dx for idx in indices]  # Row indices
+        Y = [idx[2] * dx for idx in indices]  # Column indices
+        dist = sqrt.((X .- center[1]).^2 + (Y .- center[2]).^2)
+        central_spore_mask = dist .<= spore_rad
+        central_spore_mask = reshape(central_spore_mask, 1, size(central_spore_mask)[1], size(central_spore_mask)[2])
+
+        region_ids = region_ids .* central_spore_mask
+
+        # Compute the cell wall moles
+        moles_cw_voxels_sec = c_frames .* (region_ids .== 1) .* dx^3
+        moles_cw_sec = sum(moles_cw_voxels_sec, dims=(2, 3))
+        moles_cw = 2 * moles_cw_sec * spore_rad / cw_thickness
+
+        # Compute the spore volume
+        spore_vol = 4/3 * π * spore_rad^3
+
+        # Compute the inhibitor concentration relative to the spore volume
+        c_spore = moles_cw / spore_vol
+
+        return c_spore
     end
 
 end

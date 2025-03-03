@@ -6,6 +6,7 @@ module Solver
 
     using SparseArrays
     using LinearAlgebra
+    using LinearMaps
     using CUDA
     
     export invoke_smart_kernel_3D
@@ -648,7 +649,7 @@ module Solver
     end
 
 
-    function initialise_lattice_and_operator_GPU!(c_init, colidx, valsA, valsB, region_ids, debugger, c₀, sp_cen_i, sp_cen_j, sp_cen_k, spore_rad_lattice, cw_thickness, D, Db, Deff, dtdx2, N, H, crank_nicolson=true)
+    function initialise_lattice_and_operator_GPU!(c_init, colidx, valsA, valsB, region_ids, pc_vals, debugger, c₀, sp_cen_i, sp_cen_j, sp_cen_k, spore_rad_lattice, cw_thickness, D, Db, Deff, dtdx2, N, H, crank_nicolson=true)
         """
         GPU kernel for building the operator sparse matrix for implicitly solving the diffusion equation
         using the Crank-Nicolson method and initialising the lattice. Also assigns region IDs to the lattice.
@@ -881,6 +882,7 @@ module Solver
 
         valsA[idx_lin*7-6] = 1 + diag_val
         valsB[idx_lin*7-6] = crank_nicolson ? 1 - diag_val : 1f0
+        pc_vals[idx_lin] = 1/(1 + diag_val)
 
         region_ids[idx...] = region_id
 
