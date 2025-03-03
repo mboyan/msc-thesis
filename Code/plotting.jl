@@ -24,7 +24,7 @@ __precompile__(false)
     export plot_spheres!
     export plot_spore_clusters
     export plot_concentration_lattice
-    export plot_concentration_evolution_hi_res
+    export plot_concentration_evolution
     export plot_lattice_regions
     
 
@@ -213,12 +213,11 @@ __precompile__(false)
     end
 
 
-    function plot_concentration_evolution_hi_res(c_frames::Array{Float64}, times::Vector{Float64}, region_ids::Matrix{Int64}, spore_rad::Float64, cw_thickness::Float64, dx::Float64)
+    function plot_concentration_evolution(c_vals::Array{Float64}, times::Vector{Float64})
         """
-        Plots the evolution of the concentration in a high resolution simulation
-        by identifying the cell wall region and taking the average concentration.
+        Plots the time-series of a calculated concentration.
         inputs:
-            c_frames (Array{Float64}): concentration lattice frames
+            c_vals (Array{Float64}): concentration lattice frames
             times (Array{Float64}): times
             region_ids (Array{Float64}): region IDs
             spore_rad (float): spore radius
@@ -226,15 +225,8 @@ __precompile__(false)
             dx (float): lattice spacing
         """
 
-        @argcheck size(c_frames)[1] == size(times)[1] "c_frames and times must have the same lengths"
-        
-        # Mask the cell wall region and take the average concentration
-        # c_avg = extract_mean_cw_concentration(c_frames, region_ids)
-        # c_max = maximum(c_frames, dims=(2, 3))
-        c_spore = compute_spore_concentration(c_frames, region_ids, spore_rad, cw_thickness, dx)
-
         fig, ax = subplots(1, 1, figsize=(8, 4))
-        ax.plot(times, c_spore[:], label="Cell wall region")
+        ax.plot(times, c_vals[:], label="Cell wall region")
         ax.set_xlabel("Time [s]")
         ax.set_ylabel("Average concentration")
         ax.set_title("Average concentration in the cell wall region")

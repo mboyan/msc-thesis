@@ -394,29 +394,42 @@ __precompile__(false)
         region_ids = zeros(Int, N, N, H)
 
         # Initialise concentrations in cell wall
+        cw_thickness = sqrt(2)
         for i in 1:N, j in 1:N, k in 1:H
-            included = false
-            included_nbrs = 0
-            for (di, dj, dk) in moore_nbrs
-                for sp_cen_idx in sp_cen_indices
-                    if (i + di - sp_cen_idx[1] - 1)^2 + (j + dj - sp_cen_idx[2] - 1)^2 + (k + dk - sp_cen_idx[3] - 1)^2 ≤ spore_rad_lattice^2
-                        if (di, dj, dk) == (0, 0, 0)
-                            included = true
-                        else
-                            included_nbrs += 1
-                        end
-                    end
+            # included = false
+            # included_nbrs = 0
+            # for (di, dj, dk) in moore_nbrs
+            #     for sp_cen_idx in sp_cen_indices
+            #         if (i + di - sp_cen_idx[1] - 1)^2 + (j + dj - sp_cen_idx[2] - 1)^2 + (k + dk - sp_cen_idx[3] - 1)^2 ≤ spore_rad_lattice^2
+            #             if (di, dj, dk) == (0, 0, 0)
+            #                 included = true
+            #             else
+            #                 included_nbrs += 1
+            #             end
+            #         end
+            #     end
+            # end
+            # if included && included_nbrs < 26
+            #     c_init[i, j, k] = c₀# 11.0 # Encode cell wall 1.0 + 10
+            #     region_ids[i, j, k] = 1
+            # elseif included && included_nbrs == 26
+            #     c_init[i, j, k] = 0.0#100.0 # Encode interior 0.0 + 100
+            #     region_ids[i, j, k] = 2
+            # else
+            #     c_init[i, j, k] = 0.0 # Encode exterior 0.0 + 0
+            #     region_ids[i, j, k] = 0
+            # end
+            for sp_cen_idx in sp_cen_indices
+                if spore_rad_lattice - cw_thickness ≤ sqrt((i - sp_cen_idx[1] - 1)^2 + (j - sp_cen_idx[2] - 1)^2 + (k - sp_cen_idx[3] - 1)^2) ≤ spore_rad_lattice
+                    c_init[i, j, k] = c₀
+                    region_ids[i, j, k] = 1
+                elseif sqrt((i - sp_cen_idx[1] - 1)^2 + (j - sp_cen_idx[2] - 1)^2 + (k - sp_cen_idx[3] - 1)^2) ≤ spore_rad_lattice - cw_thickness
+                    c_init[i, j, k] = 0.0
+                    region_ids[i, j, k] = 2
+                else
+                    c_init[i, j, k] = 0.0
+                    region_ids[i, j, k] = 0
                 end
-            end
-            if included && included_nbrs < 26
-                c_init[i, j, k] = c₀# 11.0 # Encode cell wall 1.0 + 10
-                region_ids[i, j, k] = 1
-            elseif included && included_nbrs == 26
-                c_init[i, j, k] = 0.0#100.0 # Encode interior 0.0 + 100
-                region_ids[i, j, k] = 2
-            else
-                c_init[i, j, k] = 0.0 # Encode exterior 0.0 + 0
-                region_ids[i, j, k] = 0
             end
         end
         println("Concentrations initialised.")

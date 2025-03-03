@@ -6,6 +6,7 @@ __precompile__(false)
 
     using ArgCheck
     using IterTools
+    using JLD2
 
     # using .Conversions
     # using .Diffusion
@@ -91,6 +92,36 @@ __precompile__(false)
         end
 
         return spore_centers
+    end
+
+    function run_simulation_segment(exp_ID, sim_ID, max_time, sim_params=nothing)
+        """
+        Run a time segment of a simulation and append
+        the results to the simulation data.
+        inputs:
+            exp_ID (int): experiment ID
+            sim_ID (int): simulation ID
+            max_time (float): maximum time
+            sim_params (Dict): simulation parameters
+        """
+
+        path = @__DIR__
+
+        if isdir("$(path)/Data/$(exp_ID)")
+            if isfile("$(path)/Data/$(exp_ID)/$(sim_ID).jld2")
+                sim_data = load("$(path)/Data/$(exp_ID)/$(sim_ID).jld2")
+                c_frames = sim_data["c_frames"]
+                region_ids = sim_data["region_ids"]
+                times = sim_data["times"]
+                dx = sim_data["dx"]
+                spore_rad = sim_data["spore_rad"]
+                cw_thickness = sim_data["cw_thickness"]
+            else
+                error("Simulation data not found")
+            end
+        else
+            error("Experiment data not found")
+        end
     end
 
 end
