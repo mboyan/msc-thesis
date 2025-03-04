@@ -9,6 +9,7 @@ __precompile__(false)
     using GLMakie
     using GeometryBasics
     using Revise
+    using CurveFit
 
     include("./setup.jl")
     include("./conversions.jl")
@@ -25,6 +26,7 @@ __precompile__(false)
     export plot_spore_clusters
     export plot_concentration_lattice
     export plot_concentration_evolution
+    export compare_concentration_evolutions
     export plot_lattice_regions
     
 
@@ -82,7 +84,7 @@ __precompile__(false)
         """
         Plots spheres in an interactive 3D plot.
         inputs:
-            centers (Array{Float64, 2}): centers of the spheres
+            centers (Array{Tuple}): centers of the spheres
             rads (Float64): radius of the spheres
             L (int): the size of the domain
             inline (bool): whether to display the plot inline
@@ -121,7 +123,7 @@ __precompile__(false)
         
         cam = cam3d!(ax.scene, eyeposition=Vec3f(2*L, L÷2, L÷2), lookat=Vec3f(L÷2, L÷2, L÷2))
 
-        for center in eachrow(centers)
+        for center in centers
             sphere = Sphere(Point3f(center[1], center[2], center[3]), rad)
             mesh!(ax.scene, sphere, color = RGBAf(0.993, 0.906, 0.145, 0.5))
         end
@@ -151,8 +153,8 @@ __precompile__(false)
 
         for (i, cluster_size) in enumerate(cluster_sizes)
             centers = setup_spore_cluster(cluster_size, L, spore_rad, cut_half)
-            sample_sphere_center = centers[1, :]
-            nbr_sphere_centers = centers[2:end, :]
+            sample_sphere_center = centers[1]
+            nbr_sphere_centers = centers[2:end]
             coverage = measure_coverage(sample_sphere_center, nbr_sphere_centers, spore_rad)
             plot_spheres!(centers, spore_rad, L, inline=true, title="Cluster size: $(size(nbr_sphere_centers)[1]) + 1, Q = $(round(coverage,digits=5))", ax=axs[i])
         end
@@ -187,8 +189,6 @@ __precompile__(false)
         vmax = maximum(c_frames)
         
         fig, axs = subplots(n_rows, 2, figsize=(8, 4*n_rows))
-        # Flatten axes
-        println(typeof(axs))
         axs = reshape(permutedims(axs, (2, 1)), length(axs))
         img = nothing
         for i in 1:size(c_frames)[1]
@@ -213,7 +213,7 @@ __precompile__(false)
     end
 
 
-    function plot_concentration_evolution(c_vals::Array{Float64}, times::Vector{Float64})
+    function plot_concentration_evolution(c_vals::Array{Float64}, times::Vector{Float64}, label=nothing, ax=nothing, logy=false, fit_exp=false)
         """
         Plots the time-series of a calculated concentration.
         inputs:
@@ -223,14 +223,68 @@ __precompile__(false)
             spore_rad (float): spore radius
             cw_thickness (float): cell wall thickness
             dx (float): lattice spacing
+            ax (Axis): axis to plot on
+            logy (bool): whether to plot the y-axis in log scale
+            fit_exp (bool): whether to fit an exponential to the data
+        """
+        
+        if isnothing(ax)
+            fig, ax = subplots(1, 1, figsize=(8, 4))
+            plotself = true
+        else
+            plotself = false
+        end
+
+        if fit_exp
+            fit = exp_fit(times, c_vals)
+            println("Fitted exponential: ", fit)
+        end
+
+        ax.plot(times, c_vals, label=label)
+        ax.set_xlabel("Time [s]")
+        ax.set_ylabel("Concentration [M]")
+        ax.set_title("Total concentration in the spore")
+        ax.grid(true)
+
+        if logy
+            ax.set_yscale("log")
+        end
+
+        if plotself
+            gcf()
+        end
+    end
+
+    
+    function compare_concentration_evolutions(c_vals_array:: Vector{Vector{Float64}}, times_array::Vector{Vector{Float64}}, labels=nothing, ax=nothing; logy=false, fit_exp=false)
+        """
+        Plot multiple concentration evolutions on the same axis.
+        inputs:
+            c_vals_array (Array{Float64, 2}): concentration lattice frames
+            times_array (Array{Vector{Float64}}): times
+            labels (Array{String}): labels for the plots
+            ax (Axis): axis to plot on
+            logy (bool): whether to plot the y-axis in log scale
+            fit_exp (bool): whether to fit an exponential to the data
         """
 
-        fig, ax = subplots(1, 1, figsize=(8, 4))
-        ax.plot(times, c_vals[:], label="Cell wall region")
-        ax.set_xlabel("Time [s]")
-        ax.set_ylabel("Average concentration")
-        ax.set_title("Average concentration in the cell wall region")
-        ax.grid()
+        # Check labels
+        if !isnothing(labels)
+            @argcheck length(labels) == size(c_vals_array)[1] "Number of labels must match the number of concentration arrays"
+        else
+            labels = ["$i" for i in 1:size(c_vals_array)[1]]
+        end
+
+        if isnothing(ax)
+            fig, ax = subplots(1, 1, figsize=(8, 4))
+        end
+        
+        for i in 1:size(c_vals_array)[1]
+            # println(size(c_vals_array))
+            plot_concentration_evolution(c_vals_array[i], times_array[i], labels[i], ax, logy, fit_exp)
+        end
+
+        ax.legend()
 
         gcf()
     end
@@ -243,11 +297,12 @@ __precompile__(false)
             region_ids (Array{Int}): region IDs
         """
 
+        N, H = size(region_ids)
         fig, ax = subplots(1, 1, figsize=(8, 4))
         ax.imshow(region_ids, cmap="viridis", interpolation="nearest")
         ax.set_title("Lattice regions")
-        ax.set_xlabel(@L_str"x [\\mu m]")
-        ax.set_ylabel(@L_str"y [\\mu m]")
+        ax.set_xlabel(@L_str"i")
+        ax.set_ylabel(@L_str"j")
         
         gcf()
     end

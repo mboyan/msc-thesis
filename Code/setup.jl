@@ -13,14 +13,14 @@ __precompile__(false)
 
     export setup_spore_cluster
 
-    function setup_spore_cluster(n_nbrs::Int, N::Int, spore_rad::Float64, cut_half::Bool=false)
+    function setup_spore_cluster(n_nbrs::Int, L, spore_rad::Float64, cut_half::Bool=false)
         """
         Compute the centers of a cluster of spheres,
         one placed in the center of the lattice and the rest
         placed at the vertices of a regular n_nbrs-gon.
         inputs:
             n_nbrs (int): number of neighbors
-            N (int): number of spheres
+            L (int): size of the lattice
             spore_rad (float): radius of the spores
             cut_half (bool): whether to cut the cluster in half
         outputs:
@@ -28,10 +28,13 @@ __precompile__(false)
         """
 
         @argcheck n_nbrs in [2, 3, 4, 6, 8, 12] "n_nbrs must be in [2, 3, 4, 6, 8, 12]"
-        @argcheck N > 0 "N must be positive"
+        @argcheck L > 0 "N must be positive"
+
+        # Safety distance
+        spore_rad += 0.5
 
         spore_dia = 2 * spore_rad
-        center = [N ÷ 2, N ÷ 2, N ÷ 2]
+        center = [0.5 * L, 0.5 * L, 0.5 * L]
 
         spore_centers = zeros(n_nbrs + 1, 3)
         spore_centers[1, :] = center
@@ -91,10 +94,17 @@ __precompile__(false)
             spore_centers = spore_centers[mask, :]
         end
 
+        # Convert to list of tuples
+        if typeof(L) == Int
+            spore_centers = [(Int(round(x)), Int(round(y)), Int(round(z))) for (x, y, z) in eachrow(spore_centers)]
+        else
+            spore_centers = [(x, y, z) for (x, y, z) in eachrow(spore_centers)]
+        end
+
         return spore_centers
     end
 
-    function run_simulation_segment(exp_ID, sim_ID, max_time, sim_params=nothing)
+    function run_simulation_segment(exp_ID, sim_ID, max_time, exp_params=nothing, sim_params=nothing)
         """
         Run a time segment of a simulation and append
         the results to the simulation data.
@@ -102,6 +112,7 @@ __precompile__(false)
             exp_ID (int): experiment ID
             sim_ID (int): simulation ID
             max_time (float): maximum time
+            exp_params (Dict): experiment parameters
             sim_params (Dict): simulation parameters
         """
 
@@ -109,18 +120,23 @@ __precompile__(false)
 
         if isdir("$(path)/Data/$(exp_ID)")
             if isfile("$(path)/Data/$(exp_ID)/$(sim_ID).jld2")
-                sim_data = load("$(path)/Data/$(exp_ID)/$(sim_ID).jld2")
-                c_frames = sim_data["c_frames"]
-                region_ids = sim_data["region_ids"]
-                times = sim_data["times"]
-                dx = sim_data["dx"]
-                spore_rad = sim_data["spore_rad"]
-                cw_thickness = sim_data["cw_thickness"]
+                # Load simulation data
+                jldopen("$(path)/Data/$(exp_ID)/$(sim_ID).jld2", "r+") do file
+                    times = file["times"]
+                end
             else
-                error("Simulation data not found")
+                if isnothing(sim_params)
+                    error("File not found, simulation parameters must be supplied.")
+                end
             end
         else
-            error("Experiment data not found")
+            if isnothing(exp_params) || isnothing(sim_params)
+                error("Directory not found, experiment and simulation parameters must be supplied.")
+            else
+                # Create directory and save parameters
+                mkdir("$(path)/Data/$(exp_ID)")
+                jldsave("$(path)/Data/$(exp_ID)/$(sim_ID).jld2", Dict("exp_params" => exp_params, "sim_params" => sim_params))
+            end
         end
     end
 

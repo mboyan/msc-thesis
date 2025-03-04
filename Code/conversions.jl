@@ -100,18 +100,18 @@ module Conversions
         return exp(-Δ) * sin(ϕ)
     end
 
-    function measure_coverage(sample_shere_center, nbr_sphere_centers, rad=1)
+    function measure_coverage(sample_shere_center::Tuple, nbr_sphere_centers, rad=1)
         """
         Measure the cumulative shadow intensity of neighboring spheres on a sample sphere.
         inputs:
-            sample_shere_center (Array{Float64, 1}): center of the sample sphere
-            nbr_sphere_centers (Array{Array{Float64, 1}, 1}): centers of the neighboring spheres
+            sample_shere_center (Tuple{Float64, 1}): center of the sample sphere
+            nbr_sphere_centers (Array{Tuple{Float64}, 1}): centers of the neighboring spheres
             rad (float): radius of the spheres
         outputs:
             (float) cumulative shadow intensity
         """
         intsum = 0.0
-        for center in eachrow(nbr_sphere_centers)
+        for center in nbr_sphere_centers
             d = norm(center .- sample_shere_center)
             ϕ₀ = asin(rad / d)
             integral, err = quadgk(ϕ -> coverage_integral(ϕ, rad, d), 0, ϕ₀)
@@ -141,7 +141,7 @@ module Conversions
         return c_avg
     end
 
-    function compute_spore_concentration(c_frames, region_ids, spore_rad, cw_thickness, dx)
+    function compute_spore_concentration(c_frames, region_ids, spore_rad, dx, cw_thickness=nothing)
         """
         Compute the inhibitor concentration relative to the spore volume
         from the cell wall region.
@@ -153,32 +153,69 @@ module Conversions
             dx (float): lattice spacing
         """
 
+        if isnothing(cw_thickness)
+            cw_thickness = dx
+        end
+
         # Add new axis to region_ids
-        region_ids = reshape(region_ids, 1, size(region_ids)[1], size(region_ids)[2])
+        region_ids = reshape(region_ids, 1, size(region_ids)...)
+        # println("Region ids: ", size(region_ids))
 
         # Isolate only central spore region
-        center = size(c_frames[1, :, :]) .÷ 2 .* dx
-        indices = CartesianIndices(c_frames[1, :, :])
-        X = [idx[1] * dx for idx in indices]  # Row indices
-        Y = [idx[2] * dx for idx in indices]  # Column indices
-        dist = sqrt.((X .- center[1]).^2 + (Y .- center[2]).^2)
-        central_spore_mask = dist .<= spore_rad
-        central_spore_mask = reshape(central_spore_mask, 1, size(central_spore_mask)[1], size(central_spore_mask)[2])
+        if ndims(c_frames) == 3
+            # Extrapolate 3D volume from 2D section
+            center = size(c_frames[1, :, :]) .÷ 2 .* dx
+            indices = CartesianIndices(c_frames[1, :, :])
+            X = [idx[1] * dx for idx in indices]  # Row indices
+            Y = [idx[2] * dx for idx in indices]  # Column indices
+            dist = sqrt.((X .- center[1]).^2 + (Y .- center[2]).^2)
+            central_spore_mask = dist .<= spore_rad
+            central_spore_mask = reshape(central_spore_mask, 1, size(central_spore_mask)...)
+            # println("Central spore nodes: ", sum(central_spore_mask))
 
-        region_ids = region_ids .* central_spore_mask
+            region_ids = region_ids .* central_spore_mask
 
-        # Compute the cell wall moles
-        moles_cw_voxels_sec = c_frames .* (region_ids .== 1) .* dx^3
-        moles_cw_sec = sum(moles_cw_voxels_sec, dims=(2, 3))
-        moles_cw = 2 * moles_cw_sec * spore_rad / cw_thickness
+            # Compute the cell wall moles
+            moles_cw_voxels_sec = c_frames .* (region_ids .== 1) .* dx^3
+            moles_cw_sec = sum(moles_cw_voxels_sec, dims=(2, 3))
+            moles_cw = 2 * moles_cw_sec * spore_rad / cw_thickness
+            # println("Moles CW: ", moles_cw)
 
-        # Compute the spore volume
-        spore_vol = 4/3 * π * spore_rad^3
+            # Compute the spore volume
+            spore_vol = 4/3 * π * spore_rad^3
+            # println("Spore volume: ", spore_vol)
 
+        elseif ndims(c_frames) == 4
+            # Compute the spore volume accurately
+            center = size(c_frames[1, :, :, :]) .÷ 2 .* dx
+            indices = CartesianIndices(c_frames[1, :, :, :])
+            X = [idx[1] * dx for idx in indices]  # Row indices
+            Y = [idx[2] * dx for idx in indices]  # Column indices
+            Z = [idx[3] * dx for idx in indices]  # Depth indices
+            dist = sqrt.((X .- center[1]).^2 + (Y .- center[2]).^2 + (Z .- center[3]).^2)
+            central_spore_mask = dist .<= spore_rad
+            central_spore_mask = reshape(central_spore_mask, 1, size(central_spore_mask)...)
+            # println("Central spore nodes: ", sum(central_spore_mask))
+
+            region_ids = region_ids .* central_spore_mask
+            # println("Cell wall nodes: ", sum(region_ids .== 1))
+
+            # Compute the cell wall moles
+            moles_cw_voxels = c_frames .* (region_ids .== 1) .* dx^3
+            moles_cw = sum(moles_cw_voxels, dims=(2, 3, 4))
+            # println("Moles CW: ", moles_cw)
+
+            # Compute the spore volume
+            spore_vol = sum(central_spore_mask) * dx^3
+            # println("Spore volume: ", spore_vol)
+        else
+            error("Invalid number of dimensions of c_frames")
+        end
+        
         # Compute the inhibitor concentration relative to the spore volume
         c_spore = moles_cw / spore_vol
 
-        return c_spore
+        return c_spore[:]
     end
 
 end
