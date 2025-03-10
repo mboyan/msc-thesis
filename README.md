@@ -1,6 +1,13 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## Tying the scales together
+- Analytical solution of low-resolution scheme (_if implemented accurately_) can inform an **average added concentration** for the high-resolution lattice of the cluster experiments.
+- This way, the baseline concentration in the cluster simulation can be gradually increased over time.
+- This enables the observation of the interaction between neighbour adjacency and global spore density.
+- Goal - derive/verify a mathematical relationship from this, tying density-induced saturation to coverage-dependent decay exponent.
+- Final goal - map parameter landscape: $P_s$ vs. $\rho_s$ vs. $Q$ vs. 4-hour concentration drop (illustrate with pictogram for Han).
+
 ## Reflections on unchanging decay exponent with varying inter-spore distance
 - Spores at a distance of $5R$ look dispersed enough to enable faster diffusion. Then why is such not measured?
 - Is it a numerical error? Run explicit version with a higher $P_s$ and compare.
