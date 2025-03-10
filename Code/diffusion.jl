@@ -327,7 +327,7 @@ __precompile__(false)
     end
 
     function diffusion_time_dependent_GPU_hi_res(c_init, c₀, sp_cen_indices, spore_rad, t_max; D=1.0, Db=1.0, dt=0.005, dx=0.2, n_save_frames=100,
-        c_thresholds=nothing, neumann_z=false)
+        c_thresholds=nothing, abs_bndry=false, neumann_z=false)
         """
         Compute the evolution of a square lattice of concentration scalars
         based on the time-dependent diffusion equation.
@@ -343,6 +343,7 @@ __precompile__(false)
             dx (float) - spatial increment; defaults to 0.005
             n_save_frames (int) - determines the number of frames to save during the simulation; detaults to 100
             c_thresholds (vector of float) - threshold values for the concentration; defaults to nothing
+            abs_bndry (bool) - whether to use absorbing boundary conditions; defaults to false
             neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction; defaults to false
         outputs:
             c_evolotion (array) - the states of the lattice at all moments in time
@@ -408,16 +409,15 @@ __precompile__(false)
             for sp_cen_idx in sp_cen_indices
                 if spore_rad_lattice - cw_thickness ≤ sqrt((i - sp_cen_idx[1] - 1)^2 + (j - sp_cen_idx[2] - 1)^2 + (k - sp_cen_idx[3] - 1)^2) ≤ spore_rad_lattice
                     # Cell wall
-                    c_init[i, j, k] = c₀
+                    c_init[i, j, k] += c₀
                     region_ids[i, j, k] = 1
                 elseif sqrt((i - sp_cen_idx[1] - 1)^2 + (j - sp_cen_idx[2] - 1)^2 + (k - sp_cen_idx[3] - 1)^2) ≤ spore_rad_lattice - cw_thickness
                     # Interior
-                    c_init[i, j, k] = 0.0
+                    c_init[i, j, k] += 0.0
                     region_ids[i, j, k] = 2
-                else
-                    # Exterior
-                    c_init[i, j, k] = 0.0
-                    region_ids[i, j, k] = 0
+                # else
+                #     # Exterior
+                #     c_init[i, j, k] .+ 0.0
                 end
             end
         end
@@ -469,10 +469,9 @@ __precompile__(false)
             # Save frame
             if (t - 1) % save_interval == 0 && save_ct ≤ n_save_frames
                 CUDA.synchronize()
-                c_frames[save_ct, :, :] .= Array(c_A_gpu)[: , N ÷ 2, :]
-                c_spore[save_ct] = compute_spore_concentration(reshape(Array(c_A_gpu), (1, N, N, H)),
-                                                                reshape(Array(region_ids_gpu), (N, N, H)), spore_rad, dx)[1]
-                println(c_spore[save_ct])
+                c_frames[save_ct, :, :] .= Array(c_A_gpu)[:, N ÷ 2, :]
+                c_spore[save_ct] = compute_spore_concentration(reshape(Array(c_A_gpu), (1, N, N, H)), Array(region_ids_gpu), spore_rad, dx)[1]
+                # println(c_spore[save_ct])
                 # println(maximum(c_frames[save_ct, :, :]))
                 times[save_ct] = t * dt
                 println("Frame $save_ct saved.")
@@ -480,7 +479,7 @@ __precompile__(false)
             end
 
             # Update the lattice
-            @cuda threads=kernel_threads blocks=kernel_blocks update_GPU_hi_res!(c_A_gpu, c_B_gpu, N, H, dtdx2, D, Dcw, Db, region_ids_gpu, neumann_z)
+            @cuda threads=kernel_threads blocks=kernel_blocks update_GPU_hi_res!(c_A_gpu, c_B_gpu, N, H, dtdx2, D, Dcw, Db, region_ids_gpu, abs_bndry, neumann_z)
             c_A_gpu, c_B_gpu = c_B_gpu, c_A_gpu
 
             # Check for threshold crossing
@@ -494,9 +493,8 @@ __precompile__(false)
 
         # Save final frame
         CUDA.synchronize()
-        c_frames[save_ct, :, :] .= Array(c_A_gpu)[: , N ÷ 2, :]
-        c_spore[save_ct] = compute_spore_concentration(reshape(Array(c_A_gpu), (1, N, N, H)),
-                                                                reshape(Array(region_ids_gpu), (N, N, H)), spore_rad, dx)[1]
+        c_frames[save_ct, :, :] .= Array(c_A_gpu)[:, N ÷ 2, :]
+        c_spore[save_ct] = compute_spore_concentration(reshape(Array(c_A_gpu), (1, N, N, H)), Array(region_ids_gpu), spore_rad, dx)[1]
         times[save_ct] = t_max
 
         return c_frames, c_spore, times, region_ids[:, N ÷ 2, :], t_thresholds
@@ -586,7 +584,7 @@ __precompile__(false)
         # pc_colidx_gpu = cu(collect(1:Nt))
         if abs_bndry
             for sp_cen_idx in sp_cen_indices
-                @cuda threads=kernel_threads blocks=kernel_blocks initialise_lattice_and_operator_GPU_abs_bndry!(c_gpu, colidx_gpu, valsA_gpu, valsB_gpu, region_ids_gpu, #pc_vals_gpu, debugger_gpu,
+                @cuda threads=kernel_threads blocks=kernel_blocks initialise_lattice_and_operator_GPU_abs_bndry!(c_gpu, colidx_gpu, valsA_gpu, valsB_gpu, region_ids_gpu,
                                                                                                         c₀, sp_cen_idx[1], sp_cen_idx[2], sp_cen_idx[3],
                                                                                                         spore_rad_lattice, cw_thickness, D, Dcw, Db, dtdx2, N, H, crank_nicolson)
             end
@@ -598,6 +596,7 @@ __precompile__(false)
             end
         end
         CUDA.synchronize()
+        # println(unique(Array(valsA_gpu)))
         op_A_gpu = CuSparseMatrixCSR(rowptr_gpu, colidx_gpu, valsA_gpu, (Nt, Nt))
         op_B_gpu = CuSparseMatrixCSR(rowptr_gpu, colidx_gpu, valsB_gpu, (Nt, Nt))
         # precond = CuSparseMatrixCSR(pc_rowptr_gpu, pc_colidx_gpu, pc_vals_gpu, (Nt, Nt))

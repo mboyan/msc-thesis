@@ -158,7 +158,7 @@ module Solver
         return s
     end
 
-    function update_GPU_hi_res!(lattice_old, lattice_new, N, H, dtdx2, D, Dcw, Db, region_ids, neumann_z)
+    function update_GPU_hi_res!(lattice_old, lattice_new, N, H, dtdx2, D, Dcw, Db, region_ids, abs_bndry, neumann_z)
         """
         Update the concentration values on the lattice
         using the time-dependent diffusion equation.
@@ -171,6 +171,8 @@ module Solver
             D (float) - the diffusion constant
             Dcw (float) - the diffusion constant through the spore
             Db (float) - the effective diffusion constant at the spore interface
+            region_ids (array) - the region IDs of the lattice
+            abs_bndry (bool) - whether to use absorbing boundary conditions
             neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction
         """
         i, j, k = CUDA.blockIdx().x, CUDA.blockIdx().y, CUDA.blockIdx().z
@@ -178,6 +180,13 @@ module Solver
     
         # Determine the indices of the current cell
         idx = ((i - 1) * blockDim().x + ti, (j - 1) * blockDim().y + tj, (k - 1) * blockDim().z + tk)
+
+        # Apply absorbing boundary conditions
+        if abs_bndry
+            if idx[1] == 1 || idx[1] == N || idx[2] == 1 || idx[2] == N || idx[3] == 1 || idx[3] == H
+                return nothing
+            end
+        end
 
         # Update the concentration value
         if 1 ≤ idx[1] ≤ N && 1 ≤ idx[2] ≤ N && 1 ≤ idx[3] ≤ H
@@ -267,74 +276,6 @@ module Solver
         
         return nothing
     end
-
-    # function lin_idx(i, j, k, N, H)
-    #     """
-    #     Convert 3D indices to linear index.
-    #     inputs:
-    #         i (int) - the row index
-    #         j (int) - the column index
-    #         k (int) - the layer index
-    #         N (int) - the number of lattice rows/columns
-    #         H (int) - the number of lattice layers
-    #     outputs:
-    #         (int) - the linear index
-    #     """
-    #     return (i - 1) * N * H + (j - 1) * H + k
-    # end
-
-
-    # function update_GPU_hi_res_coeffs!(lattice_old, lattice_new, N, H, coeffs_colptr, coeffs_rowval, coeffs_nzval, neumann_z)
-    #     """
-    #     Update the concentration values on the lattice
-    #     using the time-dependent diffusion equation.
-    #     inputs:
-    #         lattice_old (array) - the current state of the lattice (concentrations + region IDs)
-    #         lattice_new (array) - the updated state of the lattice (concentrations + region IDs)
-    #         N (int) - the number of lattice rows/columns
-    #         H (int) - the number of lattice layers
-    #         coeffs_colptr (array) - the column pointers of the coefficient matrix
-    #         coeffs_rowval (array) - the row values of the coefficient matrix
-    #         coeffs_nzval (array) - the nonzero values of the coefficient matrix
-    #         neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction
-    #     """
-    #     i, j, k = CUDA.blockIdx().x, CUDA.blockIdx().y, CUDA.blockIdx().z
-    #     ti, tj, tk = CUDA.threadIdx().x, CUDA.threadIdx().y, CUDA.threadIdx().z
-    
-    #     # Determine the indices of the current cell
-    #     idx = ((i - 1) * blockDim().x + ti, (j - 1) * blockDim().y + tj, (k - 1) * blockDim().z + tk)
-
-    #     # Update the concentration value
-    #     if 1 ≤ idx[1] ≤ N && 1 ≤ idx[2] ≤ N && 1 ≤ idx[3] ≤ H
-
-    #         idx_lin = lin_idx(idx[1], idx[2], idx[3], N, H)
-
-    #         vneum_nbrs = ((idx[1], idx[2], mod1(idx[3] - 1, H)),
-    #                       (idx[1], idx[2], mod1(idx[3] + 1, H)),
-    #                       (idx[1], mod1(idx[2] - 1, N), idx[3]),
-    #                       (idx[1], mod1(idx[2] + 1, N), idx[3]),
-    #                       (mod1(idx[1] - 1, N), idx[2], idx[3]),
-    #                       (mod1(idx[1] + 1, N), idx[2], idx[3]))
-
-    #         coeff_col_start = coeffs_colptr[idx_lin]
-    #         coeff_col_end = coeffs_colptr[idx_lin + 1] - 1
-
-    #         diffs = 0.0
-    #         for (i, nbr) in enumerate(vneum_nbrs)
-    #             nbr_lin = lin_idx(nbr[1], nbr[2], nbr[3], N, H)
-    #             for j in coeff_col_start:coeff_col_end
-    #                 if coeffs_rowval[j] == nbr_lin
-    #                     diffs += coeffs_nzval[j] * (lattice_old[nbr[1], nbr[2], nbr[3]] - lattice_old[idx...])
-    #                 end
-    #             end
-    #         end
-            
-
-    #         lattice_new[idx...] = lattice_old[idx...] + Float32(diffs)
-    #     end
-        
-    #     return nothing
-    # end
 
 
     function initialise_lattice_and_operator_GPU!(c_init, colidx, valsA, valsB, region_ids, c₀, sp_cen_i, sp_cen_j, sp_cen_k, spore_rad_lattice, cw_thickness, D, Dcw, Db, dtdx2, N, H, crank_nicolson=true)

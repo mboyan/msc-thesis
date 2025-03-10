@@ -31,7 +31,7 @@ __precompile__(false)
         @argcheck L > 0 "N must be positive"
 
         # Safety distance
-        spore_rad += 0.5
+        # spore_rad += 0.5
 
         spore_dia = 2 * spore_rad
         center = [0.5 * L, 0.5 * L, 0.5 * L]

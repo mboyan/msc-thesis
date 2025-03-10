@@ -27,7 +27,10 @@ __precompile__(false)
     export plot_concentration_lattice
     export plot_concentration_evolution
     export compare_concentration_evolutions
+    export compare_concentration_evolution_groups
     export plot_lattice_regions
+    export plot_functional_relationship
+    export compare_functional_relationships
     
 
     function generate_ax_grid_pyplot(n_rows, n_cols, figsize=(8, 4))
@@ -136,7 +139,7 @@ __precompile__(false)
     end
 
 
-    function plot_spore_clusters(cluster_sizes, spore_rad, L, per_row=2; cut_half=false)
+    function plot_spore_clusters(cluster_sizes, spore_rad, L, per_row=2; cut_half=false, spore_spacings=nothing)
         """
         Create multiple plots for a range of spore cluster sizes.
         inputs:
@@ -145,17 +148,22 @@ __precompile__(false)
             L (int): size of the domain
             per_row (int): number of plots per row
             cut_half (bool): whether to cut the cluster in half
+            spore_spacings (Array{Float64}): distances between spores, if unspecified, spore diameter is used
         """
 
         n_rows = ceil(Int, length(cluster_sizes) / per_row)
 
-        fig, axs = generate_grid_layout_glmakie(n_rows, per_row, (800, 400*n_rows), true)
+        if isnothing(spore_spacings)
+            spore_spacings = [spore_rad for s in cluster_sizes]
+        end
+
+        fig, axs = generate_grid_layout_glmakie(n_rows, per_row, (400*per_row, 400*n_rows), true)
 
         for (i, cluster_size) in enumerate(cluster_sizes)
-            centers = setup_spore_cluster(cluster_size, L, spore_rad, cut_half)
+            centers = setup_spore_cluster(cluster_size, L, spore_spacings[i]*0.5, cut_half)
             sample_sphere_center = centers[1]
             nbr_sphere_centers = centers[2:end]
-            coverage = measure_coverage(sample_sphere_center, nbr_sphere_centers, spore_rad)
+            coverage = measure_coverage(sample_sphere_center, nbr_sphere_centers, spore_spacings[i]*0.5)
             plot_spheres!(centers, spore_rad, L, inline=true, title="Cluster size: $(size(nbr_sphere_centers)[1]) + 1, Q = $(round(coverage,digits=5))", ax=axs[i])
         end
 
@@ -163,14 +171,16 @@ __precompile__(false)
     end
 
 
-    function plot_concentration_lattice(c_frames::Array{Float64}, dx; frame_indices=nothing, times=nothing, title=nothing)
+    function plot_concentration_lattice(c_frames::Array{Float64}, dx; frame_indices=nothing, times=nothing, title=nothing, logscale=false)
         """
         Plots a 2D section of the concentration lattice.
         inputs:
             c_frames (Array{Float64}): concentration lattice frames
             dx (float): lattice spacing
             frame_indices (Array{Int}): indices of the frames to plot
+            times (Array{Float64}): times
             title (str): title of the plot
+            logscale (bool): whether to plot the colorbar in log scale
         """
 
         if !isnothing(frame_indices)
@@ -213,7 +223,7 @@ __precompile__(false)
     end
 
 
-    function plot_concentration_evolution(c_vals::Array{Float64}, times::Vector{Float64}, label=nothing, ax=nothing, logy=false, fit_exp=false)
+    function plot_concentration_evolution(c_vals::Array{Float64}, times::Vector{Float64}, label=nothing, ax=nothing, logy=false, fit_exp=false, cmap=nothing, cmap_idx=1)
         """
         Plots the time-series of a calculated concentration.
         inputs:
@@ -226,6 +236,8 @@ __precompile__(false)
             ax (Axis): axis to plot on
             logy (bool): whether to plot the y-axis in log scale
             fit_exp (bool): whether to fit an exponential to the data
+            cmap (str): colormap
+            cmap_idx (int): index of the colormap
         """
         
         if isnothing(ax)
@@ -238,9 +250,16 @@ __precompile__(false)
         if fit_exp
             fit = exp_fit(times, c_vals)
             println("Fitted exponential: ", fit)
+            fit_vals = fit[1] .* exp.(fit[2] .* times)
+            ax.plot(times, fit_vals, color="red", linestyle="--")
         end
 
-        ax.plot(times, c_vals, label=label)
+        if isnothing(cmap)
+            ax.plot(times, c_vals, label=label)
+        else
+            ax.plot(times, c_vals, label=label, color=cmap(cmap_idx))
+        end
+
         ax.set_xlabel("Time [s]")
         ax.set_ylabel("Concentration [M]")
         ax.set_title("Total concentration in the spore")
@@ -256,7 +275,7 @@ __precompile__(false)
     end
 
     
-    function compare_concentration_evolutions(c_vals_array:: Vector{Vector{Float64}}, times_array::Vector{Vector{Float64}}, labels=nothing, ax=nothing; logy=false, fit_exp=false)
+    function compare_concentration_evolutions(c_vals_array:: Vector{Vector{Float64}}, times_array::Vector{Vector{Float64}}, labels=nothing, ax=nothing; logy=false, fit_exp=false, cmap=nothing, cmap_idx_base=0)
         """
         Plot multiple concentration evolutions on the same axis.
         inputs:
@@ -266,6 +285,8 @@ __precompile__(false)
             ax (Axis): axis to plot on
             logy (bool): whether to plot the y-axis in log scale
             fit_exp (bool): whether to fit an exponential to the data
+            cmap (str): colormap
+            cmap_idx_base (int): base index of the colormap
         """
 
         # Check labels
@@ -276,17 +297,61 @@ __precompile__(false)
         end
 
         if isnothing(ax)
+            plotself = true
             fig, ax = subplots(1, 1, figsize=(8, 4))
+        else
+            plotself = false
         end
         
         for i in 1:size(c_vals_array)[1]
-            # println(size(c_vals_array))
-            plot_concentration_evolution(c_vals_array[i], times_array[i], labels[i], ax, logy, fit_exp)
+            println(labels[i])
+            plot_concentration_evolution(c_vals_array[i], times_array[i], labels[i], ax, logy, fit_exp, cmap, cmap_idx_base+i)
         end
 
-        ax.legend()
+        if plotself
+            ax.legend(fontsize="small")
+            gcf()
+        end
 
-        gcf()
+    end
+
+
+    function compare_concentration_evolution_groups(c_groups, times_groups, group_labels=nothing, ax=nothing; logy=false, fit_exp=false)
+        """
+        Compare the concentration evolutions from groups of simulations
+        on the same axis, with corresponding colors.
+        inputs:
+            c_groups (Array{Array{Float64, 2}}): concentration lattice frames
+            times_groups (Array{Array{Float64}}): times
+            group_labels (Array{String}): labels for the groups
+            logy (bool): whether to plot the y-axis in log scale
+            fit_exp (bool): whether to fit an exponential to the data
+        """
+
+        # Check labels
+        if !isnothing(group_labels)
+            @argcheck length(group_labels) == size(c_groups)[1] "Number of labels must match the number of concentration groups"
+        else
+            group_labels = [["Group $i"] for i in 1:size(c_groups)[1]]
+        end
+
+        if isnothing(ax)
+            plotself = true
+            fig, ax = subplots(1, 1, figsize=(8, 4))
+        else
+            plotself = false
+        end
+
+        cmap = get_cmap("tab20c")
+        for i in 1:size(c_groups)[1]
+            println(group_labels[i])
+            compare_concentration_evolutions(c_groups[i], times_groups[i], group_labels[i], ax; logy, fit_exp, cmap, cmap_idx_base=i*4)
+        end
+
+        if plotself
+            ax.legend(fontsize="small")
+            gcf()
+        end
     end
 
 
@@ -304,6 +369,106 @@ __precompile__(false)
         ax.set_xlabel(@L_str"i")
         ax.set_ylabel(@L_str"j")
         
+        gcf()
+    end
+
+
+    function plot_functional_relationship(input, response, axlabels, title=nothing, label=nothing; ax=nothing, logx=false, logy=false, fit=nothing)
+        """
+        Plots the functional relationship between input and response.
+        inputs:
+            input (Array{Float64}): input values
+            response (Array{Float64}): response values
+            axlabels (Array{String}): axis labels
+            title (str): title of the plot
+            label (str): label for the plot
+            ax (Axis): axis to plot on
+            logx (bool): whether to plot the x-axis in log scale
+            logy (bool): whether to plot the y-axis in log scale
+            fit (str): type of fit to perform
+        """
+
+        if isnothing(ax)
+            fig, ax = subplots(1, 1, figsize=(6, 4))
+        end
+        
+        ax.plot(input, response, marker="o", label=label)
+
+        if fit == "lin"
+            fit = linear_fit(input, response)
+            println("Fitted linear: ", fit)
+            fit_vals = fit[1] .* input .+ fit[2]
+        elseif fit == "exp"
+            fit = exp_fit(input, response)
+            println("Fitted exponential: ", fit)
+            fit_vals = fit[1] .* exp.(fit[2] .* input)
+        elseif fit == "pow"
+            input_clean = input[input .> 0]
+            response_clean = response[input .> 0]
+            fit = power_fit(input_clean, response_clean)
+            println("Fitted power: ", fit)
+            fit_vals = fit[1] .* input .^ fit[2]
+        elseif fit == "log"
+            fit = log_fit(input, response)
+            println("Fitted logarithmic: ", fit)
+            fit_vals = fit[1] .+ fit[2] .* log.(input)
+        elseif !isnothing(fit)
+            println("Invalid fit type, must be one of: lin, exp, pow, log")
+        end
+        if !isnothing(fit)
+            ax.plot(input, fit_vals, color="red", linestyle="--")
+        end
+
+        ax.set_xlabel(axlabels[1])
+        ax.set_ylabel(axlabels[2])
+        ax.grid(true)
+
+        if logx
+            ax.set_xscale("log")
+        end
+
+        if logy
+            ax.set_yscale("log")
+        end
+
+        if !isnothing(title)
+            ax.set_title(title)
+        end
+
+        gcf()
+    end
+
+    
+    function compare_functional_relationships(inputs, responses, axlabels, plotlabels=nothing, title=nothing; logx=false, logy=false, fit=nothing)
+        """
+        Compare multiple functional relationships on the same axis.
+        inputs:
+            inputs (Array{Array{Float64}}): input values
+            responses (Array{Array{Float64}}): response values
+            axlabels (Array{String}): axis labels
+            plotlabels (Array{String}): labels for the plots
+            titles (Array{String}): titles for the plots
+            logx (bool): whether to plot the x-axis in log scale
+            logy (bool): whether to plot the y-axis in log scale
+            fits (Array{String}): types of fits to perform
+        """
+
+        # Check labels
+        if !isnothing(plotlabels)
+            @argcheck length(plotlabels) == size(inputs)[1] "Number of titles must match the number of input-response pairs"
+        else
+            titles = ["$i" for i in 1:size(inputs)[1]]
+        end
+
+        plotself = true
+        fig, ax = subplots(figsize=(8, 4))
+
+        for i in 1:size(inputs)[1]
+            println(responses[i])
+            plot_functional_relationship(inputs[i], responses[i], axlabels, title, plotlabels[i]; ax, logx, logy, fit)
+        end
+
+        ax.legend(fontsize="small")
         gcf()
     end
 end
