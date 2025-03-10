@@ -1,6 +1,13 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## Reflections on unchanging decay exponent with varying inter-spore distance
+- Spores at a distance of $5R$ look dispersed enough to enable faster diffusion. Then why is such not measured?
+- Is it a numerical error? Run explicit version with a higher $P_s$ and compare.
+- More spores add more concentration to the lattice. But shouldn't the boundary absorb them? Does the absorbing boundary not work?
+- The exponent $Q^{3/4}$ seems suspiciously linked to spherical geometry? $Q$ itself intrinsically contains $R$ in its exponent.
+- Perhaps spores close to the absorbing boundary close it off? This is actually indicated in one of the plots, exponent increases with distance and then decreases again. Try a larger lattice? Or smaller spores?
+
 ## Note for heavy future experiments
 Set up incremental file saving, where a simulation can start from the final state of a previous one.
 
