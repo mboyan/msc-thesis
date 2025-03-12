@@ -517,7 +517,7 @@ def diffusion_time_dependent_GPU(c_init, t_max, D=1.0, Db=1.0, Ps=1.0, dt=0.005,
     # Run simulation
     for t in range(n_frames):
 
-        # print(f"Frame {t} of {n_frames}", end="\r")
+        print(f"Frame {t} of {n_frames}", end="\r")
 
         # Save frame
         if t % save_interval == 0:
