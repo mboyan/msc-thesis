@@ -30,8 +30,7 @@ __precompile__(false)
     export compute_permeation_constant
     export diffusion_time_dependent_GPU
     export diffusion_time_dependent_GPU_low_res
-    export diffusion_time_dependent_GPU_hi_res
-    export diffusion_time_dependent_GPU_hi_res_alt
+    export diffusion_time_dependent_GPU_hi_res!
     export diffusion_time_dependent_GPU_hi_res_implicit
     
     # ===== ANALYTICAL SOLUTIONS =====
@@ -155,6 +154,12 @@ __precompile__(false)
         # Determine number of frames
         n_frames = Int(floor(t_max / dt))
 
+        # Correct number of frames to save
+        if n_frames < n_save_frames
+            println("Correcting number of frames to save.")
+            n_save_frames = n_frames
+        end
+
         # Allocate arrays for saving data
         c_evolution = zeros(n_save_frames + 1, N, N, H)
         times = zeros(n_save_frames + 1)
@@ -182,7 +187,7 @@ __precompile__(false)
             # Save frame
             if (t - 1) % save_interval == 0 && save_ct ≤ n_save_frames
                 c_evolution[save_ct, :, :, :] .= Array(c_A_gpu)
-                times[save_ct] = t * dt
+                times[save_ct] = (t - 1) * dt
                 # println("Frame $save_ct saved.")
                 save_ct += 1
             end
@@ -267,6 +272,12 @@ __precompile__(false)
         # Determine number of frames
         n_frames = Int(floor(t_max / dt))
 
+        # Correct number of frames to save
+        if n_frames < n_save_frames
+            println("Correcting number of frames to save.")
+            n_save_frames = n_frames
+        end
+
         # Allocate arrays for saving data
         c_spore_array = zeros(N, N, H)
         c_spore_array[spore_vol_idx_ref...] = c₀
@@ -300,7 +311,7 @@ __precompile__(false)
             if (t - 1) % save_interval == 0 && save_ct ≤ n_save_frames
                 c_med_evolution[save_ct, :, :, :] .= Array(c_A_gpu)
                 c_spore_evolution[save_ct] = CUDA.reduce(max_reduce_kernel, c_spore_gpu, init=-Inf)
-                times[save_ct] = t * dt
+                times[save_ct] = (t - 1) * dt
                 # println("Frame $save_ct saved.")
                 save_ct += 1
             end
@@ -326,7 +337,7 @@ __precompile__(false)
         return c_med_evolution, c_spore_evolution, times, t_thresholds
     end
 
-    function diffusion_time_dependent_GPU_hi_res(c_init, c₀, sp_cen_indices, spore_rad, t_max; D=1.0, Db=1.0, dt=0.005, dx=0.2, n_save_frames=100,
+    function diffusion_time_dependent_GPU_hi_res!(c_init, c₀, sp_cen_indices, spore_rad, t_max; D=1.0, Db=1.0, dt=0.005, dx=0.2, n_save_frames=100,
         c_thresholds=nothing, abs_bndry=false, neumann_z=false)
         """
         Compute the evolution of a square lattice of concentration scalars
@@ -438,6 +449,12 @@ __precompile__(false)
         # Determine number of frames
         n_frames = Int(floor(t_max / dt))
 
+        # Correct number of frames to save
+        if n_frames < n_save_frames
+            println("Correcting number of frames to save.")
+            n_save_frames = n_frames
+        end
+
         # Allocate arrays for saving data
         c_frames = zeros(n_save_frames + 1, N, H) # Only a cross-section is saved
         c_spore = zeros(n_save_frames + 1)
@@ -473,8 +490,8 @@ __precompile__(false)
                 c_spore[save_ct] = compute_spore_concentration(reshape(Array(c_A_gpu), (1, N, N, H)), Array(region_ids_gpu), spore_rad, dx)[1]
                 # println(c_spore[save_ct])
                 # println(maximum(c_frames[save_ct, :, :]))
-                times[save_ct] = t * dt
-                println("Frame $save_ct saved.")
+                times[save_ct] = (t - 1) * dt
+                print("\rFrame $save_ct saved.")
                 save_ct += 1
             end
 
@@ -613,6 +630,12 @@ __precompile__(false)
         # Determine number of frames
         n_frames = Int(floor(t_max / dt))
 
+        # Correct number of frames to save
+        if n_frames < n_save_frames
+            println("Correcting number of frames to save.")
+            n_save_frames = n_frames
+        end
+
         # Allocate arrays for saving data
         c_frames = zeros(n_save_frames + 1, N, H) # Only a cross-section is saved
         c_spore = zeros(n_save_frames + 1)
@@ -640,9 +663,9 @@ __precompile__(false)
                 c_frames[save_ct, :, :] .= reshape(Array(c_gpu), (N, N, H))[:, N ÷ 2, :]
                 c_spore[save_ct] = compute_spore_concentration(reshape(Array(c_gpu), (1, N, N, H)),
                                                                 reshape(Array(region_ids_gpu), (N, N, H)), spore_rad, dx)[1]
-                times[save_ct] = t * dt
-                # println(maximum(c_frames[save_ct, :, :]))
-                println("Frame $save_ct saved.")
+                times[save_ct] = (t - 1) * dt
+                println(maximum(c_frames[save_ct, :, :]))
+                print("\rFrame $save_ct saved.")
                 save_ct += 1
             end
 

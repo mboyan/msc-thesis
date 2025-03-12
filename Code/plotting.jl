@@ -154,7 +154,7 @@ __precompile__(false)
         n_rows = ceil(Int, length(cluster_sizes) / per_row)
 
         if isnothing(spore_spacings)
-            spore_spacings = [spore_rad for s in cluster_sizes]
+            spore_spacings = [spore_rad*2 for s in cluster_sizes]
         end
 
         fig, axs = generate_grid_layout_glmakie(n_rows, per_row, (400*per_row, 400*n_rows), true)
@@ -190,7 +190,7 @@ __precompile__(false)
         else
             c_frames = c_frames[[1, end], :, :]
         end
-
+        
         n_rows = ceil(Int, size(c_frames)[1] / 2)
         N = size(c_frames)[2]
         H = size(c_frames)[3]
@@ -199,14 +199,18 @@ __precompile__(false)
         vmax = maximum(c_frames)
         
         fig, axs = subplots(n_rows, 2, figsize=(8, 4*n_rows))
-        axs = reshape(permutedims(axs, (2, 1)), length(axs))
+        if ndims(axs) == 2
+            axs = reshape(permutedims(axs, (2, 1)), length(axs))
+        else
+            axs = reshape(axs, (1, length(axs)))
+        end
         img = nothing
         for i in 1:size(c_frames)[1]
             if !isnothing(times) && !isnothing(frame_indices)
                 time = round(times[frame_indices[i]], digits=4)
                 ax_title = "t = $time s"
             else
-                ax_title = "Frame $(frame_indices[i])"
+                ax_title = "Frame $i"
             end
             img = axs[i].imshow(c_frames[i, :, :], cmap="viridis", interpolation="nearest", extent=[0, N*dx, 0, H*dx], vmin=vmin, vmax=vmax)
             axs[i].set_title(ax_title)
@@ -332,7 +336,7 @@ __precompile__(false)
         if !isnothing(group_labels)
             @argcheck length(group_labels) == size(c_groups)[1] "Number of labels must match the number of concentration groups"
         else
-            group_labels = [["Group $i"] for i in 1:size(c_groups)[1]]
+            group_labels = [["Group $i" for j in 1:size(c_groups[i])[1]] for i in 1:size(c_groups)[1]]
         end
 
         if isnothing(ax)
@@ -364,7 +368,7 @@ __precompile__(false)
 
         N, H = size(region_ids)
         fig, ax = subplots(1, 1, figsize=(8, 4))
-        ax.imshow(region_ids, cmap="viridis", interpolation="nearest")
+        ax.imshow(region_ids, cmap="rainbow", interpolation="nearest")
         ax.set_title("Lattice regions")
         ax.set_xlabel(@L_str"i")
         ax.set_ylabel(@L_str"j")
