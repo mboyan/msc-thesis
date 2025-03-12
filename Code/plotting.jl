@@ -308,7 +308,6 @@ __precompile__(false)
         end
         
         for i in 1:size(c_vals_array)[1]
-            println(labels[i])
             plot_concentration_evolution(c_vals_array[i], times_array[i], labels[i], ax, logy, fit_exp, cmap, cmap_idx_base+i)
         end
 
@@ -348,7 +347,6 @@ __precompile__(false)
 
         cmap = get_cmap("tab20c")
         for i in 1:size(c_groups)[1]
-            println(group_labels[i])
             compare_concentration_evolutions(c_groups[i], times_groups[i], group_labels[i], ax; logy, fit_exp, cmap, cmap_idx_base=i*4)
         end
 
