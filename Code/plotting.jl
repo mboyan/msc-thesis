@@ -466,7 +466,6 @@ __precompile__(false)
         fig, ax = subplots(figsize=(8, 4))
 
         for i in 1:size(inputs)[1]
-            println(responses[i])
             plot_functional_relationship(inputs[i], responses[i], axlabels, title, plotlabels[i]; ax, logx, logy, fit)
         end
 
