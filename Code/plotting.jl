@@ -332,9 +332,7 @@ __precompile__(false)
         """
 
         # Check labels
-        if !isnothing(group_labels)
-            @argcheck length(group_labels) == size(c_groups)[1] "Number of labels must match the number of concentration groups"
-        else
+        if isnothing(group_labels)
             group_labels = [["Group $i" for j in 1:size(c_groups[i])[1]] for i in 1:size(c_groups)[1]]
         end
 
@@ -346,8 +344,8 @@ __precompile__(false)
         end
 
         cmap = get_cmap("tab20c")
-        for i in 1:size(c_groups)[1]
-            compare_concentration_evolutions(c_groups[i], times_groups[i], group_labels[i], ax; logy, fit_exp, cmap, cmap_idx_base=i*4)
+        for i in 1:size(c_groups, 1)
+            compare_concentration_evolutions(c_groups[i], times_groups[i], group_labels[i], ax; logy, fit_exp, cmap, cmap_idx_base=(i - 1)*4)
         end
 
         if plotself

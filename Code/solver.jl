@@ -6,7 +6,7 @@ module Solver
 
     using SparseArrays
     using LinearAlgebra
-    using LinearMaps
+    # using LinearMaps
     using CUDA
     
     export invoke_smart_kernel_3D
@@ -23,9 +23,9 @@ module Solver
         """
         Invoke a kernel with the appropriate number of blocks and threads per block.
         """
-        blocks_per_grid = (Int(round(size[1] / threads_per_block[1])),
-                           Int(round(size[2] / threads_per_block[2])),
-                           Int(round(size[3] / threads_per_block[3])))
+        blocks_per_grid = (Int(ceil(size[1] / threads_per_block[1])),
+                           Int(ceil(size[2] / threads_per_block[2])),
+                           Int(ceil(size[3] / threads_per_block[3])))
         return blocks_per_grid, threads_per_block
     end
 
