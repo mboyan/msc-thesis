@@ -664,7 +664,7 @@ __precompile__(false)
                 c_spore[save_ct] = compute_spore_concentration(reshape(Array(c_gpu), (1, N, N, H)),
                                                                 reshape(Array(region_ids_gpu), (N, N, H)), spore_rad, dx)[1]
                 times[save_ct] = (t - 1) * dt
-                println(maximum(c_frames[save_ct, :, :]))
+                # println(maximum(c_frames[save_ct, :, :]))
                 print("\rFrame $save_ct saved.")
                 save_ct += 1
             end
