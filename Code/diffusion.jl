@@ -9,12 +9,10 @@ __precompile__(false)
     using CUDA.CUSPARSE
     using CUDA.CUSOLVER
     using SparseArrays
-    # using IterativeSolvers
-    # using LinearMaps
     using Krylov
-    # using KrylovPreconditioners
-    # using AMGX
     using LinearAlgebra
+    using SpecialFunctions
+    using QuadGK
     using IterTools
     using Revise
 
@@ -27,6 +25,8 @@ __precompile__(false)
 
     export permeation_time_dependent_analytical
     export diffusion_time_dependent_analytical_src
+    export slow_release_src_grid
+    export slow_release_src_grid_src
     export compute_permeation_constant
     export diffusion_time_dependent_GPU
     export diffusion_time_dependent_GPU_low_res
@@ -52,24 +52,150 @@ __precompile__(false)
     end
 
 
-    function diffusion_time_dependent_analytical_src(c_init, D, time, vol; dims=3)
+    function diffusion_time_dependent_analytical_src(c₀, D, time, vol; dims=3)
         """
         Compute the analytical solution of the time-dependent diffusion equation at the source.
         inputs:
-            c_init (float) - the initial concentration
+            c₀ (float) - the initial concentration
             D (float) - the diffusion constant
             time (float) - the time at which the concentration is to be computed
             vol (float) - the volume of the initial concentration source
         """
         if dims == 2
-            result = (vol * c_init) ^ (2/3) / (4*π*D*time)
+            result = (vol * c₀) ^ (2/3) / (4*π*D*time)
         elseif dims == 3
-            result = vol * c_init / (4*π*D.*time)^(1.5)
+            result = vol * c₀ / (4*π*D.*time)^(1.5)
         end
-        result = [isnan(x) || isinf(x) ? c_init[i] : x for (i, x) in enumerate(result)]
+        result = [isnan(x) || isinf(x) ? c₀[i] : x for (i, x) in enumerate(result)]
         return result
     end
 
+
+    function slow_release_src_grid(x, src_density, c₀, times, D, Pₛ, A, V, n_frames=10)
+        """
+        Compute the concentration at sampling points
+        due to periodically repeating permeating sources within an
+        effective diffusion radius.
+        inputs:
+            x (array of tuples): 3D positions of the observation points
+            src_density (float): number density of sources in spores/mL
+            times (array of floats): times at which to compute the concentration
+            c₀ (float): initial concentration at the sources in mol/L
+            D (float): diffusion coefficient in um^2/s
+            Pₛ (float): source release rate in um/s
+            A (float): source area in um^2
+            V (float): source volume in um^3
+            dt (float): time step size in seconds
+            n_frames (int): number of frames to compute
+        """
+
+        # Conversions
+        src_density = inverse_mL_to_cubic_um(src_density)
+
+        # Constants
+        τ = V / (A * Pₛ)
+        prefactors = (c₀ * sqrt(A * Pₛ * V) / (8 * π * D^(3/2))) .* exp.(-t_samples./τ)
+
+        # Iterate over time frames
+        src_sums = zeros(size(x)[1], size(times)[1])
+        for (i, t) in enumerate(times)
+            # Find diffusion radius
+            R = sqrt(4 * D * t)
+            
+            # Find source grid spacing
+            vol_src_cell = 1 / src_density
+            dx = vol_src_cell^(1/3)
+
+            # Generate relevant source positions
+            if R > dx
+                vol_src_grid = R^3
+                src_x = vec(0:dx:R)
+                src_x = [reverse(-src_x[2:end]); src_x]
+                src_pts = vec([(x, y, z) for x in src_x, y in src_x, z in src_x])
+            else
+                src_pts = [(0, 0, 0)]
+            end
+
+            # Compute distances
+            src_distances = [norm(x_pt - src_pt) for x_pt in x]
+            src_dist_unique = unique(src_distances)
+            unique_counts = [count(==(element), src_distances) for element in src_dist_unique]
+            unique_counts = repeat(unique_counts, 1, size(sample_pts, 1))
+            unique_counts = permutedims(unique_counts)
+            src_dist_unique = hcat([collect(element) for element in distances_unique]...)
+
+            # Sum source contributions
+            contributions = unique_counts .* exp.(-sqrt.(src_dist_unique.^2 .* (Pₛ * A / (D * V)))) .* erfc.(sqrt(Pₛ * A / (V * t)) .- sqrt.(src_dist_unique.^2 .* (t / (4 * D))))
+            src_sums[:, i] = sum(contributions, dims=2)
+        end
+
+        results = prefactors .* src_sums
+        
+        return results
+    end
+
+
+    function src_contribution_integral(r, τ, D, t)
+        """
+        Function used in the spatial integral for
+        the source contribution to the concentration
+        at a given time and distance from the source.
+        inputs:
+            r (float): distance from the source
+            τ (float): characteristic time scale
+            D (float): diffusion coefficient
+            t (float): time
+        """
+        if t == 0
+            erfcterm = 1
+        else
+            erfcterm = erfc(sqrt(1/(t*τ)) - r*sqrt(t/(4*D)))
+        end
+        return r^2 * exp(-r/sqrt(D*τ)) * erfcterm
+    end
+
+
+    function slow_release_src_grid_src(src_density, c₀, times, D, Pₛ, A, V, n_frames=10)
+        """
+        Compute the concentration inside a spore source
+        due to periodically repeating permeating sources within an
+        effective diffusion radius.
+        inputs:
+            x (array of tuples): 3D positions of the observation points
+            t_max (float): maximum time of observation in seconcs
+            src_density (float): number density of sources in spores/mL
+            c0 (float): initial concentration at the sources in mol/L
+            D (float): diffusion coefficient in um^2/s
+            Ps (float): source release rate in um/s
+            A (float): source area in um^2
+            V (float): source volume in um^3
+            dt (float): time step size in seconds
+            n_frames (int): number of frames to compute
+        """
+
+        # Conversions
+        src_density = inverse_mL_to_cubic_um(src_density)
+
+        # Constants
+        τ = V / (A * Pₛ)
+        prefactor = c₀ * sqrt(A * Pₛ * V) / (8 * π * D^(3/2))
+        ϵ = 0.001 * sqrt(4 * D * times[2])
+
+        # Iterate over time frames
+        c_ins = zeros(size(times, 1))
+        for (i, t) in enumerate(times)
+            # Find diffusion radius
+            R = sqrt(4 * D * t)
+
+            self_contribution = exp(t/τ) * erfc(sqrt(τ/t))
+            nbrs_contributions = 4π * src_density * quadgk(r -> src_contribution_integral(r, τ, D, t), ϵ, R)[1]
+            c_out = prefactor * (self_contribution + nbrs_contributions)
+
+            c_ins[i] = exp(-t/τ) * (c₀ + (1/τ) * quadgk(q -> c_out * exp(q/τ), 0, t)[1])
+        end
+
+        return c_ins
+    end
 
     function compute_permeation_constant(c_in_target, c_out, c_0, t, A, V; alpha=1.0)
         """
@@ -189,6 +315,7 @@ __precompile__(false)
                 c_evolution[save_ct, :, :, :] .= Array(c_A_gpu)
                 times[save_ct] = (t - 1) * dt
                 # println("Frame $save_ct saved.")
+                # println(maximum(c_evolution[save_ct, :, :, :]))
                 save_ct += 1
             end
 
@@ -313,6 +440,7 @@ __precompile__(false)
                 c_spore_evolution[save_ct] = CUDA.reduce(max_reduce_kernel, c_spore_gpu, init=-Inf)
                 times[save_ct] = (t - 1) * dt
                 # println("Frame $save_ct saved.")
+                # println(c_spore_evolution[save_ct])
                 save_ct += 1
             end
 

@@ -8,6 +8,7 @@ module Conversions
 
     export mL_to_cubic_um
     export inverse_mL_to_cubic_um
+    export cubic_um_to_mL
     export inverse_cubic_um_to_mL
     export inverse_uL_to_mL
     export convert_D_to_Ps
@@ -36,6 +37,17 @@ module Conversions
             (float) volume in inverse micrometers cubed
         """
         return mL_inv * 1e-12
+    end
+
+    function cubic_um_to_mL(cubic_um)
+        """
+        Convert micrometers cubed to milliliters.
+        inputs:
+            cubic_um (float): volume in micrometers cubed
+        outputs:
+            (float) volume in milliliters
+        """
+        return cubic_um * 1e-12
     end
 
     function inverse_cubic_um_to_mL(cubic_um_inv)
