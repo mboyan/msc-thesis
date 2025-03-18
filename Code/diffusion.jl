@@ -14,6 +14,7 @@ __precompile__(false)
     using SpecialFunctions
     using QuadGK
     using IterTools
+    using StatsBase
     using Revise
 
     include("./solver.jl")
@@ -71,24 +72,24 @@ __precompile__(false)
     end
 
 
-    function aggregation_time_integral(t, τ, D, r)
-        return t^(-3/2) * exp(t/τ - r^2/(4 * D * t))
-    end
+    # function aggregation_time_integral(t, τ, D, r)
+    #     return t^(-3/2) * exp(t/τ - r^2/(4 * D * t))
+    # end
 
-    function inner_integral(r, t, Ps, A, V, D)
+    function aggregation_time_integral(r, t, Ps, A, V, D)
         ϵ = 1e-12
         if t < ϵ
             val = 1.0
         else
             integrand(τ) = τ^(-3/2) * exp((Ps * A / V) * τ - (r^2) / (4 * D * τ))
             # Perform integration over τ from 0 to t
-            val, err = quadgk(integrand, ϵ, t, rtol=1e-8)
+            val, err = quadgk.(integrand, ϵ, t, rtol=1e-8)
         end
         return val
     end
     
-    function outer_integral(t, Ps, A, V, D, rho_s, R_diff)
-        integrand_r(r) = r^2 * inner_integral(r, t, Ps, A, V, D)
+    function aggregation_space_integral(t, Ps, A, V, D, rho_s, R_diff)
+        integrand_r(r) = r^2 * aggregation_time_integral(r, t, Ps, A, V, D)
         # Integrate over r from 0 to R_diff
         val, err = quadgk(integrand_r, 0, R_diff, rtol=1e-8)
         return 4 * π * rho_s * val
@@ -156,26 +157,42 @@ __precompile__(false)
                 # println("Radius: $R, $(length(src_pts)) neighbours")
 
                 # Compute distances
-                src_distances = [Tuple([norm(x_pt .- src_pt) for x_pt in x]) for src_pt in src_pts]
-                src_dist_unique = unique(src_distances)
-                unique_counts = [count(==(element), src_distances) for element in src_dist_unique]
-                unique_counts = repeat(unique_counts, 1, size(x, 1))
-                unique_counts = permutedims(unique_counts)
-                src_dist_unique = hcat([collect(element) for element in src_dist_unique]...)
+                # src_distances = [Tuple([norm(x_pt .- src_pt) for x_pt in x]) for src_pt in src_pts]
+                # src_dist_unique = unique(src_distances)
+                # unique_counts = [count(==(element), src_distances) for element in src_dist_unique]
+                # unique_counts = repeat(unique_counts, 1, size(x, 1))
+                # unique_counts = permutedims(unique_counts)
+                # src_dist_unique = hcat([collect(element) for element in src_dist_unique]...)
                 # println("Unique distances: ", size(src_dist_unique))
+
+                # Compute distances
+                src_distances = [map(x_pt -> norm(x_pt .- src_pt), x) for src_pt in src_pts]
+
+                counts = countmap(src_distances)
+
+                # Extract unique distances and their counts
+                src_dist_unique = collect(keys(counts))
+                unique_counts = collect(values(counts))
+
+                # Reshape unique counts to match the size of `x`
+                unique_counts = permutedims(repeat(unique_counts, 1, size(x, 1)))
+
+                # Convert unique distances to a matrix
+                src_dist_unique = hcat(src_dist_unique...)
 
                 # Sum source contributions
                 # contributions = unique_counts .* exp.(-sqrt.(src_dist_unique.^2 .* (Pₛ * A / (D * V)))) .* erfc.(sqrt(Pₛ * A / (V * t)) .- sqrt.(src_dist_unique.^2 .* (t / (4 * D))))
                 if t < ϵ
                     time_integral = 1.0
                 else
-                    time_integral = quadgk.(t_int -> aggregation_time_integral.(t_int, τ, D, src_dist_unique), ϵ, t)[1]
+                    time_integral = aggregation_time_integral.(src_dist_unique, t, Pₛ, A, V, D)#quadgk.(t_int -> aggregation_time_integral.(t_int, τ, D, src_dist_unique), ϵ, t)[1]
+                    # time_integral = quadgk.(t_int -> aggregation_time_integral.(t_int, τ, D, src_dist_unique), ϵ, t)[1]
                 end
                 contributions = unique_counts .* sum((A * Pₛ * c₀ / (4π * D)^(3/2)) * exp(-t/τ) * time_integral)
                 src_sums[:, i] = sum(contributions, dims=2)
             else
                 # Compute the integral over the source grid
-                src_sums[:, i] .= outer_integral(t, Pₛ, A, V, D, src_density, R)
+                src_sums[:, i] .= aggregation_space_integral(t, Pₛ, A, V, D, src_density, R)
             end
             # n_nbrs[i] = length(src_pts)
         end
