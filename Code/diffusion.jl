@@ -149,7 +149,7 @@ __precompile__(false)
         if t == 0
             erfcterm = 1
         else
-            erfcterm = erfc(sqrt(1/(t*τ)) - r*sqrt(t/(4*D*t)))
+            erfcterm = erfc(sqrt(1/(t*τ)) - r*sqrt(t/(4*D)))
         end
         return r^2 * exp(-r/sqrt(D*τ)) * erfcterm
     end
@@ -258,7 +258,6 @@ __precompile__(false)
         # Determine number of lattice rows/columns
         N = size(c_init)[1]
         H = size(c_init)[3]
-        println("N = $N, H = $H")
 
         # Save update factor
         # dtdx2 = Float32(dt / (dx^2))

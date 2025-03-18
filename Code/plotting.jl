@@ -268,6 +268,7 @@ __precompile__(false)
         ax.set_ylabel("Concentration [M]")
         ax.set_title("Total concentration in the spore")
         ax.grid(true)
+        # ax.set_ylim(0.5, 1.6)
 
         if logy
             ax.set_yscale("log")
