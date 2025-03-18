@@ -71,7 +71,31 @@ __precompile__(false)
     end
 
 
-    function slow_release_src_grid(x, src_density, c₀, times, D, Pₛ, A, V, n_frames=10)
+    function aggregation_time_integral(t, τ, D, r)
+        return t^(-3/2) * exp(t/τ - r^2/(4 * D * t))
+    end
+
+    function inner_integral(r, t, Ps, A, V, D)
+        ϵ = 1e-12
+        if t < ϵ
+            val = 1.0
+        else
+            integrand(τ) = τ^(-3/2) * exp((Ps * A / V) * τ - (r^2) / (4 * D * τ))
+            # Perform integration over τ from 0 to t
+            val, err = quadgk(integrand, ϵ, t, rtol=1e-8)
+        end
+        return val
+    end
+    
+    function outer_integral(t, Ps, A, V, D, rho_s, R_diff)
+        integrand_r(r) = r^2 * inner_integral(r, t, Ps, A, V, D)
+        # Integrate over r from 0 to R_diff
+        val, err = quadgk(integrand_r, 0, R_diff, rtol=1e-8)
+        return 4 * π * rho_s * val
+    end
+
+
+    function slow_release_src_grid(x, src_density, c₀, times, D, Pₛ, A, V, n_frames=10; discrete=true)
         """
         Compute the concentration at sampling points
         due to periodically repeating permeating sources within an
@@ -87,6 +111,7 @@ __precompile__(false)
             V (float): source volume in um^3
             dt (float): time step size in seconds
             n_frames (int): number of frames to compute
+            discrete (bool): whether to compute the neighbour contributions discretely or continuously
         """
 
         # Conversions
@@ -94,44 +119,70 @@ __precompile__(false)
 
         # Constants
         τ = V / (A * Pₛ)
-        prefactors = (c₀ * sqrt(A * Pₛ * V) / (8 * π * D^(3/2))) .* exp.(-t_samples./τ)
+        ϵ = 1e-12
+        prefactors = c₀ * Pₛ * A / (4 * π * D)^(3/2) .* exp.(-times./τ)
+        prefactors = repeat(prefactors, 1, size(x)[1])
+        prefactors = permutedims(prefactors)
+        # println(prefactors)
+
+        # Find source grid spacing
+        vol_src_cell = 1 / src_density
+        dx = vol_src_cell^(1/3)
+        R_max = sqrt(6 * D * maximum(times))
+        println("Maximum radius: $R_max, dx: $dx")
+        if R_max / dx > 15
+            println("Warning: large number of subdivisions. Switching to continuous mode")
+            discrete = false
+        end
 
         # Iterate over time frames
         src_sums = zeros(size(x)[1], size(times)[1])
+        # n_nbrs = zeros(size(times)[1])
         for (i, t) in enumerate(times)
             # Find diffusion radius
-            R = sqrt(4 * D * t)
+            R = sqrt(6 * D * t)
             
-            # Find source grid spacing
-            vol_src_cell = 1 / src_density
-            dx = vol_src_cell^(1/3)
+            if discrete
 
-            # Generate relevant source positions
-            if R > dx
-                vol_src_grid = R^3
-                src_x = vec(0:dx:R)
-                src_x = [reverse(-src_x[2:end]); src_x]
-                src_pts = vec([(x, y, z) for x in src_x, y in src_x, z in src_x])
+                # Generate relevant source positions
+                if R > dx
+                    src_x = vec(0:dx:R)
+                    src_x = [reverse(-src_x[2:end]); src_x]
+                    src_pts = vec([(x, y, z) for x in src_x, y in src_x, z in src_x])
+                else
+                    src_pts = [(0, 0, 0)]
+                end
+                src_pts = src_pts[norm.(src_pts) .≤ R]
+                # println("Radius: $R, $(length(src_pts)) neighbours")
+
+                # Compute distances
+                src_distances = [Tuple([norm(x_pt .- src_pt) for x_pt in x]) for src_pt in src_pts]
+                src_dist_unique = unique(src_distances)
+                unique_counts = [count(==(element), src_distances) for element in src_dist_unique]
+                unique_counts = repeat(unique_counts, 1, size(x, 1))
+                unique_counts = permutedims(unique_counts)
+                src_dist_unique = hcat([collect(element) for element in src_dist_unique]...)
+                # println("Unique distances: ", size(src_dist_unique))
+
+                # Sum source contributions
+                # contributions = unique_counts .* exp.(-sqrt.(src_dist_unique.^2 .* (Pₛ * A / (D * V)))) .* erfc.(sqrt(Pₛ * A / (V * t)) .- sqrt.(src_dist_unique.^2 .* (t / (4 * D))))
+                if t < ϵ
+                    time_integral = 1.0
+                else
+                    time_integral = quadgk.(t_int -> aggregation_time_integral.(t_int, τ, D, src_dist_unique), ϵ, t)[1]
+                end
+                contributions = unique_counts .* sum((A * Pₛ * c₀ / (4π * D)^(3/2)) * exp(-t/τ) * time_integral)
+                src_sums[:, i] = sum(contributions, dims=2)
             else
-                src_pts = [(0, 0, 0)]
+                # Compute the integral over the source grid
+                src_sums[:, i] .= outer_integral(t, Pₛ, A, V, D, src_density, R)
             end
-
-            # Compute distances
-            src_distances = [norm(x_pt - src_pt) for x_pt in x]
-            src_dist_unique = unique(src_distances)
-            unique_counts = [count(==(element), src_distances) for element in src_dist_unique]
-            unique_counts = repeat(unique_counts, 1, size(sample_pts, 1))
-            unique_counts = permutedims(unique_counts)
-            src_dist_unique = hcat([collect(element) for element in distances_unique]...)
-
-            # Sum source contributions
-            contributions = unique_counts .* exp.(-sqrt.(src_dist_unique.^2 .* (Pₛ * A / (D * V)))) .* erfc.(sqrt(Pₛ * A / (V * t)) .- sqrt.(src_dist_unique.^2 .* (t / (4 * D))))
-            src_sums[:, i] = sum(contributions, dims=2)
+            # n_nbrs[i] = length(src_pts)
         end
 
         results = prefactors .* src_sums
         
-        return results
+        return results#, n_nbrs
     end
 
 
@@ -155,7 +206,7 @@ __precompile__(false)
     end
 
 
-    function slow_release_src_grid_src(src_density, c₀, times, D, Pₛ, A, V, n_frames=10)
+    function slow_release_src_grid_src(src_density, c₀, times, D, Pₛ, A, V, n_frames=10; discrete=true)
         """
         Compute the concentration inside a spore source
         due to periodically repeating permeating sources within an
@@ -171,28 +222,74 @@ __precompile__(false)
             V (float): source volume in um^3
             dt (float): time step size in seconds
             n_frames (int): number of frames to compute
+            discrete (bool): whether to compute the neighbour contributions discretely or continuously
         """
 
         # Conversions
-        src_density = inverse_mL_to_cubic_um(src_density)
+        # src_density = inverse_mL_to_cubic_um(src_density)
 
         # Constants
         τ = V / (A * Pₛ)
-        prefactor = c₀ * sqrt(A * Pₛ * V) / (8 * π * D^(3/2))
-        ϵ = 0.001 * sqrt(4 * D * times[2])
+        # prefactors = c₀ * Pₛ * A / (4 * π * D)^(3/2) .* exp.(-times./τ)
+        # ϵ = 0.001 * sqrt(4 * D * times[2])
+
+        c_ins = zeros(size(times, 1))
+        decay = exp.(-times./τ)
+        c_ins = decay .* (c₀ .+ slow_release_src_grid([(0, 0, 0)], src_density, c₀, times, D, Pₛ, A, V, n_frames, discrete=discrete)[1, :])
 
         # Iterate over time frames
-        c_ins = zeros(size(times, 1))
-        for (i, t) in enumerate(times)
-            # Find diffusion radius
-            R = sqrt(4 * D * t)
+        # c_ins = zeros(size(times, 1))
+        # for (i, t) in enumerate(times)
+        #     # Find diffusion radius
+        #     R = sqrt(4 * D * t)
 
-            self_contribution = exp(t/τ) * erfc(sqrt(τ/t))
-            nbrs_contributions = 4π * src_density * quadgk(r -> src_contribution_integral(r, τ, D, t), ϵ, R)[1]
-            c_out = prefactor * (self_contribution + nbrs_contributions)
+        #     # --------------------------------
 
-            c_ins[i] = exp(-t/τ) * (c₀ + (1/τ) * quadgk(q -> c_out * exp(q/τ), 0, t)[1])
-        end
+        #     # Find source grid spacing
+        #     vol_src_cell = 1 / src_density
+        #     dx = vol_src_cell^(1/3)
+
+        #     # Generate relevant source positions
+        #     if R > dx
+        #         src_x = vec(0:dx:R)
+        #         src_x = [reverse(-src_x[2:end]); src_x]
+        #         src_pts = vec([(x, y, z) for x in src_x, y in src_x, z in src_x])
+        #     else
+        #         src_pts = [(0, 0, 0)]
+        #     end
+
+        #     # Compute distances
+        #     src_distances = norm.(src_pts)
+        #     src_distances = src_distances[src_distances .> 0]
+        #     src_dist_unique = unique(src_distances)
+        #     # println("Unique distances: ", size(src_dist_unique))
+        #     unique_counts = [count(==(element), src_distances) for element in src_dist_unique]
+        #     # unique_counts = repeat(unique_counts, 1, size(sample_pts, 1))
+        #     # unique_counts = permutedims(unique_counts)
+        #     src_dist_unique = hcat([collect(element) for element in src_dist_unique]...)
+
+        #     if t == 0
+        #         erfcterm = 1
+        #     else
+        #         erfcterm = erfc.(sqrt(1/(t*τ)) .- src_dist_unique.*sqrt(t/(4*D)))
+        #     end
+
+        #     self_contribution = exp(t/τ) * erfc(sqrt(τ/t))
+        #     if size(src_dist_unique, 1) == 0
+        #         nbrs_contributions = 0
+        #     else
+        #         nbrs_contributions = sum(unique_counts .* exp.(.-src_dist_unique./sqrt(D*τ)) .* erfcterm)
+        #     end
+
+        #     # --------------------------------
+
+        #     # self_contribution = erfc(sqrt(τ/t))
+        #     # nbrs_contributions = 4π * src_density * quadgk(r -> src_contribution_integral(r, τ, D, t), ϵ, R)[1]
+        #     c_out_contribs = prefactor * (self_contribution + nbrs_contributions)
+
+        #     # c_ins[i] = exp(-t/τ) * (c₀ + (1/τ) * quadgk(q -> c_out * exp(q/τ), 0, t)[1])
+        #     c_ins[i] = exp(-t/τ) * (c₀ + c_out_contribs)
+        # end
 
         return c_ins
     end
