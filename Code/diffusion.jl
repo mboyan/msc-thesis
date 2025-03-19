@@ -29,7 +29,7 @@ __precompile__(false)
     export slow_release_src_grid
     export slow_release_src_grid_src
     export compute_permeation_constant
-    export diffusion_time_dependent_GPU
+    export diffusion_time_dependent_GPU!
     export diffusion_time_dependent_GPU_low_res
     export diffusion_time_dependent_GPU_hi_res!
     export diffusion_time_dependent_GPU_hi_res_implicit
@@ -88,15 +88,15 @@ __precompile__(false)
         return val
     end
     
-    function aggregation_space_integral(t, Ps, A, V, D, rho_s, R_diff)
+    function aggregation_space_integral(t, Ps, A, V, D, ρₛ, R_diff)
         integrand_r(r) = r^2 * aggregation_time_integral(r, t, Ps, A, V, D)
         # Integrate over r from 0 to R_diff
         val, err = quadgk(integrand_r, 0, R_diff, rtol=1e-8)
-        return 4 * π * rho_s * val
+        return 4 * π * ρₛ * val
     end
 
 
-    function slow_release_src_grid(x, src_density, c₀, times, D, Pₛ, A, V, n_frames=10; discrete=true)
+    function slow_release_src_grid(x, src_density, c₀, times, D, Pₛ, A, V; discrete=true)
         """
         Compute the concentration at sampling points
         due to periodically repeating permeating sources within an
@@ -111,7 +111,6 @@ __precompile__(false)
             A (float): source area in um^2
             V (float): source volume in um^3
             dt (float): time step size in seconds
-            n_frames (int): number of frames to compute
             discrete (bool): whether to compute the neighbour contributions discretely or continuously
         """
 
@@ -130,8 +129,8 @@ __precompile__(false)
         vol_src_cell = 1 / src_density
         dx = vol_src_cell^(1/3)
         R_max = sqrt(6 * D * maximum(times))
-        println("Maximum radius: $R_max, dx: $dx")
-        if R_max / dx > 15
+        # println("Maximum radius: $R_max, dx: $dx")
+        if R_max / dx > 50 && discrete
             println("Warning: large number of subdivisions. Switching to continuous mode")
             discrete = false
         end
@@ -154,23 +153,13 @@ __precompile__(false)
                     src_pts = [(0, 0, 0)]
                 end
                 src_pts = src_pts[norm.(src_pts) .≤ R]
-                # println("Radius: $R, $(length(src_pts)) neighbours")
-
-                # Compute distances
-                # src_distances = [Tuple([norm(x_pt .- src_pt) for x_pt in x]) for src_pt in src_pts]
-                # src_dist_unique = unique(src_distances)
-                # unique_counts = [count(==(element), src_distances) for element in src_dist_unique]
-                # unique_counts = repeat(unique_counts, 1, size(x, 1))
-                # unique_counts = permutedims(unique_counts)
-                # src_dist_unique = hcat([collect(element) for element in src_dist_unique]...)
-                # println("Unique distances: ", size(src_dist_unique))
+                # println("Number of source points at R=$R: ", length(src_pts))
 
                 # Compute distances
                 src_distances = [map(x_pt -> norm(x_pt .- src_pt), x) for src_pt in src_pts]
 
-                counts = countmap(src_distances)
-
                 # Extract unique distances and their counts
+                counts = countmap(src_distances)
                 src_dist_unique = collect(keys(counts))
                 unique_counts = collect(values(counts))
 
@@ -181,12 +170,10 @@ __precompile__(false)
                 src_dist_unique = hcat(src_dist_unique...)
 
                 # Sum source contributions
-                # contributions = unique_counts .* exp.(-sqrt.(src_dist_unique.^2 .* (Pₛ * A / (D * V)))) .* erfc.(sqrt(Pₛ * A / (V * t)) .- sqrt.(src_dist_unique.^2 .* (t / (4 * D))))
                 if t < ϵ
                     time_integral = 1.0
                 else
-                    time_integral = aggregation_time_integral.(src_dist_unique, t, Pₛ, A, V, D)#quadgk.(t_int -> aggregation_time_integral.(t_int, τ, D, src_dist_unique), ϵ, t)[1]
-                    # time_integral = quadgk.(t_int -> aggregation_time_integral.(t_int, τ, D, src_dist_unique), ϵ, t)[1]
+                    time_integral = aggregation_time_integral.(src_dist_unique, t, Pₛ, A, V, D)
                 end
                 contributions = unique_counts .* sum((A * Pₛ * c₀ / (4π * D)^(3/2)) * exp(-t/τ) * time_integral)
                 src_sums[:, i] = sum(contributions, dims=2)
@@ -194,36 +181,15 @@ __precompile__(false)
                 # Compute the integral over the source grid
                 src_sums[:, i] .= aggregation_space_integral(t, Pₛ, A, V, D, src_density, R)
             end
-            # n_nbrs[i] = length(src_pts)
         end
 
         results = prefactors .* src_sums
         
-        return results#, n_nbrs
+        return results
     end
 
 
-    function src_contribution_integral(r, τ, D, t)
-        """
-        Function used in the spatial integral for
-        the source contribution to the concentration
-        at a given time and distance from the source.
-        inputs:
-            r (float): distance from the source
-            τ (float): characteristic time scale
-            D (float): diffusion coefficient
-            t (float): time
-        """
-        if t == 0
-            erfcterm = 1
-        else
-            erfcterm = erfc(sqrt(1/(t*τ)) - r*sqrt(t/(4*D)))
-        end
-        return r^2 * exp(-r/sqrt(D*τ)) * erfcterm
-    end
-
-
-    function slow_release_src_grid_src(src_density, c₀, times, D, Pₛ, A, V, n_frames=10; discrete=true)
+    function slow_release_src_grid_src(src_density, c₀, times, D, Pₛ, A, V; discrete=true)
         """
         Compute the concentration inside a spore source
         due to periodically repeating permeating sources within an
@@ -238,75 +204,16 @@ __precompile__(false)
             A (float): source area in um^2
             V (float): source volume in um^3
             dt (float): time step size in seconds
-            n_frames (int): number of frames to compute
             discrete (bool): whether to compute the neighbour contributions discretely or continuously
         """
 
-        # Conversions
-        # src_density = inverse_mL_to_cubic_um(src_density)
-
         # Constants
         τ = V / (A * Pₛ)
-        # prefactors = c₀ * Pₛ * A / (4 * π * D)^(3/2) .* exp.(-times./τ)
-        # ϵ = 0.001 * sqrt(4 * D * times[2])
 
-        c_ins = zeros(size(times, 1))
-        decay = exp.(-times./τ)
-        c_ins = decay .* (c₀ .+ slow_release_src_grid([(0, 0, 0)], src_density, c₀, times, D, Pₛ, A, V, n_frames, discrete=discrete)[1, :])
-
-        # Iterate over time frames
         # c_ins = zeros(size(times, 1))
-        # for (i, t) in enumerate(times)
-        #     # Find diffusion radius
-        #     R = sqrt(4 * D * t)
-
-        #     # --------------------------------
-
-        #     # Find source grid spacing
-        #     vol_src_cell = 1 / src_density
-        #     dx = vol_src_cell^(1/3)
-
-        #     # Generate relevant source positions
-        #     if R > dx
-        #         src_x = vec(0:dx:R)
-        #         src_x = [reverse(-src_x[2:end]); src_x]
-        #         src_pts = vec([(x, y, z) for x in src_x, y in src_x, z in src_x])
-        #     else
-        #         src_pts = [(0, 0, 0)]
-        #     end
-
-        #     # Compute distances
-        #     src_distances = norm.(src_pts)
-        #     src_distances = src_distances[src_distances .> 0]
-        #     src_dist_unique = unique(src_distances)
-        #     # println("Unique distances: ", size(src_dist_unique))
-        #     unique_counts = [count(==(element), src_distances) for element in src_dist_unique]
-        #     # unique_counts = repeat(unique_counts, 1, size(sample_pts, 1))
-        #     # unique_counts = permutedims(unique_counts)
-        #     src_dist_unique = hcat([collect(element) for element in src_dist_unique]...)
-
-        #     if t == 0
-        #         erfcterm = 1
-        #     else
-        #         erfcterm = erfc.(sqrt(1/(t*τ)) .- src_dist_unique.*sqrt(t/(4*D)))
-        #     end
-
-        #     self_contribution = exp(t/τ) * erfc(sqrt(τ/t))
-        #     if size(src_dist_unique, 1) == 0
-        #         nbrs_contributions = 0
-        #     else
-        #         nbrs_contributions = sum(unique_counts .* exp.(.-src_dist_unique./sqrt(D*τ)) .* erfcterm)
-        #     end
-
-        #     # --------------------------------
-
-        #     # self_contribution = erfc(sqrt(τ/t))
-        #     # nbrs_contributions = 4π * src_density * quadgk(r -> src_contribution_integral(r, τ, D, t), ϵ, R)[1]
-        #     c_out_contribs = prefactor * (self_contribution + nbrs_contributions)
-
-        #     # c_ins[i] = exp(-t/τ) * (c₀ + (1/τ) * quadgk(q -> c_out * exp(q/τ), 0, t)[1])
-        #     c_ins[i] = exp(-t/τ) * (c₀ + c_out_contribs)
-        # end
+        decay = exp.(-times./τ)
+        c_out = slow_release_src_grid([(0, 0, 0)], src_density, c₀, times, D, Pₛ, A, V, discrete=discrete)[1, :]
+        c_ins = decay .* (c₀ .+ c_out)
 
         return c_ins
     end
@@ -330,8 +237,8 @@ __precompile__(false)
     end
 
     # ===== NUMERICAL SOLUTIONS =====
-    function diffusion_time_dependent_GPU(c_init, t_max; D=1.0, Db=nothing, Ps=1.0, dt=0.005, dx=5, n_save_frames=100,
-        spore_idx=nothing, spore_idx_spacing=nothing, c_thresholds=nothing, neumann_z=false)
+    function diffusion_time_dependent_GPU!(c_init, t_max; D=1.0, Db=nothing, Ps=1.0, dt=0.005, dx=5, n_save_frames=100,
+        spore_idx=nothing, c_thresholds=nothing, neumann_z=false, cluster_size=1, cluster_spacing=10)
         """
         Compute the evolution of a square lattice of concentration scalars
         based on the time-dependent diffusion equation.
@@ -348,6 +255,8 @@ __precompile__(false)
             spore_spacing (int) - the spacing between spore indices along each dimension; defaults to nothing; if used, spore_idx is ignored
             c_thresholds (vector of float) - threshold values for the concentration; defaults to nothing
             neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction; defaults to false
+            cluster_size (int) - if provided, creates an orthogonal neighbour cluster with the given size
+            cluster_spacing (int) - spacing between the spores in the cluster
         outputs:
             c_evolotion (array) - the states of the lattice at all moments in time
             times (array) - the times at which the states were saved
@@ -355,23 +264,34 @@ __precompile__(false)
         """
 
         @argcheck ndims(c_init) == 3 "c_init must be a 3D array"
+        @argcheck cluster_size ≤ 6 "Cluster size must be less than or equal to 6"
 
         GC.gc()
-
-        # Set the spore index reference
-        if !isnothing(spore_idx_spacing)
-            spore_idx_ref = spore_idx_spacing
-        elseif !isnothing(spore_idx)
-            spore_idx_ref = spore_idx
-            println("3D simulation")
-        else
-            println("Either spore_idx or spore_idx_spacing must be provided.")
-            return
-        end
 
         # Determine number of lattice rows/columns
         N = size(c_init)[1]
         H = size(c_init)[3]
+
+        # Set spore index
+        if isnothing(spore_idx)
+            spore_idx = (N ÷ 2, N ÷ 2, H ÷ 2)
+        end
+
+        # Set up spore cluster
+        if cluster_size > 1
+            # Generate possible combinations
+            cluster_sp_lattice = cluster_spacing / dx
+            spacing_combos = [-cluster_sp_lattice, 0, clcluster_spacing_latticester_spacing]
+            spore_cluster = vec([(i, j, k) for i in spacing_combos, j in spacing_combos, k in spacing_combos])
+            spore_cluster = spore_cluster[norm.(spore_cluster, dims=2) .== cluster_sp_lattice]
+            spore_cluster = [spore_idx .+ spore for spore in spore_cluster]
+
+            # Filter out relevant neighbours
+            order_indices = [1, 6, 2, 5, 3, 4]
+            order_indices = order_indices[1:cluster_size]
+            spore_cluster = spore_cluster[order_indices]
+            c_init[spore_cluster...] .= c_init[spore_idx...]
+        end
 
         # Save update factor
         # dtdx2 = Float32(dt / (dx^2))
@@ -434,7 +354,11 @@ __precompile__(false)
             end
 
             # Update the lattice
-            @cuda threads=kernel_threads blocks=kernel_blocks update_GPU!(c_A_gpu, c_B_gpu, N, H, dtdx2, D, Db, spore_idx_ref, neumann_z)
+            if cluster_size == 1
+                @cuda threads=kernel_threads blocks=kernel_blocks update_GPU!(c_A_gpu, c_B_gpu, N, H, dtdx2, D, Db, spore_idx, neumann_z)
+            else
+                @cuda threads=kernel_threads blocks=kernel_blocks update_GPU_spore_cluster!(c_A_gpu, c_B_gpu, N, H, dtdx2, D, Db, spore_idx, cluster_sp_lattice, cluster_size, neumann_z)
+            end
             c_A_gpu, c_B_gpu = c_B_gpu, c_A_gpu
 
             # Check for threshold crossing
@@ -453,8 +377,7 @@ __precompile__(false)
         return c_evolution, times, t_thresholds
     end
 
-    function diffusion_time_dependent_GPU_low_res(c_init, c₀, t_max; D=1.0, Pₛ=1.0, A=150, V=125, dt=150, dx=25, n_save_frames=100,
-        spore_vol_idx=nothing, spore_vol_idx_spacing=nothing, c_thresholds=nothing, neumann_z=false)
+    function diffusion_time_dependent_GPU_low_res(c_init, c₀, t_max; D=1.0, Pₛ=1.0, A=150, V=125, dt=150, dx=25, n_save_frames=100, spore_vol_idx=nothing, c_thresholds=nothing, neumann_z=false)
         """
         Compute the evolution of a square lattice of concentration scalars
         based on the time-dependent diffusion equation. A concentration source
@@ -472,7 +395,6 @@ __precompile__(false)
             dx (float) - spatial increment; defaults to 0.005
             n_save_frames (int) - determines the number of frames to save during the simulation; detaults to 100
             spore_vol_idx (tuple) - the indices of the volume containing the spore location; defaults to nothing
-            spore_vol_spacing (int) - the spacing between spore volume indices along each dimension; defaults to nothing; if used, spore_vol_idx is ignored
             c_thresholds (vector of float) - threshold values for the concentration; defaults to nothing
             neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction; defaults to false
         outputs:
@@ -485,20 +407,14 @@ __precompile__(false)
 
         GC.gc()
 
-        # Set the spore index reference
-        if !isnothing(spore_vol_idx_spacing)
-            spore_vol_idx_ref = spore_vol_idx_spacing
-        elseif !isnothing(spore_vol_idx)
-            spore_vol_idx_ref = spore_vol_idx
-            println("3D simulation")
-        else
-            println("Either spore_vol_idx or spore_vol_idx_spacing must be provided.")
-            return
-        end
-
         # Determine number of lattice rows/columns
         N = size(c_init)[1]
         H = size(c_init)[3]
+
+        # Set spore volume index
+        if isnothing(spore_vol_idx)
+            spore_vol_idx = (N ÷ 2, N ÷ 2, H ÷ 2)
+        end
 
         # Save update factors
         inv_dx2 = 1 / (dx^2)
@@ -521,7 +437,7 @@ __precompile__(false)
 
         # Allocate arrays for saving data
         c_spore_array = zeros(N, N, H)
-        c_spore_array[spore_vol_idx_ref...] = c₀
+        c_spore_array[spore_vol_idx...] = c₀
         c_med_evolution = zeros(n_save_frames + 1, N, N, H)
         c_spore_evolution = zeros(n_save_frames + 1)
         times = zeros(n_save_frames + 1)
@@ -559,7 +475,7 @@ __precompile__(false)
             end
 
             # Update the lattice
-            @cuda threads=kernel_threads blocks=kernel_blocks update_GPU_low_res!(c_A_gpu, c_B_gpu, N, H, inv_dx2, D, spore_vol_idx_ref, c_spore_gpu, inv_tau, dt, neumann_z)
+            @cuda threads=kernel_threads blocks=kernel_blocks update_GPU_low_res!(c_A_gpu, c_B_gpu, N, H, inv_dx2, D, spore_vol_idx, c_spore_gpu, inv_tau, dt, neumann_z)
             c_A_gpu, c_B_gpu = c_B_gpu, c_A_gpu
 
             # Check for threshold crossing
