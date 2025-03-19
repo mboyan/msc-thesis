@@ -289,7 +289,7 @@ __precompile__(false)
     end
 
     
-    function compare_concentration_evolutions(c_vals_array::Matrix{Float64}, times_array::Matrix{Float64}, labels=nothing, ax=nothing; logy=false, fit_exp=false, cmap=nothing, cmap_idx_base=0, time_cutoff=nothing)
+    function compare_concentration_evolutions(c_vals_array, times_array, labels=nothing, ax=nothing; logy=false, fit_exp=false, cmap=nothing, cmap_idx_base=0, time_cutoff=nothing)
         """
         Plot multiple concentration evolutions on the same axis.
         inputs:
@@ -303,6 +303,9 @@ __precompile__(false)
             cmap_idx_base (int): base index of the colormap
             time_cutoff (float): time cutoff for the plot
         """
+
+        @argcheck (typeof(c_vals_array) in [Vector{Vector{Float64}}, Matrix{Float64}]) "c_groups must be a vector of matrices or a matrix"
+        @argcheck (typeof(times_array) in [Vector{Vector{Float64}}, Matrix{Float64}]) "times_groups must be a vector of matrices or a matrix"
 
         # Check labels
         if !isnothing(labels)
@@ -319,7 +322,17 @@ __precompile__(false)
         end
         
         for i in 1:size(c_vals_array, 1)
-            plot_concentration_evolution(c_vals_array[i, :], times_array[i, :], labels[i], ax, logy, fit_exp, cmap, cmap_idx_base+i, time_cutoff)
+            if typeof(c_vals_array) == Vector{Vector{Float64}}
+                c_vals = vec(c_vals_array[i, :][1])
+            else
+                c_vals = c_vals_array[i, :]
+            end
+            if typeof(times_array) == Vector{Vector{Float64}}
+                times = vec(times_array[i, :][1])
+            else
+                times = times_array[i, :]
+            end
+            plot_concentration_evolution(c_vals, times, labels[i], ax, logy, fit_exp, cmap, cmap_idx_base+i, time_cutoff)
         end
 
         if plotself
@@ -330,7 +343,7 @@ __precompile__(false)
     end
 
 
-    function compare_concentration_evolution_groups(c_groups::Array{Float64}, times_groups::Array{Float64}, group_labels=nothing, ax=nothing; logy=false, fit_exp=false, time_cutoff=nothing)
+    function compare_concentration_evolution_groups(c_groups, times_groups, group_labels=nothing, ax=nothing; logy=false, fit_exp=false, time_cutoff=nothing)
         """
         Compare the concentration evolutions from groups of simulations
         on the same axis, with corresponding colors.
@@ -343,6 +356,9 @@ __precompile__(false)
             fit_exp (bool): whether to fit an exponential to the data
             time_cutoff (float): time cutoff for the plot
         """
+
+        @argcheck (typeof(c_groups) in [Vector{Vector{Vector{Float64}}}, Matrix{Float64}]) "c_groups must be a vector of matrices or a matrix"
+        @argcheck (typeof(times_groups) in [Vector{Vector{Vector{Float64}}}, Matrix{Float64}]) "times_groups must be a vector of matrices or a matrix"
 
         # Check labels
         if isnothing(group_labels)
@@ -358,7 +374,17 @@ __precompile__(false)
 
         cmap = get_cmap("tab20c")
         for i in 1:size(c_groups, 1)
-            compare_concentration_evolutions(c_groups[i, :, :], times_groups[i, :, :], group_labels[i], ax; logy, fit_exp, cmap, cmap_idx_base=(i - 1)*4, time_cutoff=time_cutoff)
+            if typeof(c_groups[i, :, :]) == Matrix{Vector{Vector{Float64}}}
+                c_group = vec(c_groups[i, :, :][1])
+            else
+                c_group = c_groups[i, :, :]
+            end
+            if typeof(times_groups[i, :, :]) == Matrix{Vector{Vector{Float64}}}
+                times_group = vec(times_groups[i, :, :][1])
+            else
+                times_group = times_groups[i, :, :]
+            end
+            compare_concentration_evolutions(c_group, times_group, group_labels[i], ax; logy, fit_exp, cmap, cmap_idx_base=(i - 1)*4, time_cutoff=time_cutoff)
         end
 
         if plotself
