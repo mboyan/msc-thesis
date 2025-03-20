@@ -548,8 +548,21 @@ __precompile__(false)
         end
 
         cmap = get_cmap("tab20c")
-        for i in 1:eachindex(in_groups)
-            compare_functional_relationships(in_groups[i], res_groups[i], axlabels, group_labels[i], title; ax, logx, logy, fit)
+        for i in 1:size(in_groups, 1)
+            if typeof(in_groups[i, :, :]) == Matrix{Vector{Vector{Float64}}}
+                in_group = vec(in_groups[i, :, :][1])
+            else
+                in_group = in_groups[i, :, :]
+            end
+            if typeof(res_groups[i, :, :]) == Matrix{Vector{Vector{Float64}}}
+                res_group = vec(res_groups[i, :, :][1])
+            else
+                res_group = res_groups[i, :, :]
+            end
+            println(typeof(in_group))
+            println(typeof(res_group))
+            println(typeof(group_labels[i, :]))
+            compare_functional_relationships(in_group, res_group, axlabels, group_labels[i, :], title; ax, logx, logy, fit)
         end
 
         if plotself

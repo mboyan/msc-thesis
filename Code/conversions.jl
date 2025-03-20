@@ -112,7 +112,7 @@ module Conversions
         return exp(-Δ) * sin(ϕ)
     end
 
-    function measure_coverage(sample_shere_center::Tuple, nbr_sphere_centers::Array{Tuple}; rad=1, dx=1)
+    function measure_coverage(sample_shere_center::Tuple, nbr_sphere_centers; rad=1, dx=1)
         """
         Measure the cumulative shadow intensity of neighboring spheres on a sample sphere.
         inputs:
