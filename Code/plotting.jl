@@ -164,7 +164,7 @@ __precompile__(false)
             centers = setup_spore_cluster(cluster_size, L, spore_spacings[i]*0.5, cut_half)
             sample_sphere_center = centers[1]
             nbr_sphere_centers = centers[2:end]
-            coverage = measure_coverage(sample_sphere_center, nbr_sphere_centers, spore_spacings[i]*0.5)
+            coverage = measure_coverage(sample_sphere_center, Array{Tuple}(nbr_sphere_centers); rad=spore_spacings[i]*0.5)
             plot_spheres!(centers, spore_rad, L, inline=true, title="Cluster size: $(size(nbr_sphere_centers)[1]) + 1, Q = $(round(coverage,digits=5))", ax=axs[i])
         end
 
