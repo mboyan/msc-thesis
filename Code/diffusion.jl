@@ -280,17 +280,19 @@ __precompile__(false)
         # Set up spore cluster
         if cluster_size > 1
             # Generate possible combinations
-            cluster_sp_lattice = cluster_spacing / dx
-            spacing_combos = [-cluster_sp_lattice, 0, clcluster_spacing_latticester_spacing]
+            cluster_sp_lattice = cluster_spacing ÷ dx
+            spacing_combos = [-cluster_sp_lattice, 0, cluster_sp_lattice]
             spore_cluster = vec([(i, j, k) for i in spacing_combos, j in spacing_combos, k in spacing_combos])
-            spore_cluster = spore_cluster[norm.(spore_cluster, dims=2) .== cluster_sp_lattice]
+            spore_cluster = spore_cluster[norm.(spore_cluster) .== cluster_sp_lattice]
             spore_cluster = [spore_idx .+ spore for spore in spore_cluster]
 
             # Filter out relevant neighbours
             order_indices = [1, 6, 2, 5, 3, 4]
             order_indices = order_indices[1:cluster_size]
             spore_cluster = spore_cluster[order_indices]
-            c_init[spore_cluster...] .= c_init[spore_idx...]
+            for spc in spore_cluster
+                c_init[spc...] = c_init[spore_idx...]
+            end
         end
 
         # Save update factor
@@ -348,7 +350,7 @@ __precompile__(false)
             if (t - 1) % save_interval == 0 && save_ct ≤ n_save_frames
                 c_evolution[save_ct, :, :, :] .= Array(c_A_gpu)
                 times[save_ct] = (t - 1) * dt
-                # println("Frame $save_ct saved.")
+                print("\rFrame $save_ct saved.")
                 # println(maximum(c_evolution[save_ct, :, :, :]))
                 save_ct += 1
             end
@@ -377,7 +379,8 @@ __precompile__(false)
         return c_evolution, times, t_thresholds
     end
 
-    function diffusion_time_dependent_GPU_low_res(c_init, c₀, t_max; D=1.0, Pₛ=1.0, A=150, V=125, dt=150, dx=25, n_save_frames=100, spore_vol_idx=nothing, c_thresholds=nothing, neumann_z=false)
+    function diffusion_time_dependent_GPU_low_res(c_init, c₀, t_max; D=1.0, Pₛ=1.0, A=150, V=125, dt=150, dx=25, n_save_frames=100,
+                                                    spore_vol_idx=nothing, c_thresholds=nothing, neumann_z=false, cluster_size=1, cluster_spacing=10)
         """
         Compute the evolution of a square lattice of concentration scalars
         based on the time-dependent diffusion equation. A concentration source
@@ -397,6 +400,8 @@ __precompile__(false)
             spore_vol_idx (tuple) - the indices of the volume containing the spore location; defaults to nothing
             c_thresholds (vector of float) - threshold values for the concentration; defaults to nothing
             neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction; defaults to false
+            cluster_size (int) - if provided, creates an orthogonal neighbour cluster with the given size
+            cluster_spacing (int) - spacing between the spores in the cluster
         outputs:
             c_evolotion (array) - the states of the lattice at all moments in time
             times (array) - the times at which the states were saved
@@ -404,6 +409,7 @@ __precompile__(false)
         """
 
         @argcheck ndims(c_init) == 3 "c_init must be a 3D array"
+        @argcheck cluster_size ≤ 6 "Cluster size must be less than or equal to 6"
 
         GC.gc()
 
@@ -414,6 +420,24 @@ __precompile__(false)
         # Set spore volume index
         if isnothing(spore_vol_idx)
             spore_vol_idx = (N ÷ 2, N ÷ 2, H ÷ 2)
+        end
+
+        # Set up spore cluster
+        if cluster_size > 1
+            # Generate possible combinations
+            cluster_sp_lattice = cluster_spacing ÷ dx
+            spacing_combos = [-cluster_sp_lattice, 0, cluster_sp_lattice]
+            spore_cluster = vec([(i, j, k) for i in spacing_combos, j in spacing_combos, k in spacing_combos])
+            spore_cluster = spore_cluster[norm.(spore_cluster) .== cluster_sp_lattice]
+            spore_cluster = [spore_vol_idx .+ spore for spore in spore_cluster]
+
+            # Filter out relevant neighbours
+            order_indices = [1, 6, 2, 5, 3, 4]
+            order_indices = order_indices[1:cluster_size]
+            spore_cluster = spore_cluster[order_indices]
+            for spc in spore_cluster
+                c_init[spc...] = c_init[spore_vol_idx...]
+            end
         end
 
         # Save update factors
@@ -469,13 +493,17 @@ __precompile__(false)
                 c_med_evolution[save_ct, :, :, :] .= Array(c_A_gpu)
                 c_spore_evolution[save_ct] = CUDA.reduce(max_reduce_kernel, c_spore_gpu, init=-Inf)
                 times[save_ct] = (t - 1) * dt
-                # println("Frame $save_ct saved.")
+                print("\rFrame $save_ct saved.")
                 # println(c_spore_evolution[save_ct])
                 save_ct += 1
             end
 
             # Update the lattice
-            @cuda threads=kernel_threads blocks=kernel_blocks update_GPU_low_res!(c_A_gpu, c_B_gpu, N, H, inv_dx2, D, spore_vol_idx, c_spore_gpu, inv_tau, dt, neumann_z)
+            if cluster_size == 1
+                @cuda threads=kernel_threads blocks=kernel_blocks update_GPU_low_res!(c_A_gpu, c_B_gpu, N, H, inv_dx2, D, spore_vol_idx, c_spore_gpu, inv_tau, dt, neumann_z)
+            else
+                @cuda threads=kernel_threads blocks=kernel_blocks update_GPU_low_res_spore_cluster!(c_A_gpu, c_B_gpu, N, H, inv_dx2, D, spore_vol_idx, c_spore_gpu, inv_tau, dt, cluster_sp_lattice, cluster_size, neumann_z)
+            end
             c_A_gpu, c_B_gpu = c_B_gpu, c_A_gpu
 
             # Check for threshold crossing
