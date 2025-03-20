@@ -112,16 +112,19 @@ module Conversions
         return exp(-Δ) * sin(ϕ)
     end
 
-    function measure_coverage(sample_shere_center::Tuple, nbr_sphere_centers, rad=1)
+    function measure_coverage(sample_shere_center::Tuple, nbr_sphere_centers::Array{Tuple}; rad=1, dx=1)
         """
         Measure the cumulative shadow intensity of neighboring spheres on a sample sphere.
         inputs:
             sample_shere_center (Tuple{Float64, 1}): center of the sample sphere
             nbr_sphere_centers (Array{Tuple{Float64}, 1}): centers of the neighboring spheres
             rad (float): radius of the spheres
+            dx (float): lattice spacing, if 1, the absolute distance is used
         outputs:
             (float) cumulative shadow intensity
         """
+        sample_shere_center = sample_shere_center .* dx
+        nbr_sphere_centers = [center .* dx for center in nbr_sphere_centers]
         intsum = 0.0
         for center in nbr_sphere_centers
             d = norm(center .- sample_shere_center)

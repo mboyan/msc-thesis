@@ -31,6 +31,7 @@ __precompile__(false)
     export plot_lattice_regions
     export plot_functional_relationship
     export compare_functional_relationships
+    export compare_functional_relationships_groups
     
 
     function generate_ax_grid_pyplot(n_rows, n_cols, figsize=(8, 4))
@@ -163,7 +164,7 @@ __precompile__(false)
             centers = setup_spore_cluster(cluster_size, L, spore_spacings[i]*0.5, cut_half)
             sample_sphere_center = centers[1]
             nbr_sphere_centers = centers[2:end]
-            coverage = measure_coverage(sample_sphere_center, nbr_sphere_centers, spore_spacings[i]*0.5)
+            coverage = measure_coverage(sample_sphere_center, Array{Tuple}(nbr_sphere_centers); rad=spore_spacings[i]*0.5)
             plot_spheres!(centers, spore_rad, L, inline=true, title="Cluster size: $(size(nbr_sphere_centers)[1]) + 1, Q = $(round(coverage,digits=5))", ax=axs[i])
         end
 
@@ -227,7 +228,7 @@ __precompile__(false)
     end
 
 
-    function plot_concentration_evolution(c_vals::Array{Float64}, times::Vector{Float64}, label=nothing, ax=nothing, logy=false, fit_exp=false, cmap=nothing, cmap_idx=1)
+    function plot_concentration_evolution(c_vals::Array{Float64}, times::Vector{Float64}, label=nothing, ax=nothing, logy=false, fit_exp=false, cmap=nothing, cmap_idx=1, time_cutoff=nothing)
         """
         Plots the time-series of a calculated concentration.
         inputs:
@@ -242,6 +243,7 @@ __precompile__(false)
             fit_exp (bool): whether to fit an exponential to the data
             cmap (str): colormap
             cmap_idx (int): index of the colormap
+            time_cutoff (float): time cutoff for the plot
         """
         
         if isnothing(ax)
@@ -249,6 +251,12 @@ __precompile__(false)
             plotself = true
         else
             plotself = false
+        end
+
+        if !isnothing(time_cutoff)
+            time_cutoff_idx = findfirst(x -> x > time_cutoff, times)
+            c_vals = c_vals[1:time_cutoff_idx]
+            times = times[1:time_cutoff_idx]
         end
 
         if fit_exp
@@ -261,14 +269,15 @@ __precompile__(false)
         if isnothing(cmap)
             ax.plot(times, c_vals, label=label)
         else
-            ax.plot(times, c_vals, label=label, color=cmap(cmap_idx))
+            ax.plot(times, c_vals, label=label, color=cmap(cmap_idx), alpha=0.75)#, marker="o")
         end
 
         ax.set_xlabel("Time [s]")
         ax.set_ylabel("Concentration [M]")
         ax.set_title("Total concentration in the spore")
         ax.grid(true)
-        # ax.set_ylim(0.5, 1.6)
+        ax.legend()
+        # ax.set_ylim(1.495, 1.5)
 
         if logy
             ax.set_yscale("log")
@@ -280,7 +289,7 @@ __precompile__(false)
     end
 
     
-    function compare_concentration_evolutions(c_vals_array:: Vector{Vector{Float64}}, times_array::Vector{Vector{Float64}}, labels=nothing, ax=nothing; logy=false, fit_exp=false, cmap=nothing, cmap_idx_base=0)
+    function compare_concentration_evolutions(c_vals_array, times_array, labels=nothing, ax=nothing; logy=false, fit_exp=false, cmap=nothing, cmap_idx_base=0, time_cutoff=nothing)
         """
         Plot multiple concentration evolutions on the same axis.
         inputs:
@@ -292,7 +301,11 @@ __precompile__(false)
             fit_exp (bool): whether to fit an exponential to the data
             cmap (str): colormap
             cmap_idx_base (int): base index of the colormap
+            time_cutoff (float): time cutoff for the plot
         """
+
+        @argcheck (typeof(c_vals_array) in [Vector{Vector{Float64}}, Matrix{Float64}]) "c_groups must be a vector of matrices or a matrix"
+        @argcheck (typeof(times_array) in [Vector{Vector{Float64}}, Matrix{Float64}]) "times_groups must be a vector of matrices or a matrix"
 
         # Check labels
         if !isnothing(labels)
@@ -308,8 +321,18 @@ __precompile__(false)
             plotself = false
         end
         
-        for i in 1:size(c_vals_array)[1]
-            plot_concentration_evolution(c_vals_array[i], times_array[i], labels[i], ax, logy, fit_exp, cmap, cmap_idx_base+i)
+        for i in 1:size(c_vals_array, 1)
+            if typeof(c_vals_array) == Vector{Vector{Float64}}
+                c_vals = vec(c_vals_array[i, :][1])
+            else
+                c_vals = c_vals_array[i, :]
+            end
+            if typeof(times_array) == Vector{Vector{Float64}}
+                times = vec(times_array[i, :][1])
+            else
+                times = times_array[i, :]
+            end
+            plot_concentration_evolution(c_vals, times, labels[i], ax, logy, fit_exp, cmap, cmap_idx_base+i, time_cutoff)
         end
 
         if plotself
@@ -320,7 +343,7 @@ __precompile__(false)
     end
 
 
-    function compare_concentration_evolution_groups(c_groups, times_groups, group_labels=nothing, ax=nothing; logy=false, fit_exp=false)
+    function compare_concentration_evolution_groups(c_groups, times_groups, group_labels=nothing, ax=nothing; logy=false, fit_exp=false, time_cutoff=nothing)
         """
         Compare the concentration evolutions from groups of simulations
         on the same axis, with corresponding colors.
@@ -328,9 +351,14 @@ __precompile__(false)
             c_groups (Array{Array{Float64, 2}}): concentration lattice frames
             times_groups (Array{Array{Float64}}): times
             group_labels (Array{String}): labels for the groups
+            ax (Axis): axis to plot on
             logy (bool): whether to plot the y-axis in log scale
             fit_exp (bool): whether to fit an exponential to the data
+            time_cutoff (float): time cutoff for the plot
         """
+
+        @argcheck (typeof(c_groups) in [Vector{Vector{Vector{Float64}}}, Matrix{Float64}]) "c_groups must be a vector of matrices or a matrix"
+        @argcheck (typeof(times_groups) in [Vector{Vector{Vector{Float64}}}, Matrix{Float64}]) "times_groups must be a vector of matrices or a matrix"
 
         # Check labels
         if isnothing(group_labels)
@@ -346,7 +374,17 @@ __precompile__(false)
 
         cmap = get_cmap("tab20c")
         for i in 1:size(c_groups, 1)
-            compare_concentration_evolutions(c_groups[i], times_groups[i], group_labels[i], ax; logy, fit_exp, cmap, cmap_idx_base=(i - 1)*4)
+            if typeof(c_groups[i, :, :]) == Matrix{Vector{Vector{Float64}}}
+                c_group = vec(c_groups[i, :, :][1])
+            else
+                c_group = c_groups[i, :, :]
+            end
+            if typeof(times_groups[i, :, :]) == Matrix{Vector{Vector{Float64}}}
+                times_group = vec(times_groups[i, :, :][1])
+            else
+                times_group = times_groups[i, :, :]
+            end
+            compare_concentration_evolutions(c_group, times_group, group_labels[i], ax; logy, fit_exp, cmap, cmap_idx_base=(i - 1)*4, time_cutoff=time_cutoff)
         end
 
         if plotself
@@ -440,7 +478,7 @@ __precompile__(false)
     end
 
     
-    function compare_functional_relationships(inputs, responses, axlabels, plotlabels=nothing, title=nothing; logx=false, logy=false, fit=nothing)
+    function compare_functional_relationships(inputs, responses, axlabels, plotlabels=nothing, title=nothing; ax=nothing, logx=false, logy=false, fit=nothing)
         """
         Compare multiple functional relationships on the same axis.
         inputs:
@@ -449,6 +487,7 @@ __precompile__(false)
             axlabels (Array{String}): axis labels
             plotlabels (Array{String}): labels for the plots
             titles (Array{String}): titles for the plots
+            ax (Axis): axis to plot on
             logx (bool): whether to plot the x-axis in log scale
             logy (bool): whether to plot the y-axis in log scale
             fits (Array{String}): types of fits to perform
@@ -461,14 +500,61 @@ __precompile__(false)
             titles = ["$i" for i in 1:size(inputs)[1]]
         end
 
-        plotself = true
-        fig, ax = subplots(figsize=(8, 4))
+        if isnothing(ax)
+            plotself = true
+            fig, ax = subplots(1, 1, figsize=(6, 4))
+        else
+            plotself = false
+            
+        end
 
         for i in 1:size(inputs)[1]
             plot_functional_relationship(inputs[i], responses[i], axlabels, title, plotlabels[i]; ax, logx, logy, fit)
         end
 
-        ax.legend(fontsize="small")
-        gcf()
+        if plotself
+            ax.legend(fontsize="small")
+            gcf()
+        end
+    end
+
+
+    function compare_functional_relationships_groups(in_groups, res_groups, axlabels, group_labels=nothing, title=nothing; ax=nothing, logx=false, logy=false, fit=nothing)
+        """
+        Compare the functional relationships from groups of simulations
+        on the same axis, with corresponding colors.
+        inputs:
+            in_groups (Array{Array{Float64}}): input values
+            res_groups (Array{Array{Float64}}): response values
+            axlabels (Array{String}): axis labels
+            group_labels (Array{String}): labels for the groups
+            title (str): title of the plot
+            ax (Axis): axis to plot on
+            logx (bool): whether to plot the x-axis in log scale
+            logy (bool): whether to plot the y-axis in log scale
+            fit (str): type of fit to perform
+        """
+
+        # Check labels
+        if isnothing(group_labels)
+            group_labels = [["Group $i" for j in 1:size(in_groups[i])[1]] for i in 1:size(in_groups)[1]]
+        end
+
+        if isnothing(ax)
+            plotself = true
+            fig, ax = subplots(1, 1, figsize=(6, 4))
+        else
+            plotself = false
+        end
+
+        cmap = get_cmap("tab20c")
+        for i in 1:eachindex(in_groups)
+            compare_functional_relationships(in_groups[i], res_groups[i], axlabels, group_labels[i], title; ax, logx, logy, fit)
+        end
+
+        if plotself
+            ax.legend(fontsize="small")
+            gcf()
+        end
     end
 end
