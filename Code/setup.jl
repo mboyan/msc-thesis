@@ -104,16 +104,17 @@ __precompile__(false)
         return spore_centers
     end
 
-    function run_simulation(sim_ID, max_time; sim_params::Dict)
+    function run_simulation(sim_ID, t_max; sim_params::Dict)
         """
         Run a diffusion simulation with the given parameters.
         inputs:
             sim_ID (int): simulation ID
-            max_time (float): maximum time
+            t_max (float): maximum time
             sim_params (Dict): simulation parameters
         outputs:
             c_solutions (Array): concentration solutions
             c_frames (Array): concentration frames
+            times (Array): time points
             exponents (Array): fitted exponents
         """
 
@@ -127,26 +128,42 @@ __precompile__(false)
         Pₛ = sim_params["Ps"]
         c₀ = sim_params["c0"]
         sim_res = sim_params["sim_res"]
+        n_save_frames = sim_params["n_save_frames"]
 
         @argcheck sim_res in ["low", "medium", "high"] "sim_res must be in [\"low\", \"medium\", \"high\"]"
 
+        # Spore diameter
         if isnothing(sim_params["spore_diameter"])
             spore_diameter = 5.0 # Default value in microns
         else
             spore_diameter = sim_params["spore_diameter"]
         end
+        spore_rad = spore_diameter / 2.0
+        A_spore = 4 * π * spore_rad^2
+        V_spore = 4/3 * π * spore_rad^3
 
+        # Partition coefficient
         if isnothing(sim_params["K"])
             K = 1.0 # Default value
         else
             K = sim_params["K"]
         end
 
+        # Absorbing boundary
+        if isnothing(sim_params["abs_bndry"])
+            abs_bndry = false # Default value
+        else
+            abs_bndry = sim_params["abs_bndry"]
+        end
+
+        # Cluster size
         if !isnothing(sim_params["cluster_size"])
             cluster_size = sim_params["cluster_size"]
             if sim_res == "high"
                 # Translate cluster size to neighbour arrangement parameters
-                if cluster_size == 1
+                if cluster_size == 0
+                    cluster_params = (0, false)
+                elseif cluster_size == 1
                     cluster_params = (2, true)
                 elseif cluster_size == 2
                     cluster_params = (2, false)
@@ -159,6 +176,25 @@ __precompile__(false)
                 end
             end
         end
+
+        # Cluster center-to-center distance
+        if isnothing(sim_params["dist"])
+            dist = spore_diameter
+        else
+            dist = sim_params["dist"]
+        end
+
+        # Run simulation
+        if sim_res == "low"
+            sp_cen_indices = setup_spore_cluster(2, N, 0.5 * dist / dx, true) # additive single neighbour contributions
+            coverage = cluster_size * measure_coverage(sp_cen_indices[1], sp_cen_indices[2:end], rad=spore_rad, dx=dx)
+            c_med_evolution, c_spore_evolution, times, _ = diffusion_time_dependent_GPU_low_res(copy(c_init), c₀, t_max; D=D, Pₛ=Pₛ, A=A_spore, V=V_spore, dt=dt, dx=dx,
+                                                                            n_save_frames=n_save_frames, spore_vol_idx=sp_cen_indices[1],
+                                                                            cluster_size=cluster_size, cluster_spacing=dist)
+            fit = exp_fit(times, c_spore_evolution)
+            exponents = fit[2]
+            frame_samples = c_med_evolution
+        elseif sim_res == "medium"
     end
 
     function setup_simulation_segment(exp_ID, sim_ID, max_time, exp_params=nothing, sim_params=nothing)
