@@ -104,9 +104,66 @@ __precompile__(false)
         return spore_centers
     end
 
-    function run_simulation_segment(exp_ID, sim_ID, max_time, exp_params=nothing, sim_params=nothing)
+    function run_simulation(sim_ID, max_time; sim_params::Dict)
         """
-        Run a time segment of a simulation and append
+        Run a diffusion simulation with the given parameters.
+        inputs:
+            sim_ID (int): simulation ID
+            max_time (float): maximum time
+            sim_params (Dict): simulation parameters
+        outputs:
+            c_solutions (Array): concentration solutions
+            c_frames (Array): concentration frames
+            exponents (Array): fitted exponents
+        """
+
+        # Load simulation parameters
+        N = sim_params["N"]
+        H = sim_params["H"]
+        dx = sim_params["dx"]
+        dt = sim_params["dt"]
+        t_max = sim_params["t_max"]
+        D = sim_params["D"]
+        Pₛ = sim_params["Ps"]
+        c₀ = sim_params["c0"]
+        sim_res = sim_params["sim_res"]
+
+        @argcheck sim_res in ["low", "medium", "high"] "sim_res must be in [\"low\", \"medium\", \"high\"]"
+
+        if isnothing(sim_params["spore_diameter"])
+            spore_diameter = 5.0 # Default value in microns
+        else
+            spore_diameter = sim_params["spore_diameter"]
+        end
+
+        if isnothing(sim_params["K"])
+            K = 1.0 # Default value
+        else
+            K = sim_params["K"]
+        end
+
+        if !isnothing(sim_params["cluster_size"])
+            cluster_size = sim_params["cluster_size"]
+            if sim_res == "high"
+                # Translate cluster size to neighbour arrangement parameters
+                if cluster_size == 1
+                    cluster_params = (2, true)
+                elseif cluster_size == 2
+                    cluster_params = (2, false)
+                elseif cluster_size == 5
+                    cluster_params = (6, true)
+                elseif cluster_size == 6
+                    cluster_params = (6, false)
+                else
+                    error("Invalid cluster size for high resolution")
+                end
+            end
+        end
+    end
+
+    function setup_simulation_segment(exp_ID, sim_ID, max_time, exp_params=nothing, sim_params=nothing)
+        """
+        Set up and run a time segment of a simulation and append
         the results to the simulation data.
         inputs:
             exp_ID (int): experiment ID
