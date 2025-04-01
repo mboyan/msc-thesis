@@ -7,11 +7,22 @@ __precompile__(false)
     using ArgCheck
     using IterTools
     using JLD2
+    using SHA
+    using Serialization
+    using CurveFit
+    using Revise
 
-    # using .Conversions
-    # using .Diffusion
+    include("./conversions.jl")
+    include("./diffusion.jl")
+    Revise.includet("./conversions.jl")
+    Revise.includet("./diffusion.jl")
+    using .Conversions
+    using .Diffusion
 
     export setup_spore_cluster
+    export run_simulation
+    export run_simulations
+    export setup_model_comparison
 
     function setup_spore_cluster(n_nbrs::Int, L, spore_rad::Float64, cut_half::Bool=false)
         """
@@ -27,7 +38,7 @@ __precompile__(false)
             spore_centers (Array): centers of the spores
         """
 
-        @argcheck n_nbrs in [2, 3, 4, 6, 8, 12] "n_nbrs must be in [2, 3, 4, 6, 8, 12]"
+        @argcheck n_nbrs in [0, 2, 3, 4, 6, 8, 12] "n_nbrs must be in [2, 3, 4, 6, 8, 12]"
         @argcheck L > 0 "N must be positive"
 
         # Safety distance
@@ -104,72 +115,82 @@ __precompile__(false)
         return spore_centers
     end
 
-    function run_simulation(sim_ID, t_max; sim_params::Dict)
+
+    function run_simulation(t_max, sim_params::Dict)
         """
         Run a diffusion simulation with the given parameters.
         inputs:
-            sim_ID (int): simulation ID
             t_max (float): maximum time
             sim_params (Dict): simulation parameters
         outputs:
             c_solutions (Array): concentration solutions
             c_frames (Array): concentration frames
             times (Array): time points
-            exponents (Array): fitted exponents
+            coverage (float): coverage
+            exponent (Array): fitted exponents
         """
 
         # Load simulation parameters
-        N = sim_params["N"]
-        H = sim_params["H"]
-        dx = sim_params["dx"]
-        dt = sim_params["dt"]
-        t_max = sim_params["t_max"]
-        D = sim_params["D"]
-        Pₛ = sim_params["Ps"]
-        c₀ = sim_params["c0"]
-        sim_res = sim_params["sim_res"]
-        n_save_frames = sim_params["n_save_frames"]
+        N = sim_params[:N]
+        dx = sim_params[:dx]
+        dt = sim_params[:dt]
+        t_max = sim_params[:t_max]
+        D = sim_params[:D]
+        Pₛ = sim_params[:Ps]
+        c₀ = sim_params[:c0]
+        sim_res = sim_params[:sim_res]
+        n_save_frames = sim_params[:n_save_frames]
 
-        @argcheck sim_res in ["low", "medium", "high"] "sim_res must be in [\"low\", \"medium\", \"high\"]"
+        @argcheck sim_res in ["low", "medium", "high"] "sim_res must be 'low', 'medium', or 'high'"
 
         # Spore diameter
-        if isnothing(sim_params["spore_diameter"])
-            spore_diameter = 5.0 # Default value in microns
+        if haskey(sim_params, :spore_diameter)
+            spore_diameter = sim_params[:spore_diameter]
         else
-            spore_diameter = sim_params["spore_diameter"]
+            spore_diameter = 5.0 # Default value in microns
         end
         spore_rad = spore_diameter / 2.0
         A_spore = 4 * π * spore_rad^2
         V_spore = 4/3 * π * spore_rad^3
 
-        # Partition coefficient
-        if isnothing(sim_params["K"])
-            K = 1.0 # Default value
+        # Lattice height
+        if haskey(sim_params, :H)
+            H = sim_params[:H]
         else
-            K = sim_params["K"]
+            H = N # Default value
+        end
+
+        # Partition coefficient
+        if haskey(sim_params, :K)
+            K = sim_params[:K]
+        else
+            K = 1.0 # Default value
         end
 
         # Absorbing boundary
-        if isnothing(sim_params["abs_bndry"])
-            abs_bndry = false # Default value
+        if haskey(sim_params, :abs_bndry)
+            abs_bndry = sim_params[:abs_bndry]
         else
-            abs_bndry = sim_params["abs_bndry"]
+            abs_bndry = false # Default value
         end
 
         # Cluster size
-        if !isnothing(sim_params["cluster_size"])
-            cluster_size = sim_params["cluster_size"]
-            if sim_res == "high"
+        if haskey(sim_params, :cluster_size)
+            cluster_size = 1 # Default value
+            cluster_params = (0, false)
+        else
+            cluster_size = sim_params[:cluster_size]
+            if sim_res == :high
                 # Translate cluster size to neighbour arrangement parameters
-                if cluster_size == 0
+                if cluster_size == 1
                     cluster_params = (0, false)
-                elseif cluster_size == 1
-                    cluster_params = (2, true)
                 elseif cluster_size == 2
+                    cluster_params = (2, true)
+                elseif cluster_size == 3
                     cluster_params = (2, false)
-                elseif cluster_size == 5
-                    cluster_params = (6, true)
                 elseif cluster_size == 6
+                    cluster_params = (6, true)
+                elseif cluster_size == 7
                     cluster_params = (6, false)
                 else
                     error("Invalid cluster size for high resolution")
@@ -178,58 +199,160 @@ __precompile__(false)
         end
 
         # Cluster center-to-center distance
-        if isnothing(sim_params["dist"])
-            dist = spore_diameter
+        if haskey(sim_params, :dist)
+            dist = sim_params[:dist]
         else
-            dist = sim_params["dist"]
+            dist = spore_diameter # Default value
         end
 
         # Run simulation
+        c_init = zeros(Float64, N, N, H)
         if sim_res == "low"
             sp_cen_indices = setup_spore_cluster(2, N, 0.5 * dist / dx, true) # additive single neighbour contributions
             coverage = cluster_size * measure_coverage(sp_cen_indices[1], sp_cen_indices[2:end], rad=spore_rad, dx=dx)
-            c_med_evolution, c_spore_evolution, times, _ = diffusion_time_dependent_GPU_low_res(copy(c_init), c₀, t_max; D=D, Pₛ=Pₛ, A=A_spore, V=V_spore, dt=dt, dx=dx,
-                                                                            n_save_frames=n_save_frames, spore_vol_idx=sp_cen_indices[1],
-                                                                            cluster_size=cluster_size, cluster_spacing=dist)
-            fit = exp_fit(times, c_spore_evolution)
-            exponents = fit[2]
-            frame_samples = c_med_evolution
+            c_med_evolution, c_solutions, times, _ = diffusion_time_dependent_GPU_low_res(c_init, c₀, t_max; D=D, Pₛ=Pₛ, A=A_spore, V=V_spore, dt=dt, dx=dx,
+                                                                                            n_save_frames=n_save_frames, spore_vol_idx=sp_cen_indices[1],
+                                                                                            cluster_size=cluster_size, cluster_spacing=dist)
+            frame_samples = c_med_evolution[:, :, N ÷ 2, :]
         elseif sim_res == "medium"
+            sp_cen_indices = setup_spore_cluster(2, N, 0.5 * dist / dx, true) # additive single neighbour contributions
+            coverage = cluster_size * measure_coverage(sp_cen_indices[1], sp_cen_indices[2:end], rad=spore_rad, dx=dx)
+            c_init[sp_cen_indices[1]...] = c₀
+            c_evolution, times = diffusion_time_dependent_GPU!(c_init, t_max; D=D, Ps=Pₛ, dt=dt, dx=dx,
+                                                                n_save_frames=n_save_frames, spore_idx=sp_cen_indices[1],
+                                                                cluster_size=cluster_size, cluster_spacing=dist)
+            c_solutions = c_evolution[:, sp_cen_indices[1]...]
+            frame_samples = c_evolution[:, :, N ÷ 2, :]
+        elseif sim_res == "high"
+            Db = Pₛ * dx / K
+            sp_cen_indices = setup_spore_cluster(cluster_params[1], N, 0.5 * dist / dx + 0.5, cluster_params[2]) # with safety radius of 0.5
+            coverage = measure_coverage(sp_cen_indices[1], sp_cen_indices[2:end], rad=spore_rad, dx=dx)
+            frame_samples, c_solutions, times, region_ids, _ = diffusion_time_dependent_GPU_hi_res_implicit(c_init, c₀, sp_cen_indices, spore_rad, t_max;
+                                                                                                            D=D, Db=Db, dt=dt, dx=dx, n_save_frames=n_save_frames,
+                                                                                                            crank_nicolson=false, abs_bndry=abs_bndry)
+        end
+
+        fit = exp_fit(times, c_solutions)
+        exponent = fit[2]
+
+        return c_solutions, frame_samples, times, coverage, exponent
     end
 
-    function setup_simulation_segment(exp_ID, sim_ID, max_time, exp_params=nothing, sim_params=nothing)
+    
+    function run_simulations(exp_ID, t_max, sim_params::Dict)
         """
-        Set up and run a time segment of a simulation and append
-        the results to the simulation data.
+        Recognizes which parameter in the dictionary contains 
+        a range of value and runs simulations for all combinations
+        of parameter values.
         inputs:
-            exp_ID (int): experiment ID
-            sim_ID (int): simulation ID
-            max_time (float): maximum time
-            exp_params (Dict): experiment parameters
+            expID (int): experiment ID
+            t_max (float): maximum time
             sim_params (Dict): simulation parameters
         """
 
         path = @__DIR__
 
-        if isdir("$(path)/Data/$(exp_ID)")
-            if isfile("$(path)/Data/$(exp_ID)/$(sim_ID).jld2")
-                # Load simulation data
-                jldopen("$(path)/Data/$(exp_ID)/$(sim_ID).jld2", "r+") do file
-                    times = file["times"]
+        # Create experiment directory if it doesn't exist
+        if !isdir("$(path)/Data/$(exp_ID)")
+            mkdir("$(path)/Data/$(exp_ID)")
+        end
+        
+        # Gather varying parameters
+        param_keys = []
+        param_values = []
+        for (param, values) in sim_params
+            if !(typeof(values) == String) && length(values) > 1
+                push!(param_keys, param)
+                push!(param_values, values)
+            end
+        end
+
+        # Create all combinations of parameters
+        param_combos = Base.Iterators.product(param_values...)
+        param_combos = collect(param_combos)
+        param_indices = [collect(1:length(vals)) for vals in param_values]
+        param_IDs = [string(param_keys[i]) .* "_" .* string.(param_indices[i]) for i in eachindex(param_keys)]
+        param_ID_combos = Base.Iterators.product(param_IDs...)
+        param_ID_combos = collect(param_ID_combos)
+
+        # Run simulations for each combination of parameters
+        for (i, param_combo) in enumerate(param_combos)
+
+            # Create a unique simulation ID for each combination of parameters
+            sim_ID = join(param_ID_combos[i], "_")
+
+            # Create a new dictionary for the current combination of parameters
+            sim_params_comb = deepcopy(sim_params)
+            for (j, param) in enumerate(param_keys)
+                sim_params_comb[param] = param_combo[j]
+                println("$(param_keys[j]) = $(param_combo[j])")
+            end
+
+            # Create a hash string from the parameters
+            buffer = IOBuffer()
+            serialize(buffer, sim_params_comb)
+            params_hash = bytes2hex(sha256(take!(buffer)))
+
+            # Check if the parameter combination already exists
+            if isfile(joinpath(path, "Data", exp_ID, "$(exp_ID)_sims.jld2"))
+                # Load existing simulation data
+                jldopen(joinpath(path, "Data", exp_ID, "$(exp_ID)_sims.jld2"), "r+") do file
+                    sim_data = file["simulations"]
+                    if params_hash in sim_data["sim_hashes"]
+                        # Find index of the existing simulation
+                        idx = findfirst(x -> x == params_hash, sim_data["sim_hashes"])
+                        sim_ID_found = sim_data["sim_IDs"][idx]
+                        println("Simulation with parameters $sim_params_comb already exists with simID $sim_ID_found. Overwriting it.")
+                        # continue
+                    else
+                        # Append new simulation data
+                        push!(file["simulations/sim_IDs"], sim_ID)
+                        push!(file["simulations/sim_hashes"], params_hash)
+                        println("New simulation with parameters $sim_params_comb added with simID $sim_ID.")
+                    end
                 end
             else
-                if isnothing(sim_params)
-                    error("File not found, simulation parameters must be supplied.")
+                # Create a new file for simulation data
+                jldopen(joinpath(path, "Data", exp_ID, "$(exp_ID)_sims.jld2"), "w") do file
+                    simulations = JLD2.Group(file, "simulations")
+                    simulations["sim_IDs"] = [sim_ID]
+                    simulations["sim_hashes"] = [params_hash]
                 end
             end
-        else
-            if isnothing(exp_params) || isnothing(sim_params)
-                error("Directory not found, experiment and simulation parameters must be supplied.")
-            else
-                # Create directory and save parameters
-                mkdir("$(path)/Data/$(exp_ID)")
-                jldsave("$(path)/Data/$(exp_ID)/$(sim_ID).jld2", Dict("exp_params" => exp_params, "sim_params" => sim_params))
+
+            # Save parameters to a file
+            jldopen(joinpath(path, "Data", exp_ID, "$(sim_ID)_params.jld2"), "w") do file
+                file["parameters"] = sim_params_comb
             end
+
+            # Run the simulation with the current combination of parameters
+            c_solutions, frame_samples, times, coverage, exponent = run_simulation(t_max, sim_params_comb)
+
+            # Save the results to a file
+            jldopen(joinpath(path, "Data", exp_ID, "$(sim_ID)_results.jld2"), "w") do file
+                file["c_solutions"] = c_solutions
+                file["frame_samples"] = frame_samples
+                file["times"] = times
+                file["coverage"] = coverage
+                file["exponent"] = exponent
+            end
+        end
+    end
+
+
+    function setup_model_comparison(exp_ID, t_max, sim_params::Union{Vector{Dict{Symbol, Any}}, Array{Dict{Symbol, Any}}})
+        """
+        Set up and run a model comparison experiment.
+        inputs:
+            exp_ID (int): experiment ID
+            t_max (float): maximum time
+            sim_params (Array): array of simulation parameters for each model
+        """
+
+        # Run simulations for each set of parameters
+        for (i, params) in enumerate(sim_params)
+            exp_ID_extended = exp_ID * "_model_$(i)"
+            run_simulations(exp_ID_extended, t_max, params)
         end
     end
 
