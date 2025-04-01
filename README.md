@@ -1,6 +1,10 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## Faulty datasets to delete:
+- `310325_cluster_scales`;
+- [to revise old Python-generated ones]
+
 ## Tying the scales together
 - Analytical solution of low-resolution scheme (_if implemented accurately_) can inform an **average added concentration** for the high-resolution lattice of the cluster experiments.
 - This way, the baseline concentration in the cluster simulation can be gradually increased over time.
