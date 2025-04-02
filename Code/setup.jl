@@ -149,9 +149,8 @@ __precompile__(false)
         else
             spore_diameter = 5.0 # Default value in microns
         end
-        spore_rad = spore_diameter / 2.0
-        A_spore = 4 * π * spore_rad^2
-        V_spore = 4/3 * π * spore_rad^3
+        spore_rad = spore_diameter / 2.0 # Convert to radius
+        A_spore, V_spore = compute_spore_area_and_volume(spore_diameter)
 
         # Lattice height
         if haskey(sim_params, :H)
@@ -176,11 +175,8 @@ __precompile__(false)
 
         # Cluster size
         if haskey(sim_params, :cluster_size)
-            cluster_size = 1 # Default value
-            cluster_params = (0, false)
-        else
             cluster_size = sim_params[:cluster_size]
-            if sim_res == :high
+            if sim_res == "high"
                 # Translate cluster size to neighbour arrangement parameters
                 if cluster_size == 1
                     cluster_params = (0, false)
@@ -196,6 +192,9 @@ __precompile__(false)
                     error("Invalid cluster size for high resolution")
                 end
             end
+        else
+            cluster_size = 1 # Default value
+            cluster_params = (0, false)
         end
 
         # Cluster center-to-center distance
@@ -245,7 +244,7 @@ __precompile__(false)
         a range of value and runs simulations for all combinations
         of parameter values.
         inputs:
-            expID (int): experiment ID
+            exp_ID (string): experiment ID
             t_max (float): maximum time
             sim_params (Dict): simulation parameters
         """
@@ -340,18 +339,19 @@ __precompile__(false)
     end
 
 
-    function setup_model_comparison(exp_ID, t_max, sim_params::Union{Vector{Dict{Symbol, Any}}, Array{Dict{Symbol, Any}}})
+    function setup_model_comparison(exp_ID, t_max, sim_params::Union{Vector{Dict{Symbol, Any}}, Array{Dict{Symbol, Any}}}; last_finished=0)
         """
         Set up and run a model comparison experiment.
         inputs:
             exp_ID (int): experiment ID
             t_max (float): maximum time
             sim_params (Array): array of simulation parameters for each model
+            start_from (int): starting index for the model comparison
         """
 
         # Run simulations for each set of parameters
         for (i, params) in enumerate(sim_params)
-            exp_ID_extended = exp_ID * "_model_$(i)"
+            exp_ID_extended = exp_ID * "_model_$(i+last_finished)"
             run_simulations(exp_ID_extended, t_max, params)
         end
     end

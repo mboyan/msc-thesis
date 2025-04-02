@@ -13,6 +13,7 @@ module Conversions
     export inverse_uL_to_mL
     export convert_D_to_Ps
     export convert_Ps_to_D
+    export compute_spore_area_and_volume
     export measure_coverage
     export extract_mean_cw_concentration
     export compute_spore_concentration
@@ -96,6 +97,22 @@ module Conversions
             (float) diffusion constant in micrometers squared per second
         """
         return Ps * d / K
+    end
+
+    function compute_spore_area_and_volume(diameter)
+        """
+        Compute the area and volume of a spherical spore
+        given its diameter.
+        inputs:
+            diameter (float): diameter of the spore
+        outputs:
+            A (float): the area of the spore
+            V (float): the volume of the spore
+        """
+        rad = diameter / 2.0
+        A = 4 * π * rad^2
+        V = 4/3 * π * rad^3
+        return A, V
     end
 
     function coverage_integral(ϕ, R, d)

@@ -238,7 +238,7 @@ __precompile__(false)
 
     # ===== NUMERICAL SOLUTIONS =====
     function diffusion_time_dependent_GPU!(c_init, t_max; D=1.0, Db=nothing, Ps=1.0, dt=0.005, dx=5, n_save_frames=100,
-        spore_idx=nothing, c_thresholds=nothing, neumann_z=false, cluster_size=1, cluster_spacing=10)
+        spore_idx=nothing, c_thresholds=nothing, neumann_z=false, cluster_size=0, cluster_spacing=10)
         """
         Compute the evolution of a square lattice of concentration scalars
         based on the time-dependent diffusion equation.
@@ -264,7 +264,7 @@ __precompile__(false)
         """
 
         @argcheck ndims(c_init) == 3 "c_init must be a 3D array"
-        @argcheck cluster_size ≤ 6 "Cluster size must be less than or equal to 6"
+        @argcheck cluster_size ≤ 7 "Cluster size must be less than or equal to 7"
 
         GC.gc()
 
@@ -284,11 +284,11 @@ __precompile__(false)
             spacing_combos = [-cluster_sp_lattice, 0, cluster_sp_lattice]
             spore_cluster = vec([(i, j, k) for i in spacing_combos, j in spacing_combos, k in spacing_combos])
             spore_cluster = spore_cluster[norm.(spore_cluster) .== cluster_sp_lattice]
-            spore_cluster = [spore_idx .+ spore for spore in spore_cluster]
+            spore_cluster = [Int.(round.(spore_idx .+ spore)) for spore in spore_cluster]
 
             # Filter out relevant neighbours
             order_indices = [1, 6, 2, 5, 3, 4]
-            order_indices = order_indices[1:cluster_size]
+            order_indices = order_indices[1:(cluster_size-1)]
             spore_cluster = spore_cluster[order_indices]
             for spc in spore_cluster
                 c_init[spc...] = c_init[spore_idx...]
@@ -409,7 +409,7 @@ __precompile__(false)
         """
 
         @argcheck ndims(c_init) == 3 "c_init must be a 3D array"
-        @argcheck cluster_size ≤ 6 "Cluster size must be less than or equal to 6"
+        @argcheck cluster_size ≤ 7 "Cluster size must be less than or equal to 6"
 
         GC.gc()
 
@@ -420,24 +420,6 @@ __precompile__(false)
         # Set spore volume index
         if isnothing(spore_vol_idx)
             spore_vol_idx = (N ÷ 2, N ÷ 2, H ÷ 2)
-        end
-
-        # Set up spore cluster
-        if cluster_size > 1
-            # Generate possible combinations
-            cluster_sp_lattice = cluster_spacing ÷ dx
-            spacing_combos = [-cluster_sp_lattice, 0, cluster_sp_lattice]
-            spore_cluster = vec([(i, j, k) for i in spacing_combos, j in spacing_combos, k in spacing_combos])
-            spore_cluster = spore_cluster[norm.(spore_cluster) .== cluster_sp_lattice]
-            spore_cluster = [spore_vol_idx .+ spore for spore in spore_cluster]
-
-            # Filter out relevant neighbours
-            order_indices = [1, 6, 2, 5, 3, 4]
-            order_indices = order_indices[1:cluster_size]
-            spore_cluster = spore_cluster[order_indices]
-            for spc in spore_cluster
-                c_init[spc...] = c_init[spore_vol_idx...]
-            end
         end
 
         # Save update factors
@@ -468,6 +450,24 @@ __precompile__(false)
         println("Storage arrays allocated.")
         save_interval = floor(n_frames / n_save_frames)
         save_ct = 1
+
+        # Set up spore cluster
+        if cluster_size > 1
+            # Generate possible combinations
+            cluster_sp_lattice = cluster_spacing ÷ dx
+            spacing_combos = [-cluster_sp_lattice, 0, cluster_sp_lattice]
+            spore_cluster = vec([(i, j, k) for i in spacing_combos, j in spacing_combos, k in spacing_combos])
+            spore_cluster = spore_cluster[norm.(spore_cluster) .== cluster_sp_lattice]
+            spore_cluster = [Int.(round.(spore_vol_idx .+ spore)) for spore in spore_cluster]
+
+            # Filter out relevant neighbours
+            order_indices = [1, 6, 2, 5, 3, 4]
+            order_indices = order_indices[1:(cluster_size-1)]
+            spore_cluster = spore_cluster[order_indices]
+            for spc in spore_cluster
+                c_spore_array[spc...] = c₀
+            end
+        end
 
         # Allocate arrays for saving threshold crossing times
         if isnothing(c_thresholds)

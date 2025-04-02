@@ -179,7 +179,7 @@ __precompile__(false)
             c_frames (Array{Float64}): concentration lattice frames
             dx (float): lattice spacing
             frame_indices (Array{Int}): indices of the frames to plot
-            times (Array{Float64}): times
+            times (Array{Float64}): time labels
             title (str): title of the plot
             logscale (bool): whether to plot the colorbar in log scale
         """
@@ -232,17 +232,14 @@ __precompile__(false)
         """
         Plots the time-series of a calculated concentration.
         inputs:
-            c_vals (Array{Float64}): concentration lattice frames
-            times (Array{Float64}): times
-            region_ids (Array{Float64}): region IDs
-            spore_rad (float): spore radius
-            cw_thickness (float): cell wall thickness
-            dx (float): lattice spacing
+            c_vals (Array{Float64}): concentrations
+            times (Array{Float64}): measurement times
+            label (string): plot label
             ax (Axis): axis to plot on
             logy (bool): whether to plot the y-axis in log scale
             fit_exp (bool): whether to fit an exponential to the data
             cmap (str): colormap
-            cmap_idx (int): index of the colormap
+            cmap_idx (int): index of colour in colormap
             time_cutoff (float): time cutoff for the plot
         """
         
@@ -412,7 +409,7 @@ __precompile__(false)
     end
 
 
-    function plot_functional_relationship(input, response, axlabels, title=nothing, label=nothing; ax=nothing, logx=false, logy=false, fit=nothing)
+    function plot_functional_relationship(input, response, axlabels, title=nothing, label=nothing; ax=nothing, logx=false, logy=false, fit=nothing, cmap=nothing, cmap_idx=1)
         """
         Plots the functional relationship between input and response.
         inputs:
@@ -425,13 +422,19 @@ __precompile__(false)
             logx (bool): whether to plot the x-axis in log scale
             logy (bool): whether to plot the y-axis in log scale
             fit (str): type of fit to perform
+            cmap (str): colormap
+            cmap_idx (int): index of colour in colormap
         """
 
         if isnothing(ax)
             fig, ax = subplots(1, 1, figsize=(6, 4))
         end
         
-        ax.plot(input, response, marker="o", label=label)
+        if isnothing(cmap)
+            ax.plot(input, response, marker="o", label=label)
+        else
+            ax.plot(input, response, marker="o", label=label, color=cmap(cmap_idx), alpha=0.75)
+        end
 
         if fit == "lin"
             fit = linear_fit(input, response)
@@ -478,7 +481,7 @@ __precompile__(false)
     end
 
     
-    function compare_functional_relationships(inputs, responses, axlabels, plotlabels=nothing, title=nothing; ax=nothing, logx=false, logy=false, fit=nothing)
+    function compare_functional_relationships(inputs, responses, axlabels, plotlabels=nothing, title=nothing; ax=nothing, logx=false, logy=false, fit=nothing, cmap=nothing, cmap_idx_base=0)
         """
         Compare multiple functional relationships on the same axis.
         inputs:
@@ -490,7 +493,9 @@ __precompile__(false)
             ax (Axis): axis to plot on
             logx (bool): whether to plot the x-axis in log scale
             logy (bool): whether to plot the y-axis in log scale
-            fits (Array{String}): types of fits to perform
+            fit (String): type of fit to perform
+            cmap (str): colormap
+            cmap_idx_base (int): base index of the colormap
         """
 
         # Check labels
@@ -508,8 +513,8 @@ __precompile__(false)
             
         end
 
-        for i in 1:size(inputs)[1]
-            plot_functional_relationship(inputs[i], responses[i], axlabels, title, plotlabels[i]; ax, logx, logy, fit)
+        for i in 1:size(inputs, 1)
+            plot_functional_relationship(inputs[i], responses[i], axlabels, title, plotlabels[i]; ax=ax, logx=logx, logy=logy, fit=fit, cmap=cmap, cmap_idx=cmap_idx_base+i-1)
         end
 
         if plotself
@@ -537,7 +542,7 @@ __precompile__(false)
 
         # Check labels
         if isnothing(group_labels)
-            group_labels = [["Group $i" for j in 1:size(in_groups[i])[1]] for i in 1:size(in_groups)[1]]
+            group_labels = [["Group $i, configuration $j" for j in 1:size(in_groups[i])[1]] for i in 1:size(in_groups)[1]]
         end
 
         if isnothing(ax)
@@ -549,20 +554,17 @@ __precompile__(false)
 
         cmap = get_cmap("tab20c")
         for i in 1:size(in_groups, 1)
-            if typeof(in_groups[i, :, :]) == Matrix{Vector{Vector{Float64}}}
+            if typeof(in_groups[i, :, :]) == Matrix{Vector{Vector{Float64}}} || typeof(in_groups[i, :, :]) == Matrix{Any}
                 in_group = vec(in_groups[i, :, :][1])
             else
                 in_group = in_groups[i, :, :]
             end
-            if typeof(res_groups[i, :, :]) == Matrix{Vector{Vector{Float64}}}
+            if typeof(res_groups[i, :, :]) == Matrix{Vector{Vector{Float64}}} || typeof(res_groups[i, :, :]) == Matrix{Any}
                 res_group = vec(res_groups[i, :, :][1])
             else
                 res_group = res_groups[i, :, :]
             end
-            println(typeof(in_group))
-            println(typeof(res_group))
-            println(typeof(group_labels[i, :]))
-            compare_functional_relationships(in_group, res_group, axlabels, group_labels[i, :], title; ax, logx, logy, fit)
+            compare_functional_relationships(in_group, res_group, axlabels, group_labels[i, :][1], title; ax, logx, logy, fit, cmap=cmap, cmap_idx_base=(i - 1)*4)
         end
 
         if plotself
