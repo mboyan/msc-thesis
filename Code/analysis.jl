@@ -56,15 +56,13 @@ __precompile__(false)
             for param in extra_params
                 param = Symbol(param)
                 if haskey(sim_params, param)
-                    # println(sim_params[param])
-                    # param_dict[param] = sim_params[param]
                     if haskey(param_dict, param)
                         push!(param_dict[param], sim_params[param])
                     else
                         param_dict[param] = [sim_params[param]]
                     end
                 else
-                    println("Parameter $(string(param)) not found.")
+                    print("Parameter $(string(param)) not found.\r")
                 end
             end
         end
@@ -146,10 +144,6 @@ __precompile__(false)
 
                 push!(result_dict[:coverage], coverage)
                 push!(result_dict[:exponent], exponent)
-
-                println(file)
-                println("Maximum: $(maximum(result_dict[:exponent]))")
-                println("Minimum: $(minimum(result_dict[:exponent]))")
             end
         end
 

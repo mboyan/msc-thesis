@@ -238,7 +238,7 @@ __precompile__(false)
 
     # ===== NUMERICAL SOLUTIONS =====
     function diffusion_time_dependent_GPU!(c_init, t_max; D=1.0, Db=nothing, Ps=1.0, dt=0.005, dx=5, n_save_frames=100,
-        spore_idx=nothing, c_thresholds=nothing, neumann_z=false, cluster_size=0, cluster_spacing=10)
+        spore_idx=nothing, c_thresholds=nothing, abs_bndry=false, neumann_z=false, cluster_size=0, cluster_spacing=10)
         """
         Compute the evolution of a square lattice of concentration scalars
         based on the time-dependent diffusion equation.
@@ -254,6 +254,7 @@ __precompile__(false)
             spore_idx (tuple) - the indices of the spore location; defaults to nothing
             spore_spacing (int) - the spacing between spore indices along each dimension; defaults to nothing; if used, spore_idx is ignored
             c_thresholds (vector of float) - threshold values for the concentration; defaults to nothing
+            abs_bndry (bool) - whether to use absorbing boundary conditions; defaults to false
             neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction; defaults to false
             cluster_size (int) - if provided, creates an orthogonal neighbour cluster with the given size
             cluster_spacing (int) - spacing between the spores in the cluster
@@ -290,6 +291,7 @@ __precompile__(false)
             order_indices = [1, 6, 2, 5, 3, 4]
             order_indices = order_indices[1:(cluster_size-1)]
             spore_cluster = spore_cluster[order_indices]
+            println("Generating $(length(order_indices)) neighbours")
             for spc in spore_cluster
                 c_init[spc...] = c_init[spore_idx...]
             end
@@ -357,9 +359,9 @@ __precompile__(false)
 
             # Update the lattice
             if cluster_size == 1
-                @cuda threads=kernel_threads blocks=kernel_blocks update_GPU!(c_A_gpu, c_B_gpu, N, H, dtdx2, D, Db, spore_idx, neumann_z)
+                @cuda threads=kernel_threads blocks=kernel_blocks update_GPU!(c_A_gpu, c_B_gpu, N, H, dtdx2, D, Db, spore_idx, abs_bndry, neumann_z)
             else
-                @cuda threads=kernel_threads blocks=kernel_blocks update_GPU_spore_cluster!(c_A_gpu, c_B_gpu, N, H, dtdx2, D, Db, spore_idx, cluster_sp_lattice, cluster_size, neumann_z)
+                @cuda threads=kernel_threads blocks=kernel_blocks update_GPU_spore_cluster!(c_A_gpu, c_B_gpu, N, H, dtdx2, D, Db, spore_idx, cluster_sp_lattice, cluster_size, abs_bndry, neumann_z)
             end
             c_A_gpu, c_B_gpu = c_B_gpu, c_A_gpu
 
@@ -464,6 +466,7 @@ __precompile__(false)
             order_indices = [1, 6, 2, 5, 3, 4]
             order_indices = order_indices[1:(cluster_size-1)]
             spore_cluster = spore_cluster[order_indices]
+            println("Generating $(length(order_indices)) neighbours")
             for spc in spore_cluster
                 c_spore_array[spc...] = c₀
             end
@@ -524,7 +527,7 @@ __precompile__(false)
     end
 
     function diffusion_time_dependent_GPU_hi_res!(c_init, c₀, sp_cen_indices, spore_rad, t_max; D=1.0, Db=1.0, dt=0.005, dx=0.2, n_save_frames=100,
-        c_thresholds=nothing, abs_bndry=false, neumann_z=false)
+        c_thresholds=nothing, abs_bndry=false, neumann_z=false, corr_factor=1.45)
         """
         Compute the evolution of a square lattice of concentration scalars
         based on the time-dependent diffusion equation.
@@ -542,6 +545,7 @@ __precompile__(false)
             c_thresholds (vector of float) - threshold values for the concentration; defaults to nothing
             abs_bndry (bool) - whether to use absorbing boundary conditions; defaults to false
             neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction; defaults to false
+            corr_factor (float) - correction factor for calculating the cell wall thickness
         outputs:
             c_evolotion (array) - the states of the lattice at all moments in time
             times (array) - the times at which the states were saved
@@ -562,21 +566,10 @@ __precompile__(false)
         # Save update factor
         dtdx2 = dt / (dx^2)
 
-        # # Compute effective diffusion constant at interface
-        # Deff = 2 * D * Db / (D + Db)
-        # println("Using D = $D, Db = $Db, Deff = $Deff")
-
         # Compute internal cell wall diffusion constant from effective diffusion constant
         Dcw = Db * D / (2 * D - Db)
         println("Using D = $D, Db = $Db, Dcw = $Dcw")
         println("D*dt/dx2 = $(D*dtdx2), Db*dt/dx2 = $(Db*dtdx2), Dcw*dt/dx2 = $(Dcw*dtdx2)")
-
-        # Convert to Float32
-        # dtdx2 = Float32(dtdx2)
-        # D = Float32(D)
-        # Db = Float32(Db)
-        # Deff = Float32(Deff)
-        # println("D*dt/dx2 = $(D*dtdx2), Db*dt/dx2 = $(Db*dtdx2), Deff*dt/dx2 = $(Deff*dtdx2)")
 
         # Check stability
         if D * dtdx2 ≥ 0.2
@@ -600,37 +593,26 @@ __precompile__(false)
         region_ids = zeros(Int, N, N, H)
 
         # Initialise concentrations in cell wall
-        corr_factor = 1.45
         cw_thickness = corr_factor*sqrt(3)
         for i in 1:N, j in 1:N, k in 1:H
             for sp_cen_idx in sp_cen_indices
-                if spore_rad_lattice - cw_thickness ≤ sqrt((i - sp_cen_idx[1] - 1)^2 + (j - sp_cen_idx[2] - 1)^2 + (k - sp_cen_idx[3] - 1)^2) ≤ spore_rad_lattice
+                if spore_rad_lattice - cw_thickness ≤ sqrt((i - sp_cen_idx[1])^2 + (j - sp_cen_idx[2])^2 + (k - sp_cen_idx[3])^2) ≤ spore_rad_lattice
                     # Cell wall
                     c_init[i, j, k] += c₀
                     region_ids[i, j, k] = 1
-                elseif sqrt((i - sp_cen_idx[1] - 1)^2 + (j - sp_cen_idx[2] - 1)^2 + (k - sp_cen_idx[3] - 1)^2) ≤ spore_rad_lattice - cw_thickness
+                elseif sqrt((i - sp_cen_idx[1])^2 + (j - sp_cen_idx[2])^2 + (k - sp_cen_idx[3])^2) ≤ spore_rad_lattice - cw_thickness
                     # Interior
                     c_init[i, j, k] += 0.0
                     region_ids[i, j, k] = 2
-                # else
-                #     # Exterior
-                #     c_init[i, j, k] .+ 0.0
                 end
             end
         end
         println("Concentrations initialised.")
 
-        println("Ideal cell wall volume: ", 4/3 * π * (spore_rad^3 - (spore_rad - dx * 2)^3))
-        println("Discretised cell wall volume: ", sum(region_ids .== 1) * dx^3)
-        println("Ideal spore volume: ", 4/3 * π * spore_rad^3)
-        println("Discretised spore volume: ", sum(region_ids .≥ 1) * dx^3)
-
-        # Get number of interfaces between cell wall and exterior
-        # regions_int_ext = region_ids .≠ 2
-        # intf_x = sum(abs.(diff(regions_int_ext, dims=1)))
-        # intf_y = sum(abs.(diff(regions_int_ext, dims=2)))
-        # intf_z = sum(abs.(diff(regions_int_ext, dims=3)))
-        # println("Number of interfaces in x: ", sum(intf_x))
+        # println("Ideal cell wall volume: ", 4/3 * π * (spore_rad^3 - (spore_rad - dx * 2)^3))
+        # println("Discretised cell wall volume: ", sum(region_ids .== 1) * dx^3)
+        # println("Ideal spore volume: ", 4/3 * π * spore_rad^3)
+        # println("Discretised spore volume: ", sum(region_ids .≥ 1) * dx^3)
 
         # Determine number of frames
         n_frames = Int(floor(t_max / dt))
@@ -705,7 +687,7 @@ __precompile__(false)
 
 
     function diffusion_time_dependent_GPU_hi_res_implicit(c_init, c₀, sp_cen_indices, spore_rad, t_max; D=1.0, Db=1.0, dt=0.005, dx=0.2, n_save_frames=100,
-        c_thresholds=nothing, crank_nicolson=true, abs_bndry=false, neumann_z=false)
+        c_thresholds=nothing, crank_nicolson=true, abs_bndry=false, neumann_z=false, corr_factor=1.45)
         """
         Compute the evolution of a square lattice of concentration scalars
         based on the time-dependent diffusion equation using the Crank–Nicolson
@@ -725,6 +707,7 @@ __precompile__(false)
             crank_nicolson (bool) - whether to use the Crank–Nicolson method, else uses Backward Euler; defaults to true
             abs_bndry (bool) - whether to use absorbing boundary conditions; defaults to false
             neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction; defaults to false
+            corr_factor (float) - correction factor for calculating the cell wall thickness
         outputs:
             c_evolotion (array) - the states of the lattice at all moments in time
             times (array) - the times at which the states were saved
@@ -746,14 +729,7 @@ __precompile__(false)
         dtdx2 = dt / (dx^2)
 
         # Cell wall thickness
-        corr_factor = 1.45
         cw_thickness = corr_factor*sqrt(3)
-
-        # # Compute effective diffusion constant at interface
-        # Deff = 2 * D * Db / (D + Db)
-        # println("Using D = $D, Db = $Db, Deff = $Deff")
-        # println("D*dt/dx2 = $(D*dtdx2), Db*dt/dx2 = $(Db*dtdx2), Deff*dt/dx2 = $(Deff*dtdx2)")
-        # println("Timescale for accuracy: ", dx^2 / max([D, Db]...))
 
         # Compute internal cell wall diffusion constant from effective diffusion constant
         Dcw = Db * D / (2 * D - Db)
@@ -846,11 +822,13 @@ __precompile__(false)
             # Save frame
             if (t - 1) % save_interval == 0 && save_ct ≤ n_save_frames
                 CUDA.synchronize()
-                c_frames[save_ct, :, :] .= reshape(Array(c_gpu), (N, N, H))[:, N ÷ 2, :]
+                # c_frames[save_ct, :, :] .= reshape(Array(c_gpu), (N, N, H))[:, N ÷ 2, :]
+                c_frames[save_ct, :, :] .= reshape(Array(c_gpu), (N, N, H))[N ÷ 2, :, :]
                 c_spore[save_ct] = compute_spore_concentration(reshape(Array(c_gpu), (1, N, N, H)),
                                                                 reshape(Array(region_ids_gpu), (N, N, H)), spore_rad, dx)[1]
                 times[save_ct] = (t - 1) * dt
                 # println(maximum(c_frames[save_ct, :, :]))
+                println(c_spore[save_ct])
                 print("\rFrame $save_ct saved.")
                 save_ct += 1
             end

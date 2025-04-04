@@ -116,11 +116,10 @@ __precompile__(false)
     end
 
 
-    function run_simulation(t_max, sim_params::Dict)
+    function run_simulation(sim_params::Dict)
         """
         Run a diffusion simulation with the given parameters.
         inputs:
-            t_max (float): maximum time
             sim_params (Dict): simulation parameters
         outputs:
             c_solutions (Array): concentration solutions
@@ -176,7 +175,7 @@ __precompile__(false)
         # Cluster size
         if haskey(sim_params, :cluster_size)
             cluster_size = sim_params[:cluster_size]
-            if sim_res == "high"
+            if sim_res == "high" || sim_res == "medium"
                 # Translate cluster size to neighbour arrangement parameters
                 if cluster_size == 1
                     cluster_params = (0, false)
@@ -184,12 +183,20 @@ __precompile__(false)
                     cluster_params = (2, true)
                 elseif cluster_size == 3
                     cluster_params = (2, false)
+                elseif cluster_size == 4
+                    cluster_params = (3, false)
+                elseif cluster_size == 5
+                    cluster_params = (4, false)
                 elseif cluster_size == 6
                     cluster_params = (6, true)
                 elseif cluster_size == 7
                     cluster_params = (6, false)
+                elseif cluster_size == 9
+                    cluster_params = (8, false)
+                elseif cluster_size == 13
+                    cluster_params = (12, false)
                 else
-                    error("Invalid cluster size for high resolution")
+                    error("Invalid cluster size for high resolution: $cluster_size")
                 end
             end
         else
@@ -204,31 +211,75 @@ __precompile__(false)
             dist = spore_diameter # Default value
         end
 
+        # High resolution explicit vs implicitly
+        if haskey(sim_params, :solution_method)
+            @argcheck sim_params[:solution_method] in [0, 1, 2] "solution_method must be 0 (Backward Euler), 1 (Crank-Nicolson), or 2 (Forward Euler)"
+            solution_method = sim_params[:solution_method]
+        else
+            solution_method = 0 # Default value
+        end
+
+        # Discrete cell wall thickness correction factor
+        if haskey(sim_params, :corr_factor)
+            corr_factor = sim_params[:corr_factor]
+        elseif sim_res == "high"
+            corr_factor = 1.45 # Default value for a 2 x dx thick cell wall for high resolution
+        else
+            corr_factor = 0.5 # Default value for low and medium resolution
+        end
+
         # Run simulation
         c_init = zeros(Float64, N, N, H)
         if sim_res == "low"
-            sp_cen_indices = setup_spore_cluster(2, N, 0.5 * dist / dx, true) # additive single neighbour contributions
+            sp_cen_indices = setup_spore_cluster(2, N, 0.5 * dist / dx + 0.6, true) # additive single neighbour contributions
             coverage = cluster_size * measure_coverage(sp_cen_indices[1], sp_cen_indices[2:end], rad=spore_rad, dx=dx)
             c_med_evolution, c_solutions, times, _ = diffusion_time_dependent_GPU_low_res(c_init, c₀, t_max; D=D, Pₛ=Pₛ, A=A_spore, V=V_spore, dt=dt, dx=dx,
                                                                                             n_save_frames=n_save_frames, spore_vol_idx=sp_cen_indices[1],
                                                                                             cluster_size=cluster_size, cluster_spacing=dist)
             frame_samples = c_med_evolution[:, :, N ÷ 2, :]
         elseif sim_res == "medium"
-            sp_cen_indices = setup_spore_cluster(2, N, 0.5 * dist / dx, true) # additive single neighbour contributions
-            coverage = cluster_size * measure_coverage(sp_cen_indices[1], sp_cen_indices[2:end], rad=spore_rad, dx=dx)
-            c_init[sp_cen_indices[1]...] = c₀
-            c_evolution, times = diffusion_time_dependent_GPU!(c_init, t_max; D=D, Ps=Pₛ, dt=dt, dx=dx,
-                                                                n_save_frames=n_save_frames, spore_idx=sp_cen_indices[1],
-                                                                cluster_size=cluster_size, cluster_spacing=dist)
-            c_solutions = c_evolution[:, sp_cen_indices[1]...]
-            frame_samples = c_evolution[:, :, N ÷ 2, :]
+            if solution_method == 0
+                Db = Pₛ * dx / K
+                sp_cen_indices = setup_spore_cluster(cluster_params[1], N, 0.5 * dist / dx + 0.6, cluster_params[2]) # with safety disance of 0.6
+                coverage = measure_coverage(sp_cen_indices[1], sp_cen_indices[2:end], rad=spore_rad, dx=dx)
+                frame_samples, c_solutions, times, region_ids, _ = diffusion_time_dependent_GPU_hi_res_implicit(c_init, c₀, sp_cen_indices, 2*spore_rad, t_max;
+                                                                                                                D=D, Db=Db, dt=dt, dx=dx, n_save_frames=n_save_frames,
+                                                                                                                crank_nicolson=false, abs_bndry=abs_bndry, corr_factor=corr_factor)
+            elseif solution_method == 1
+                Db = Pₛ * dx / K
+                sp_cen_indices = setup_spore_cluster(cluster_params[1], N, 0.5 * dist / dx + 0.6, cluster_params[2]) # with safety disance of 0.6
+                coverage = measure_coverage(sp_cen_indices[1], sp_cen_indices[2:end], rad=spore_rad, dx=dx)
+                frame_samples, c_solutions, times, region_ids, _ = diffusion_time_dependent_GPU_hi_res_implicit(c_init, c₀, sp_cen_indices, 2*spore_rad, t_max;
+                                                                                                                D=D, Db=Db, dt=dt, dx=dx, n_save_frames=n_save_frames,
+                                                                                                                crank_nicolson=true, abs_bndry=abs_bndry, corr_factor=corr_factor)
+            else
+                sp_cen_indices = setup_spore_cluster(2, N, 0.5 * dist / dx + 0.6, true) # additive single neighbour contributions
+                coverage = cluster_size * measure_coverage(sp_cen_indices[1], sp_cen_indices[2:end], rad=spore_rad, dx=dx)
+                c_init[sp_cen_indices[1]...] = c₀
+                c_evolution, times = diffusion_time_dependent_GPU!(c_init, t_max; D=D, Ps=Pₛ, dt=dt, dx=dx,
+                                                                    n_save_frames=n_save_frames, spore_idx=sp_cen_indices[1],
+                                                                    abs_bndry=abs_bndry, cluster_size=cluster_size, cluster_spacing=dist)
+                
+                c_solutions = c_evolution[:, sp_cen_indices[1]...]
+                frame_samples = c_evolution[:, :, N ÷ 2, :]
+            end
         elseif sim_res == "high"
             Db = Pₛ * dx / K
-            sp_cen_indices = setup_spore_cluster(cluster_params[1], N, 0.5 * dist / dx + 0.5, cluster_params[2]) # with safety radius of 0.5
+            sp_cen_indices = setup_spore_cluster(cluster_params[1], N, 0.5 * dist / dx + 0.6, cluster_params[2]) # with safety disance of 0.6
             coverage = measure_coverage(sp_cen_indices[1], sp_cen_indices[2:end], rad=spore_rad, dx=dx)
-            frame_samples, c_solutions, times, region_ids, _ = diffusion_time_dependent_GPU_hi_res_implicit(c_init, c₀, sp_cen_indices, spore_rad, t_max;
-                                                                                                            D=D, Db=Db, dt=dt, dx=dx, n_save_frames=n_save_frames,
-                                                                                                            crank_nicolson=false, abs_bndry=abs_bndry)
+            if solution_method == 0
+                frame_samples, c_solutions, times, region_ids, _ = diffusion_time_dependent_GPU_hi_res_implicit(c_init, c₀, sp_cen_indices, spore_rad, t_max;
+                                                                                                                D=D, Db=Db, dt=dt, dx=dx, n_save_frames=n_save_frames,
+                                                                                                                crank_nicolson=false, abs_bndry=abs_bndry, corr_factor=corr_factor)
+            elseif solution_method == 1
+                frame_samples, c_solutions, times, region_ids, _ = diffusion_time_dependent_GPU_hi_res_implicit(c_init, c₀, sp_cen_indices, spore_rad, t_max;
+                                                                                                                D=D, Db=Db, dt=dt, dx=dx, n_save_frames=n_save_frames,
+                                                                                                                crank_nicolson=true, abs_bndry=abs_bndry, corr_factor=corr_factor)
+            else
+                frame_samples, c_solutions, times, region_ids, _ = diffusion_time_dependent_GPU_hi_res!(c_init, c₀, sp_cen_indices, spore_rad, t_max;
+                                                                                                        D=D, Db=Db, dt=dt, dx=dx,
+                                                                                                        n_save_frames=n_save_frames, abs_bndry=abs_bndry, corr_factor=corr_factor)
+            end
         end
 
         fit = exp_fit(times, c_solutions)
@@ -238,14 +289,13 @@ __precompile__(false)
     end
 
     
-    function run_simulations(exp_ID, t_max, sim_params::Dict)
+    function run_simulations(exp_ID, sim_params::Dict)
         """
         Recognizes which parameter in the dictionary contains 
         a range of value and runs simulations for all combinations
         of parameter values.
         inputs:
             exp_ID (string): experiment ID
-            t_max (float): maximum time
             sim_params (Dict): simulation parameters
         """
 
@@ -325,7 +375,7 @@ __precompile__(false)
             end
 
             # Run the simulation with the current combination of parameters
-            c_solutions, frame_samples, times, coverage, exponent = run_simulation(t_max, sim_params_comb)
+            c_solutions, frame_samples, times, coverage, exponent = run_simulation(sim_params_comb)
 
             # Save the results to a file
             jldopen(joinpath(path, "Data", exp_ID, "$(sim_ID)_results.jld2"), "w") do file
@@ -339,7 +389,7 @@ __precompile__(false)
     end
 
 
-    function setup_model_comparison(exp_ID, t_max, sim_params::Union{Vector{Dict{Symbol, Any}}, Array{Dict{Symbol, Any}}}; last_finished=0)
+    function setup_model_comparison(exp_ID, sim_params::Union{Vector{Dict{Symbol, Any}}, Array{Dict{Symbol, Any}}}; last_finished=0)
         """
         Set up and run a model comparison experiment.
         inputs:
@@ -352,7 +402,7 @@ __precompile__(false)
         # Run simulations for each set of parameters
         for (i, params) in enumerate(sim_params)
             exp_ID_extended = exp_ID * "_model_$(i+last_finished)"
-            run_simulations(exp_ID_extended, t_max, params)
+            run_simulations(exp_ID_extended, params)
         end
     end
 

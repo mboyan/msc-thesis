@@ -25,6 +25,7 @@ __precompile__(false)
     export plot_spheres!
     export plot_spore_clusters
     export plot_concentration_lattice
+    export compare_concentration_lattice
     export plot_concentration_evolution
     export compare_concentration_evolutions
     export compare_concentration_evolution_groups
@@ -172,7 +173,7 @@ __precompile__(false)
     end
 
 
-    function plot_concentration_lattice(c_frames::Array{Float64}, dx; frame_indices=nothing, times=nothing, title=nothing, logscale=false)
+    function plot_concentration_lattice(c_frames::Array{Float64}, dx; frame_indices=nothing, times=nothing, title=nothing, zoom=1.0)
         """
         Plots a 2D section of the concentration lattice.
         inputs:
@@ -192,9 +193,9 @@ __precompile__(false)
             c_frames = c_frames[[1, end], :, :]
         end
         
-        n_rows = ceil(Int, size(c_frames)[1] / 2)
-        N = size(c_frames)[2]
-        H = size(c_frames)[3]
+        n_rows = ceil(Int, size(c_frames, 1) / 2)
+        N = size(c_frames, 2)
+        H = size(c_frames, 3)
 
         vmin = minimum(c_frames)
         vmax = maximum(c_frames)
@@ -206,7 +207,7 @@ __precompile__(false)
             axs = reshape(axs, (1, length(axs)))
         end
         img = nothing
-        for i in 1:size(c_frames)[1]
+        for i in 1:size(c_frames, 1)
             if !isnothing(times) && !isnothing(frame_indices)
                 time = round(times[frame_indices[i]], digits=4)
                 ax_title = "t = $time s"
@@ -217,12 +218,73 @@ __precompile__(false)
             axs[i].set_title(ax_title)
             axs[i].set_xlabel(@L_str"x [\\mu m]")
             axs[i].set_ylabel(@L_str"y [\\mu m]")
+            axs[i].set_xlim((1-zoom)*0.5*N*dx, (1+zoom)*0.5*N*dx)
+            axs[i].set_ylim((1-zoom)*0.5*H*dx, (1+zoom)*0.5*H*dx)
         end
         
         cax = fig.add_axes([0.1, -0.05, 0.85, 0.05])
         fig.colorbar(img, cax=cax, orientation="horizontal")
         fig.tight_layout()
         fig.suptitle(title)
+
+        gcf()
+    end
+
+
+    function compare_concentration_lattice(c_frames_compare, dx_compare; frame_indices=nothing, times=nothing, title=nothing, zoom=1.0)
+        """
+        Compares snapshots of the concentration lattice from two simulations.
+        The simulations need to share the same time labels.
+        inputs:
+            c_frames_array (Vector{Array{Float64}}): concentration lattice frames for each simulation
+            dx_compare (float): lattice spacings for each simulation
+            frame_indices (Array{Int}): indices of the frames to plot for each simulation
+            times (Array{Float64}): time labels for each simulation
+            title (str): title of the plot
+            zoom (float): zoom factor for the plot
+        """
+        
+        c_frames_filtered = []
+        for c_frames in c_frames_compare
+            if !isnothing(frame_indices)
+                @argcheck typeof(frame_indices) in [Array{Int}, Vector{Int}] "frame_indices must be an array of integers"
+                println("Plotting frames: ", frame_indices)
+                push!(c_frames_filtered, c_frames[frame_indices, :, :])
+            else
+                frame_indices = [1, size(c_frames, 1)]
+                println("Plotting frames: ", frame_indices)
+                push!(c_frames_filtered, c_frames[frame_indices, :, :])
+            end
+        end
+
+        n_rows = size(c_frames_filtered, 1)
+
+        fig, axs = subplots(n_rows, size(c_frames_filtered[1], 1), figsize=(10, 5*n_rows))
+        img = nothing
+        for i in 1:size(c_frames_filtered, 1)
+            N = size(c_frames_filtered[i], 2)
+            H = size(c_frames_filtered[i], 3)
+            vmin = minimum(c_frames_filtered[i])
+            vmax = maximum(c_frames_filtered[i])
+            for j in 1:size(c_frames_filtered[i], 1)
+                if !isnothing(times) && !isnothing(frame_indices)
+                    time = round(times[frame_indices[j]], digits=4)
+                    ax_title = "Configuration $i, t = $time s"
+                else
+                    ax_title = "Frame $j"
+                end
+                img = axs[i, j].imshow(c_frames_filtered[i][j, :, :], cmap="viridis", interpolation="nearest", extent=[0, N*dx_compare[i], 0, H*dx_compare[i]], vmin=vmin, vmax=vmax)
+                axs[i, j].set_title(ax_title)
+                axs[i, j].set_xlabel(@L_str"x [\\mu m]")
+                axs[i, j].set_ylabel(@L_str"y [\\mu m]")
+                axs[i, j].set_xlim((1-zoom)*0.5*N*dx_compare[i], (1+zoom)*0.5*N*dx_compare[i])
+                axs[i, j].set_ylim((1-zoom)*0.5*H*dx_compare[i], (1+zoom)*0.5*H*dx_compare[i])
+                fig.colorbar(img, ax=axs[i, j], orientation="vertical", shrink=0.8)
+            end
+        end
+
+        fig.suptitle(title)
+        fig.subplots_adjust(wspace=0.4)
 
         gcf()
     end
@@ -285,6 +347,20 @@ __precompile__(false)
         end
     end
 
+
+    function to_nested(collection)
+        if ndims(collection) == 1
+            return collect(collection)
+        elseif ndims(collection) == 2
+            return [to_nested(collection[i, :]) for i in 1:size(collection, 1)]
+        elseif ndims(collection) == 3
+            return [to_nested(collection[i, :, :]) for i in 1:size(collection, 1)]
+        else
+            println("Maximum depth of 3 reached")
+            return collection
+        end
+    end
+
     
     function compare_concentration_evolutions(c_vals_array, times_array, labels=nothing, ax=nothing; logy=false, fit_exp=false, cmap=nothing, cmap_idx_base=0, time_cutoff=nothing)
         """
@@ -301,12 +377,12 @@ __precompile__(false)
             time_cutoff (float): time cutoff for the plot
         """
 
-        @argcheck (typeof(c_vals_array) in [Vector{Vector{Float64}}, Matrix{Float64}]) "c_groups must be a vector of matrices or a matrix"
-        @argcheck (typeof(times_array) in [Vector{Vector{Float64}}, Matrix{Float64}]) "times_groups must be a vector of matrices or a matrix"
+        # @argcheck (typeof(c_vals_array) in [Vector{Vector{Float64}}, Matrix{Float64}]) "c_groups must be a vector of matrices or a matrix"
+        # @argcheck (typeof(times_array) in [Vector{Vector{Float64}}, Matrix{Float64}]) "times_groups must be a vector of matrices or a matrix"
 
         # Check labels
         if !isnothing(labels)
-            @argcheck length(labels) == size(c_vals_array)[1] "Number of labels must match the number of concentration arrays"
+            @argcheck length(labels) == size(c_vals_array, 1) "Number of labels must match the number of concentration arrays"
         else
             labels = ["$i" for i in 1:size(c_vals_array)[1]]
         end
@@ -318,18 +394,8 @@ __precompile__(false)
             plotself = false
         end
         
-        for i in 1:size(c_vals_array, 1)
-            if typeof(c_vals_array) == Vector{Vector{Float64}}
-                c_vals = vec(c_vals_array[i, :][1])
-            else
-                c_vals = c_vals_array[i, :]
-            end
-            if typeof(times_array) == Vector{Vector{Float64}}
-                times = vec(times_array[i, :][1])
-            else
-                times = times_array[i, :]
-            end
-            plot_concentration_evolution(c_vals, times, labels[i], ax, logy, fit_exp, cmap, cmap_idx_base+i, time_cutoff)
+        for i in eachindex(c_vals_array)
+            plot_concentration_evolution(c_vals_array[i], times_array[i], labels[i], ax, logy, fit_exp, cmap, cmap_idx_base+i-1, time_cutoff)
         end
 
         if plotself
@@ -354,12 +420,18 @@ __precompile__(false)
             time_cutoff (float): time cutoff for the plot
         """
 
-        @argcheck (typeof(c_groups) in [Vector{Vector{Vector{Float64}}}, Matrix{Float64}]) "c_groups must be a vector of matrices or a matrix"
-        @argcheck (typeof(times_groups) in [Vector{Vector{Vector{Float64}}}, Matrix{Float64}]) "times_groups must be a vector of matrices or a matrix"
+        # @argcheck (typeof(c_groups) in [Vector{Vector{Vector{Float64}}}, Matrix{Float64}, Array{Float64, 3}]) "c_groups must be a vector of matrices or a matrix"
+        # @argcheck (typeof(times_groups) in [Vector{Vector{Vector{Float64}}}, Matrix{Float64}, Array{Float64, 3}]) "times_groups must be a vector of matrices or a matrix"
+
+        # Convert to nested arrays
+        c_groups = to_nested(c_groups)
+        times_groups = to_nested(times_groups)
 
         # Check labels
         if isnothing(group_labels)
-            group_labels = [["Group $i" for j in 1:size(c_groups[i])[1]] for i in 1:size(c_groups)[1]]
+            group_labels = [["Group $i" for j in 1:size(c_groups[i], 1)] for i in 1:size(c_groups, 1)]
+        else
+            group_labels = to_nested(group_labels)
         end
 
         if isnothing(ax)
@@ -370,18 +442,8 @@ __precompile__(false)
         end
 
         cmap = get_cmap("tab20c")
-        for i in 1:size(c_groups, 1)
-            if typeof(c_groups[i, :, :]) == Matrix{Vector{Vector{Float64}}}
-                c_group = vec(c_groups[i, :, :][1])
-            else
-                c_group = c_groups[i, :, :]
-            end
-            if typeof(times_groups[i, :, :]) == Matrix{Vector{Vector{Float64}}}
-                times_group = vec(times_groups[i, :, :][1])
-            else
-                times_group = times_groups[i, :, :]
-            end
-            compare_concentration_evolutions(c_group, times_group, group_labels[i], ax; logy, fit_exp, cmap, cmap_idx_base=(i - 1)*4, time_cutoff=time_cutoff)
+        for i in eachindex(c_groups)
+            compare_concentration_evolutions(c_groups[i], times_groups[i], group_labels[i], ax; logy, fit_exp, cmap, cmap_idx_base=(i - 1)*4, time_cutoff=time_cutoff)
         end
 
         if plotself
@@ -513,7 +575,7 @@ __precompile__(false)
             
         end
 
-        for i in 1:size(inputs, 1)
+        for i in eachindex(inputs)
             plot_functional_relationship(inputs[i], responses[i], axlabels, title, plotlabels[i]; ax=ax, logx=logx, logy=logy, fit=fit, cmap=cmap, cmap_idx=cmap_idx_base+i-1)
         end
 
@@ -540,9 +602,15 @@ __precompile__(false)
             fit (str): type of fit to perform
         """
 
+        # Convert to nested arrays
+        in_groups = to_nested(in_groups)
+        res_groups = to_nested(res_groups)
+
         # Check labels
         if isnothing(group_labels)
             group_labels = [["Group $i, configuration $j" for j in 1:size(in_groups[i])[1]] for i in 1:size(in_groups)[1]]
+        else
+            group_labels = to_nested(group_labels)
         end
 
         if isnothing(ax)
@@ -553,18 +621,8 @@ __precompile__(false)
         end
 
         cmap = get_cmap("tab20c")
-        for i in 1:size(in_groups, 1)
-            if typeof(in_groups[i, :, :]) == Matrix{Vector{Vector{Float64}}} || typeof(in_groups[i, :, :]) == Matrix{Any}
-                in_group = vec(in_groups[i, :, :][1])
-            else
-                in_group = in_groups[i, :, :]
-            end
-            if typeof(res_groups[i, :, :]) == Matrix{Vector{Vector{Float64}}} || typeof(res_groups[i, :, :]) == Matrix{Any}
-                res_group = vec(res_groups[i, :, :][1])
-            else
-                res_group = res_groups[i, :, :]
-            end
-            compare_functional_relationships(in_group, res_group, axlabels, group_labels[i, :][1], title; ax, logx, logy, fit, cmap=cmap, cmap_idx_base=(i - 1)*4)
+        for i in eachindex(in_groups)
+            compare_functional_relationships(in_groups[i], res_groups[i], axlabels, group_labels[i], title; ax, logx, logy, fit, cmap=cmap, cmap_idx_base=(i - 1)*4)
         end
 
         if plotself

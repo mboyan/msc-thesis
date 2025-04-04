@@ -36,7 +36,7 @@ module Solver
     end
 
 
-    function update_GPU!(c_old, c_new, N, H, dtdx2, D, Db, spore_idx, neumann_z)
+    function update_GPU!(c_old, c_new, N, H, dtdx2, D, Db, spore_idx, abs_bndry, neumann_z)
         """
         Update the concentration values on the lattice
         using the time-dependent diffusion equation.
@@ -49,6 +49,7 @@ module Solver
             D (float) - the diffusion constant
             Db (float) - the diffusion constant through the spore
             spore_idx (tuple) - the indices of the spore location
+            abs_bndry (bool) - whether to use absorbing boundary conditions
             neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction
         """
         i, j, k = CUDA.blockIdx().x, CUDA.blockIdx().y, CUDA.blockIdx().z
@@ -59,6 +60,13 @@ module Solver
     
         # Update the concentration value
         if 1 ≤ idx[1] ≤ N && 1 ≤ idx[2] ≤ N && 1 ≤ idx[3] ≤ H
+
+            # Apply absorbing boundary conditions
+            if abs_bndry
+                if idx[1] == 1 || idx[1] == N || idx[2] == 1 || idx[2] == N || idx[3] == 1 || idx[3] == H
+                    return nothing
+                end
+            end
             
             center = c_old[idx...]
             bottom = c_old[idx[1], idx[2], mod1(idx[3] - 1, H)]
@@ -96,8 +104,8 @@ module Solver
         return nothing
     end
 
-
-    function update_GPU_spore_cluster!(c_old, c_new, N, H, dtdx2, D, Db, spore_idx, cluster_spacing, cluster_size, neumann_z)
+    
+    function update_GPU_spore_cluster!(c_old, c_new, N, H, dtdx2, D, Db, spore_idx, cluster_spacing, cluster_size, abs_bndry, neumann_z)
         """
         Update the concentration values on the lattice
         using the time-dependent diffusion equation.
@@ -112,6 +120,7 @@ module Solver
             spore_idx (tuple) - the indices of the spore location
             cluster_spacing (int) - the spacing between spores in the cluster in lattice units
             cluster_size (int) - the number of neighbours in the cluster
+            abs_bndry (bool) - whether to use absorbing boundary conditions
             neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction
         """
         i, j, k = CUDA.blockIdx().x, CUDA.blockIdx().y, CUDA.blockIdx().z
@@ -122,6 +131,13 @@ module Solver
     
         # Update the concentration value
         if 1 ≤ idx[1] ≤ N && 1 ≤ idx[2] ≤ N && 1 ≤ idx[3] ≤ H
+
+            # Apply absorbing boundary conditions
+            if abs_bndry
+                if idx[1] == 1 || idx[1] == N || idx[2] == 1 || idx[2] == N || idx[3] == 1 || idx[3] == H
+                    return nothing
+                end
+            end
             
             center = c_old[idx...]
             bottom = c_old[idx[1], idx[2], mod1(idx[3] - 1, H)]
@@ -153,72 +169,72 @@ module Solver
             if cluster_size > 0
                 spore_dist_vec = (idx[1] - spore_idx[1], idx[2] - spore_idx[2], idx[3] - spore_idx[3] + cluster_spacing)
                 at_spore = spore_dist_vec == (0, 0, 0)
-                Ddtdx2bottom = spore_dist_vec == (0, 0, 1) || at_spore ? Db * dtdx2 : Ddtdx2bottom * dtdx2
-                Ddtdx2top = spore_dist_vec == (0, 0, -1) || at_spore ? Db * dtdx2 : Ddtdx2top * dtdx2
-                Ddtdx2left = spore_dist_vec == (0, 1, 0) || at_spore ? Db * dtdx2 : Ddtdx2left * dtdx2
-                Ddtdx2right = spore_dist_vec == (0, -1, 0) || at_spore ? Db * dtdx2 : Ddtdx2right * dtdx2
-                Ddtdx2front = spore_dist_vec == (1, 0, 0) || at_spore ? Db * dtdx2 : Ddtdx2front * dtdx2
-                Ddtdx2back = spore_dist_vec == (-1, 0, 0) || at_spore ? Db * dtdx2 : Ddtdx2back * dtdx2
+                Ddtdx2bottom = spore_dist_vec == (0, 0, 1) || at_spore ? Db * dtdx2 : Ddtdx2bottom
+                Ddtdx2top = spore_dist_vec == (0, 0, -1) || at_spore ? Db * dtdx2 : Ddtdx2top
+                Ddtdx2left = spore_dist_vec == (0, 1, 0) || at_spore ? Db * dtdx2 : Ddtdx2left
+                Ddtdx2right = spore_dist_vec == (0, -1, 0) || at_spore ? Db * dtdx2 : Ddtdx2right
+                Ddtdx2front = spore_dist_vec == (1, 0, 0) || at_spore ? Db * dtdx2 : Ddtdx2front
+                Ddtdx2back = spore_dist_vec == (-1, 0, 0) || at_spore ? Db * dtdx2 : Ddtdx2back
             end
 
             # Second neighbour
             if cluster_size > 1
                 spore_dist_vec = (idx[1] - spore_idx[1], idx[2] - spore_idx[2], idx[3] - spore_idx[3] - cluster_spacing)
                 at_spore = spore_dist_vec == (0, 0, 0)
-                Ddtdx2bottom = spore_dist_vec == (0, 0, 1) || at_spore ? Db * dtdx2 : Ddtdx2bottom * dtdx2
-                Ddtdx2top = spore_dist_vec == (0, 0, -1) || at_spore ? Db * dtdx2 : Ddtdx2top * dtdx2
-                Ddtdx2left = spore_dist_vec == (0, 1, 0) || at_spore ? Db * dtdx2 : Ddtdx2left * dtdx2
-                Ddtdx2right = spore_dist_vec == (0, -1, 0) || at_spore ? Db * dtdx2 : Ddtdx2right * dtdx2
-                Ddtdx2front = spore_dist_vec == (1, 0, 0) || at_spore ? Db * dtdx2 : Ddtdx2front * dtdx2
-                Ddtdx2back = spore_dist_vec == (-1, 0, 0) || at_spore ? Db * dtdx2 : Ddtdx2back * dtdx2
+                Ddtdx2bottom = spore_dist_vec == (0, 0, 1) || at_spore ? Db * dtdx2 : Ddtdx2bottom
+                Ddtdx2top = spore_dist_vec == (0, 0, -1) || at_spore ? Db * dtdx2 : Ddtdx2top
+                Ddtdx2left = spore_dist_vec == (0, 1, 0) || at_spore ? Db * dtdx2 : Ddtdx2left
+                Ddtdx2right = spore_dist_vec == (0, -1, 0) || at_spore ? Db * dtdx2 : Ddtdx2right
+                Ddtdx2front = spore_dist_vec == (1, 0, 0) || at_spore ? Db * dtdx2 : Ddtdx2front
+                Ddtdx2back = spore_dist_vec == (-1, 0, 0) || at_spore ? Db * dtdx2 : Ddtdx2back
             end
 
             # Third neighbour
             if cluster_size > 2
                 spore_dist_vec = (idx[1] - spore_idx[1], idx[2] - spore_idx[2] + cluster_spacing, idx[3] - spore_idx[3])
                 at_spore = spore_dist_vec == (0, 0, 0)
-                Ddtdx2bottom = spore_dist_vec == (0, 0, 1) || at_spore ? Db * dtdx2 : Ddtdx2bottom * dtdx2
-                Ddtdx2top = spore_dist_vec == (0, 0, -1) || at_spore ? Db * dtdx2 : Ddtdx2top * dtdx2
-                Ddtdx2left = spore_dist_vec == (0, 1, 0) || at_spore ? Db * dtdx2 : Ddtdx2left * dtdx2
-                Ddtdx2right = spore_dist_vec == (0, -1, 0) || at_spore ? Db * dtdx2 : Ddtdx2right * dtdx2
-                Ddtdx2front = spore_dist_vec == (1, 0, 0) || at_spore ? Db * dtdx2 : Ddtdx2front * dtdx2
-                Ddtdx2back = spore_dist_vec == (-1, 0, 0) || at_spore ? Db * dtdx2 : Ddtdx2back * dtdx2
+                Ddtdx2bottom = spore_dist_vec == (0, 0, 1) || at_spore ? Db * dtdx2 : Ddtdx2bottom
+                Ddtdx2top = spore_dist_vec == (0, 0, -1) || at_spore ? Db * dtdx2 : Ddtdx2top
+                Ddtdx2left = spore_dist_vec == (0, 1, 0) || at_spore ? Db * dtdx2 : Ddtdx2left
+                Ddtdx2right = spore_dist_vec == (0, -1, 0) || at_spore ? Db * dtdx2 : Ddtdx2right
+                Ddtdx2front = spore_dist_vec == (1, 0, 0) || at_spore ? Db * dtdx2 : Ddtdx2front
+                Ddtdx2back = spore_dist_vec == (-1, 0, 0) || at_spore ? Db * dtdx2 : Ddtdx2back
             end
 
             # Fourth neighbour
             if cluster_size > 3
                 spore_dist_vec = (idx[1] - spore_idx[1], idx[2] - spore_idx[2] - cluster_spacing, idx[3] - spore_idx[3])
                 at_spore = spore_dist_vec == (0, 0, 0)
-                Ddtdx2bottom = spore_dist_vec == (0, 0, 1) || at_spore ? Db * dtdx2 : Ddtdx2bottom * dtdx2
-                Ddtdx2top = spore_dist_vec == (0, 0, -1) || at_spore ? Db * dtdx2 : Ddtdx2top * dtdx2
-                Ddtdx2left = spore_dist_vec == (0, 1, 0) || at_spore ? Db * dtdx2 : Ddtdx2left * dtdx2
-                Ddtdx2right = spore_dist_vec == (0, -1, 0) || at_spore ? Db * dtdx2 : Ddtdx2right * dtdx2
-                Ddtdx2front = spore_dist_vec == (1, 0, 0) || at_spore ? Db * dtdx2 : Ddtdx2front * dtdx2
-                Ddtdx2back = spore_dist_vec == (-1, 0, 0) || at_spore ? Db * dtdx2 : Ddtdx2back * dtdx2
+                Ddtdx2bottom = spore_dist_vec == (0, 0, 1) || at_spore ? Db * dtdx2 : Ddtdx2bottom
+                Ddtdx2top = spore_dist_vec == (0, 0, -1) || at_spore ? Db * dtdx2 : Ddtdx2top
+                Ddtdx2left = spore_dist_vec == (0, 1, 0) || at_spore ? Db * dtdx2 : Ddtdx2left
+                Ddtdx2right = spore_dist_vec == (0, -1, 0) || at_spore ? Db * dtdx2 : Ddtdx2right
+                Ddtdx2front = spore_dist_vec == (1, 0, 0) || at_spore ? Db * dtdx2 : Ddtdx2front
+                Ddtdx2back = spore_dist_vec == (-1, 0, 0) || at_spore ? Db * dtdx2 : Ddtdx2back
             end
 
             # Fifth neighbour
             if cluster_size > 4
                 spore_dist_vec = (idx[1] - spore_idx[1] + cluster_spacing, idx[2] - spore_idx[2], idx[3] - spore_idx[3])
                 at_spore = spore_dist_vec == (0, 0, 0)
-                Ddtdx2bottom = spore_dist_vec == (0, 0, 1) || at_spore ? Db * dtdx2 : Ddtdx2bottom * dtdx2
-                Ddtdx2top = spore_dist_vec == (0, 0, -1) || at_spore ? Db * dtdx2 : Ddtdx2top * dtdx2
-                Ddtdx2left = spore_dist_vec == (0, 1, 0) || at_spore ? Db * dtdx2 : Ddtdx2left * dtdx2
-                Ddtdx2right = spore_dist_vec == (0, -1, 0) || at_spore ? Db * dtdx2 : Ddtdx2right * dtdx2
-                Ddtdx2front = spore_dist_vec == (1, 0, 0) || at_spore ? Db * dtdx2 : Ddtdx2front * dtdx2
-                Ddtdx2back = spore_dist_vec == (-1, 0, 0) || at_spore ? Db * dtdx2 : Ddtdx2back * dtdx2
+                Ddtdx2bottom = spore_dist_vec == (0, 0, 1) || at_spore ? Db * dtdx2 : Ddtdx2bottom
+                Ddtdx2top = spore_dist_vec == (0, 0, -1) || at_spore ? Db * dtdx2 : Ddtdx2top
+                Ddtdx2left = spore_dist_vec == (0, 1, 0) || at_spore ? Db * dtdx2 : Ddtdx2left
+                Ddtdx2right = spore_dist_vec == (0, -1, 0) || at_spore ? Db * dtdx2 : Ddtdx2right
+                Ddtdx2front = spore_dist_vec == (1, 0, 0) || at_spore ? Db * dtdx2 : Ddtdx2front
+                Ddtdx2back = spore_dist_vec == (-1, 0, 0) || at_spore ? Db * dtdx2 : Ddtdx2back
             end
 
             # Sixth neighbour
             if cluster_size > 5
                 spore_dist_vec = (idx[1] - spore_idx[1] - cluster_spacing, idx[2] - spore_idx[2], idx[3] - spore_idx[3])
                 at_spore = spore_dist_vec == (0, 0, 0)
-                Ddtdx2bottom = spore_dist_vec == (0, 0, 1) || at_spore ? Db * dtdx2 : Ddtdx2bottom * dtdx2
-                Ddtdx2top = spore_dist_vec == (0, 0, -1) || at_spore ? Db * dtdx2 : Ddtdx2top * dtdx2
-                Ddtdx2left = spore_dist_vec == (0, 1, 0) || at_spore ? Db * dtdx2 : Ddtdx2left * dtdx2
-                Ddtdx2right = spore_dist_vec == (0, -1, 0) || at_spore ? Db * dtdx2 : Ddtdx2right * dtdx2
-                Ddtdx2front = spore_dist_vec == (1, 0, 0) || at_spore ? Db * dtdx2 : Ddtdx2front * dtdx2
-                Ddtdx2back = spore_dist_vec == (-1, 0, 0) || at_spore ? Db * dtdx2 : Ddtdx2back * dtdx2
+                Ddtdx2bottom = spore_dist_vec == (0, 0, 1) || at_spore ? Db * dtdx2 : Ddtdx2bottom
+                Ddtdx2top = spore_dist_vec == (0, 0, -1) || at_spore ? Db * dtdx2 : Ddtdx2top
+                Ddtdx2left = spore_dist_vec == (0, 1, 0) || at_spore ? Db * dtdx2 : Ddtdx2left
+                Ddtdx2right = spore_dist_vec == (0, -1, 0) || at_spore ? Db * dtdx2 : Ddtdx2right
+                Ddtdx2front = spore_dist_vec == (1, 0, 0) || at_spore ? Db * dtdx2 : Ddtdx2front
+                Ddtdx2back = spore_dist_vec == (-1, 0, 0) || at_spore ? Db * dtdx2 : Ddtdx2back
             end
 
             weighted_nbrs = Ddtdx2bottom * bottom + Ddtdx2top * top +
@@ -373,10 +389,6 @@ module Solver
         return nothing
     end
 
-    # @inline function device_norm3_sq(v::NTuple{3, Int})
-    #     s = v[1]*v[1] + v[2]*v[2] + v[3]*v[3]
-    #     return s
-    # end
 
     function update_GPU_hi_res!(lattice_old, lattice_new, N, H, dtdx2, D, Dcw, Db, region_ids, abs_bndry, neumann_z)
         """
@@ -532,13 +544,12 @@ module Solver
             return nothing
         end
         
-        # idx_lin = (idx[1] - 1) * N * H + (idx[2] - 1) * H + idx[3]
         idx_lin = (idx[3] - 1) * N * H + (idx[2] - 1) * H + idx[1]
         colidx[idx_lin*7-6] = idx_lin
 
         diag_val = 0f0
         
-        dist = sqrt((idx[1] - sp_cen_i - 1)^2 + (idx[2] - sp_cen_j - 1)^2 + (idx[3] - sp_cen_k - 1)^2)
+        dist = sqrt((idx[1] - sp_cen_i)^2 + (idx[2] - sp_cen_j)^2 + (idx[3] - sp_cen_k)^2)
         # debugger[idx...] = sqdist
         
         region_id = region_ids[idx...]
@@ -552,13 +563,11 @@ module Solver
         end
 
         # Get neighbour coefficients
-        nbr_ct = 1
         # ===== Bottom neighbour =====
         ni, nj, nk = idx[1], idx[2], mod1(idx[3] - 1, H)
-        # n_idx = (ni - 1) * N * H + (nj - 1) * H + nk
         n_idx = (nk - 1) * N * H + (nj - 1) * H + ni
         colidx[idx_lin*7-5] = n_idx
-        dist = sqrt((ni - sp_cen_i - 1)^2 + (nj - sp_cen_j - 1)^2 + (nk - sp_cen_k - 1)^2)
+        dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
         coeff = 0f0
         if (spore_rad_lattice - cw_thickness ≤ dist) && (dist ≤ spore_rad_lattice)
             # Cell wall neighbour
@@ -585,7 +594,7 @@ module Solver
         # n_idx = (ni - 1) * N * H + (nj - 1) * H + nk
         n_idx = (nk - 1) * N * H + (nj - 1) * H + ni
         colidx[idx_lin*7-4] = n_idx
-        dist = sqrt((ni - sp_cen_i - 1)^2 + (nj - sp_cen_j - 1)^2 + (nk - sp_cen_k - 1)^2)
+        dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
         coeff = 0f0
         if (spore_rad_lattice - cw_thickness ≤ dist) && (dist ≤ spore_rad_lattice)
             # Cell wall neighbour
@@ -611,7 +620,7 @@ module Solver
         # n_idx = (ni - 1) * N * H + (nj - 1) * H + nk
         n_idx = (nk - 1) * N * H + (nj - 1) * H + ni
         colidx[idx_lin*7-3] = n_idx
-        dist = sqrt((ni - sp_cen_i - 1)^2 + (nj - sp_cen_j - 1)^2 + (nk - sp_cen_k - 1)^2)
+        dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
         coeff = 0f0
         if (spore_rad_lattice - cw_thickness ≤ dist) && (dist ≤ spore_rad_lattice)
             # Cell wall neighbour
@@ -637,7 +646,7 @@ module Solver
         # n_idx = (ni - 1) * N * H + (nj - 1) * H + nk
         n_idx = (nk - 1) * N * H + (nj - 1) * H + ni
         colidx[idx_lin*7-2] = n_idx
-        dist = sqrt((ni - sp_cen_i - 1)^2 + (nj - sp_cen_j - 1)^2 + (nk - sp_cen_k - 1)^2)
+        dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
         coeff = 0f0
         if (spore_rad_lattice - cw_thickness ≤ dist) && (dist ≤ spore_rad_lattice)
             # Cell wall neighbour
@@ -663,7 +672,7 @@ module Solver
         # n_idx = (ni - 1) * N * H + (nj - 1) * H + nk
         n_idx = (nk - 1) * N * H + (nj - 1) * H + ni
         colidx[idx_lin*7-1] = n_idx
-        dist = sqrt((ni - sp_cen_i - 1)^2 + (nj - sp_cen_j - 1)^2 + (nk - sp_cen_k - 1)^2)
+        dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
         coeff = 0f0
         if (spore_rad_lattice - cw_thickness ≤ dist) && (dist ≤ spore_rad_lattice)
             # Cell wall neighbour
@@ -686,10 +695,9 @@ module Solver
 
         # ===== Back neighbour =====
         ni, nj, nk = mod1(idx[1] + 1, H), idx[2], idx[3]
-        # n_idx = (ni - 1) * N * H + (nj - 1) * H + nk
         n_idx = (nk - 1) * N * H + (nj - 1) * H + ni
         colidx[idx_lin*7] = n_idx
-        dist = sqrt((ni - sp_cen_i - 1)^2 + (nj - sp_cen_j - 1)^2 + (nk - sp_cen_k - 1)^2)
+        dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
         coeff = 0f0
         if (spore_rad_lattice - cw_thickness ≤ dist) && (dist ≤ spore_rad_lattice)
             # Cell wall neighbour
@@ -760,7 +768,7 @@ module Solver
 
         diag_val = 0f0
         
-        dist = sqrt((idx[1] - sp_cen_i - 1)^2 + (idx[2] - sp_cen_j - 1)^2 + (idx[3] - sp_cen_k - 1)^2)
+        dist = sqrt((idx[1] - sp_cen_i)^2 + (idx[2] - sp_cen_j)^2 + (idx[3] - sp_cen_k)^2)
         # debugger[idx...] = sqdist
         
         region_id = region_ids[idx...]
@@ -781,7 +789,7 @@ module Solver
             # n_idx = (ni - 1) * N * H + (nj - 1) * H + nk
             n_idx = (nk - 1) * N * H + (nj - 1) * H + ni
             colidx[idx_lin*7-5] = n_idx
-            dist = sqrt((ni - sp_cen_i - 1)^2 + (nj - sp_cen_j - 1)^2 + (nk - sp_cen_k - 1)^2)
+            dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
             coeff = 0f0
             if (spore_rad_lattice - cw_thickness ≤ dist) && (dist ≤ spore_rad_lattice)
                 # Cell wall neighbour
@@ -810,7 +818,7 @@ module Solver
             # n_idx = (ni - 1) * N * H + (nj - 1) * H + nk
             n_idx = (nk - 1) * N * H + (nj - 1) * H + ni
             colidx[idx_lin*7-4] = n_idx
-            dist = sqrt((ni - sp_cen_i - 1)^2 + (nj - sp_cen_j - 1)^2 + (nk - sp_cen_k - 1)^2)
+            dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
             coeff = 0f0
             if (spore_rad_lattice - cw_thickness ≤ dist) && (dist ≤ spore_rad_lattice)
                 # Cell wall neighbour
@@ -838,7 +846,7 @@ module Solver
             # n_idx = (ni - 1) * N * H + (nj - 1) * H + nk
             n_idx = (nk - 1) * N * H + (nj - 1) * H + ni
             colidx[idx_lin*7-3] = n_idx
-            dist = sqrt((ni - sp_cen_i - 1)^2 + (nj - sp_cen_j - 1)^2 + (nk - sp_cen_k - 1)^2)
+            dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
             coeff = 0f0
             if (spore_rad_lattice - cw_thickness ≤ dist) && (dist ≤ spore_rad_lattice)
                 # Cell wall neighbour
@@ -866,7 +874,7 @@ module Solver
             # n_idx = (ni - 1) * N * H + (nj - 1) * H + nk
             n_idx = (nk - 1) * N * H + (nj - 1) * H + ni
             colidx[idx_lin*7-2] = n_idx
-            dist = sqrt((ni - sp_cen_i - 1)^2 + (nj - sp_cen_j - 1)^2 + (nk - sp_cen_k - 1)^2)
+            dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
             coeff = 0f0
             if (spore_rad_lattice - cw_thickness ≤ dist) && (dist ≤ spore_rad_lattice)
                 # Cell wall neighbour
@@ -894,7 +902,7 @@ module Solver
             # n_idx = (ni - 1) * N * H + (nj - 1) * H + nk
             n_idx = (nk - 1) * N * H + (nj - 1) * H + ni
             colidx[idx_lin*7-1] = n_idx
-            dist = sqrt((ni - sp_cen_i - 1)^2 + (nj - sp_cen_j - 1)^2 + (nk - sp_cen_k - 1)^2)
+            dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
             coeff = 0f0
             if (spore_rad_lattice - cw_thickness ≤ dist) && (dist ≤ spore_rad_lattice)
                 # Cell wall neighbour
@@ -922,7 +930,7 @@ module Solver
             # n_idx = (ni - 1) * N * H + (nj - 1) * H + nk
             n_idx = (nk - 1) * N * H + (nj - 1) * H + ni
             colidx[idx_lin*7] = n_idx
-            dist = sqrt((ni - sp_cen_i - 1)^2 + (nj - sp_cen_j - 1)^2 + (nk - sp_cen_k - 1)^2)
+            dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
             coeff = 0f0
             if (spore_rad_lattice - cw_thickness ≤ dist) && (dist ≤ spore_rad_lattice)
                 # Cell wall neighbour
@@ -954,121 +962,4 @@ module Solver
     end
 
 
-    # function initialise_lattice_and_build_operator!(c_init, c₀, sp_cen_indices, spore_rad_lattice, D, Dcw, Db, dtdx2, crank_nicolson)
-    #     """
-    #     Build operator sparse matrix for implicitly solving the diffusion equation
-    #     using the Crank-Nicolson method.
-    #     inputs:
-    #         c_init (array) - the initial state of the lattice
-    #         c₀ (float) - the initial concentration
-    #         sp_cen_indices (array) - the indices of the spore centers
-    #         spore_rad_lattice (float) - the radius of the spores in lattice units
-    #         D (float) - the diffusion constant
-    #         Dcw (float) - the diffusion constant through the spore
-    #         Db (float) - the effective diffusion constant at the spore interface
-    #         dtdx2 (float) - the update factor
-    #         crank_nicolson (bool) - whether the operators are suited for Crank-Nicolson method
-    #     outputs:
-    #         op_A (sparse matrix) - the operator matrix A
-    #         op_B (sparse matrix) - the operator matrix B
-    #         region_ids (array) - the region IDs of the lattice
-    #     """
-
-    #     N = size(c_init)[1]
-    #     H = size(c_init)[3]
-    #     Nt = N * N * H
-
-    #     op_A = spzeros(Float32, Nt, Nt)
-    #     op_B = spzeros(Float32, Nt, Nt)
-    #     region_ids = zeros(Int, N, N, H)
-
-    #     ddia = sqrt(2)
-    #     ddia_triple = 3 * ddia
-    #     lattice_dia = 2*N^2 + H^2
-
-    #     # Initialise concentrations in cell wall
-    #     for i in 1:N, j in 1:N, k in 1:H
-
-    #         idx_lin = lin_idx(i, j, k, N, H)
-    #         diag_val = 0f0
-
-    #         vneum_nbrs = [(i, j, mod1(k - 1, H)), (i, j, mod1(k + 1, H)),
-    #                     (i, mod1(j - 1, N), k), (i, mod1(j + 1, N), k),
-    #                     (mod1(i - 1, N), j, k), (mod1(i + 1, N), j, k)]
-            
-    #         region_id = 0
-    #         min_dist = lattice_dia
-    #         for sp_cen_idx in sp_cen_indices
-
-    #             # Compute distance to spore center
-    #             dist = norm([i - sp_cen_idx[1] - 1, j - sp_cen_idx[2] - 1, k - sp_cen_idx[3] - 1])
-    #             if dist < min_dist
-    #                 min_dist = dist
-    #             end
-                
-    #             if spore_rad_lattice - ddia ≤ dist ≤ spore_rad_lattice
-    #                 # Cell wall site
-    #                 region_id = 1
-    #                 c_init[i, j, k] = c₀
-    #                 break
-    #             elseif dist < spore_rad_lattice - ddia
-    #                 # Interior site
-    #                 region_id = 2
-    #                 break
-    #             end
-    #         end
-
-    #         region_ids[i, j, k] = region_id
-            
-    #         # Get neighbour coefficients
-    #         if min_dist ≤ spore_rad_lattice + ddia_triple
-
-    #             # Iterate over von Neumann neighbours
-    #             for (ni, nj, nk) in vneum_nbrs
-    #                 for sp_cen_idx in sp_cen_indices
-                        
-    #                     n_idx = lin_idx(ni, nj, nk, N, H)
-    #                     # println("Index: $idx_lin, Neighbour: $n_idx")
-    #                     dist = norm([ni - sp_cen_idx[1] - 1, nj- sp_cen_idx[2] - 1, nk - sp_cen_idx[3] - 1])
-    #                     coeff = 0f0
-
-    #                     if spore_rad_lattice - ddia ≤ dist ≤ spore_rad_lattice
-    #                         # Cell wall neighbour
-    #                         if region_id == 0 # Exterior - cell wall
-    #                             coeff = Float32(Db * dtdx2 * 0.5)
-    #                         elseif region_id == 1 # Cell wall - cell wall
-    #                             coeff = Float32(Dcw * dtdx2 * 0.5)
-    #                         end
-
-    #                     elseif dist ≤ spore_rad_lattice - ddia
-    #                         # Exterior neighbour
-    #                         if region_id == 0 # Exterior - exterior
-    #                             coeff = Float32(D * dtdx2 * 0.5)
-    #                         elseif region_id == 1 # Cell wall - exterior
-    #                             coeff = Float32(Db * dtdx2 * 0.5)
-    #                         end
-    #                     end
-
-    #                     diag_val += coeff
-    #                     op_A[idx_lin, idx_lin] = - coeff
-    #                     op_B[idx_lin, idx_lin] = crank_nicolson ? coeff : 0f0
-    #                 end
-    #             end
-    #         end
-
-    #         op_A[idx_lin, idx_lin] = 1 + diag_val 
-    #         op_B[idx_lin, idx_lin] = crank_nicolson ? 1 - diag_val : 1f0
-    #     end
-    #     println("Concentrations initialised.")
-
-    #     # Check if matrices are singular
-    #     if iszero(det(op_A))
-    #         println("Matrix A is singular.")
-    #     end
-    #     if iszero(det(op_B))
-    #         println("Matrix B is singular.")
-    #     end
-
-    #     return op_A, op_B, region_ids
-    # end
 end
