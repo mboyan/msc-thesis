@@ -1,6 +1,15 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## ChatGPT analysis of implicit-vs-explicit discrepancy
+Below is a conceptual explanation that I hope clarifies the situation. We have two very different schemes:
+
+- Explicit scheme: Here you use a very small time step (dt = 0.000025) so that each update closely approximates the diffusion equation’s local derivatives. (For linear diffusion this is very “exact” in the limit of small dt.) In your explicit simulation the evolution of the central sphere’s concentration is nearly independent of the number of neighbouring spheres because—in each tiny time step—the local fluxes are computed with little truncation error. In effect, even though the neighbouring spheres are present, their effect on the net flux out of the central sphere is very finely resolved, and you see little difference.
+
+- Implicit scheme: In contrast, you use a much larger time step (dt = 0.05) so that each update “jumps” further in time. In an implicit method (here, Crank–Nicolson or Backward Euler) you assemble a global operator that couples all nodes. When you have many interfaces (for example, many adjacent spheres, with very different diffusion constants across their boundaries) then the overall operator becomes very heterogeneous. With a large dt the discretization error is higher (since Crank–Nicolson is second order in time, its global error is O(dt2)O(dt2)) and the solver “sees” an averaged effect of all the interfaces over a longer interval. In your case this appears as if the presence of additional spheres (which both add concentration to the intermediate space and act as obstacles) slows down the release from the central sphere. In other words, the larger time step causes the implicit method to overemphasize the blocking effect of the interfaces.
+
+Thus, the discrepancy happens because the implicit scheme with dt = 0.05 integrates over relatively long time intervals. The heterogeneous interfaces (with the very low diffusion constant 0.001) then “dominate” the update in a way that is very sensitive to the spatial arrangement of spheres. On the other hand, the explicit scheme uses such small dt that it very accurately follows the physical, local fluxes, and the influence of additional neighbouring spheres is hardly noticeable.
+
 ## Faulty datasets to delete:
 - `310325_cluster_scales`;
 - [to revise old Python-generated ones]
