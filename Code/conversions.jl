@@ -6,6 +6,12 @@ module Conversions
     using QuadGK
     using LinearAlgebra
 
+    export cm_to_um
+    export um_to_cm
+    export nm_to_um
+    export um_to_nm
+    export cm2_to_um2
+    export um2_to_cm2
     export mL_to_cubic_um
     export inverse_mL_to_cubic_um
     export cubic_um_to_mL
@@ -13,10 +19,78 @@ module Conversions
     export inverse_uL_to_mL
     export convert_D_to_Ps
     export convert_Ps_to_D
+    export compute_stokes_radius
     export compute_spore_area_and_volume
+    export compute_D_from_radius_and_viscosity
     export measure_coverage
     export extract_mean_cw_concentration
     export compute_spore_concentration
+
+    function cm_to_um(cm)
+        """
+        Convert centimeters to micrometers.
+        inputs:
+            cm (float): length in centimeters
+        outputs:
+            (float) length in micrometers
+        """
+        return cm * 1e4
+    end
+
+    function um_to_cm(um)
+        """
+        Convert micrometers to centimeters.
+        inputs:
+            um (float): length in micrometers
+        outputs:
+            (float) length in centimeters
+        """
+        return um * 1e-4
+    end
+
+    function nm_to_um(nm)
+        """
+        Convert nanometers to micrometers.
+        inputs:
+            nm (float): length in nanometers
+        outputs:
+            (float) length in micrometers
+        """
+        return nm * 1e-3
+    end
+
+    function um_to_nm(um)
+        """
+        Convert micrometers to nanometers.
+        inputs:
+            um (float): length in micrometers
+        outputs:
+            (float) length in nanometers
+        """
+        return um * 1e3
+    end
+
+    function cm2_to_um2(cm2)
+        """
+        Convert square centimeters to square micrometers.
+        inputs:
+            cm2 (float): area in square centimeters
+        outputs:
+            (float) area in square micrometers
+        """
+        return cm2 * 1e8
+    end
+
+    function um2_to_cm2(um2)
+        """
+        Convert square micrometers to square centimeters.
+        inputs:
+            um2 (float): area in square micrometers
+        outputs:
+            (float) area in square centimeters
+        """
+        return um2 * 1e-8
+    end
 
     function mL_to_cubic_um(mL)
         """
@@ -152,6 +226,38 @@ module Conversions
 
         return 0.5 * intsum
     end
+
+    function compute_stokes_radius(mass, density)
+        """
+        Compute the stokes radius of a molecule
+        based on the molecular mass and density.
+        inputs:
+            mass (float): molecular mass of the substance in grams per mole
+            density (float): density of the substance in grams per milliliters
+        outputs:
+            (float) Stokes radius in micrometers
+        """
+        NA = 6.022e23  # Avogadro's number
+        vol = mass / (density * NA * 1e-12)
+        println("Molecular volume: ", vol)
+        return (3 * vol / 4π)^(1/3)# * 1e6
+    end
+
+    function compute_D_from_radius_and_viscosity(a, eta)
+        """
+        Compute the diffusion coefficient from the Stokes radius and viscosity.
+        inputs:
+            a (float): Stokes radius in micrometers
+            eta (float): viscosity in centipoise / millipascal seconds
+        outputs:
+            (float) diffusion coefficient in micrometers squared per second
+        """
+        kT = 4.1e-21  # Boltzmann constant in Joules
+        eta = eta * 1e-3  # Convert centipoise to pascal seconds
+        a = a * 1e-6  # Convert micrometers to meters
+        return kT / (6 * π * eta * a) * 1e12  # Convert to micrometers squared per second
+    end
+
 
     function extract_mean_cw_concentration(c_frames, region_ids)
         """
