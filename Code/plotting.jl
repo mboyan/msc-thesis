@@ -260,6 +260,9 @@ __precompile__(false)
         n_rows = size(c_frames_filtered, 1)
 
         fig, axs = subplots(n_rows, size(c_frames_filtered[1], 1), figsize=(10, 5*n_rows))
+        if n_rows < 2
+            axs = reshape(axs, (1, length(axs)))
+        end
         img = nothing
         for i in 1:size(c_frames_filtered, 1)
             N = size(c_frames_filtered[i], 2)
@@ -447,7 +450,11 @@ __precompile__(false)
         end
 
         if plotself
-            ax.legend(fontsize="small")
+            if length(collect(group_labels)) > 4
+                ax.legend(fontsize="small", loc="upper left", bbox_to_anchor=(1.05, 1))
+            else
+                ax.legend(fontsize="small")
+            end
             gcf()
         end
     end

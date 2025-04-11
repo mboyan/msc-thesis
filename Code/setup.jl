@@ -216,16 +216,30 @@ __precompile__(false)
             @argcheck sim_params[:solution_method] in [0, 1, 2] "solution_method must be 0 (Backward Euler), 1 (Crank-Nicolson), or 2 (Forward Euler)"
             solution_method = sim_params[:solution_method]
         else
-            solution_method = 0 # Default value
+            solution_method = 2 # Default value
         end
 
         # Discrete cell wall thickness correction factor
         if haskey(sim_params, :corr_factor)
             corr_factor = sim_params[:corr_factor]
         elseif sim_res == "high"
-            corr_factor = 1.45 # Default value for a 2 x dx thick cell wall for high resolution
+            corr_factor = 1.1#1.45 # Default value for a 2 x dx thick cell wall for high resolution
         else
             corr_factor = 0.5 # Default value for low and medium resolution
+        end
+
+        # Non-dimensionalisation
+        if haskey(sim_params, :nondim)
+            nondim = sim_params[:nondim]
+        else
+            nondim = false # Default value
+        end
+
+        # Empty spore interior
+        if haskey(sim_params, :empty_interior)
+            empty_interior = sim_params[:empty_interior]
+        else
+            empty_interior = true # Default value
         end
 
         # Run simulation
@@ -235,30 +249,30 @@ __precompile__(false)
             coverage = cluster_size * measure_coverage(sp_cen_indices[1], sp_cen_indices[2:end], rad=spore_rad, dx=dx)
             c_med_evolution, c_solutions, times, _ = diffusion_time_dependent_GPU_low_res(c_init, c₀, t_max; D=D, Pₛ=Pₛ, A=A_spore, V=V_spore, dt=dt, dx=dx,
                                                                                             n_save_frames=n_save_frames, spore_vol_idx=sp_cen_indices[1],
-                                                                                            cluster_size=cluster_size, cluster_spacing=dist)
+                                                                                            cluster_size=cluster_size, cluster_spacing=dist, nondim=nondim)
             frame_samples = c_med_evolution[:, :, N ÷ 2, :]
         elseif sim_res == "medium"
             if solution_method == 0
                 Db = Pₛ * dx / K
                 sp_cen_indices = setup_spore_cluster(cluster_params[1], N, 0.5 * dist / dx + 0.6, cluster_params[2]) # with safety disance of 0.6
                 coverage = measure_coverage(sp_cen_indices[1], sp_cen_indices[2:end], rad=spore_rad, dx=dx)
-                frame_samples, c_solutions, times, region_ids, _ = diffusion_time_dependent_GPU_hi_res_implicit(c_init, c₀, sp_cen_indices, 2*spore_rad, t_max;
+                frame_samples, c_solutions, times, region_ids, _ = diffusion_time_dependent_GPU_hi_res_implicit(c_init, c₀, sp_cen_indices, spore_rad, t_max;
                                                                                                                 D=D, Db=Db, dt=dt, dx=dx, n_save_frames=n_save_frames,
-                                                                                                                crank_nicolson=false, abs_bndry=abs_bndry, corr_factor=corr_factor)
+                                                                                                                crank_nicolson=false, abs_bndry=abs_bndry, corr_factor=corr_factor, nondim=nondim, empty_interior=empty_interior)
             elseif solution_method == 1
                 Db = Pₛ * dx / K
                 sp_cen_indices = setup_spore_cluster(cluster_params[1], N, 0.5 * dist / dx + 0.6, cluster_params[2]) # with safety disance of 0.6
                 coverage = measure_coverage(sp_cen_indices[1], sp_cen_indices[2:end], rad=spore_rad, dx=dx)
-                frame_samples, c_solutions, times, region_ids, _ = diffusion_time_dependent_GPU_hi_res_implicit(c_init, c₀, sp_cen_indices, 2*spore_rad, t_max;
+                frame_samples, c_solutions, times, region_ids, _ = diffusion_time_dependent_GPU_hi_res_implicit(c_init, c₀, sp_cen_indices, spore_rad, t_max;
                                                                                                                 D=D, Db=Db, dt=dt, dx=dx, n_save_frames=n_save_frames,
-                                                                                                                crank_nicolson=true, abs_bndry=abs_bndry, corr_factor=corr_factor)
+                                                                                                                crank_nicolson=true, abs_bndry=abs_bndry, corr_factor=corr_factor, nondim=nondim, empty_interior=empty_interior)
             else
                 sp_cen_indices = setup_spore_cluster(2, N, 0.5 * dist / dx + 0.6, true) # additive single neighbour contributions
                 coverage = cluster_size * measure_coverage(sp_cen_indices[1], sp_cen_indices[2:end], rad=spore_rad, dx=dx)
                 c_init[sp_cen_indices[1]...] = c₀
                 c_evolution, times = diffusion_time_dependent_GPU!(c_init, t_max; D=D, Ps=Pₛ, dt=dt, dx=dx,
                                                                     n_save_frames=n_save_frames, spore_idx=sp_cen_indices[1],
-                                                                    abs_bndry=abs_bndry, cluster_size=cluster_size, cluster_spacing=dist)
+                                                                    abs_bndry=abs_bndry, cluster_size=cluster_size, cluster_spacing=dist, nondim=nondim)
                 
                 c_solutions = c_evolution[:, sp_cen_indices[1]...]
                 frame_samples = c_evolution[:, :, N ÷ 2, :]
@@ -270,15 +284,18 @@ __precompile__(false)
             if solution_method == 0
                 frame_samples, c_solutions, times, region_ids, _ = diffusion_time_dependent_GPU_hi_res_implicit(c_init, c₀, sp_cen_indices, spore_rad, t_max;
                                                                                                                 D=D, Db=Db, dt=dt, dx=dx, n_save_frames=n_save_frames,
-                                                                                                                crank_nicolson=false, abs_bndry=abs_bndry, corr_factor=corr_factor)
+                                                                                                                crank_nicolson=false, abs_bndry=abs_bndry, corr_factor=corr_factor,
+                                                                                                                nondim=nondim, empty_interior=empty_interior)
             elseif solution_method == 1
                 frame_samples, c_solutions, times, region_ids, _ = diffusion_time_dependent_GPU_hi_res_implicit(c_init, c₀, sp_cen_indices, spore_rad, t_max;
                                                                                                                 D=D, Db=Db, dt=dt, dx=dx, n_save_frames=n_save_frames,
-                                                                                                                crank_nicolson=true, abs_bndry=abs_bndry, corr_factor=corr_factor)
+                                                                                                                crank_nicolson=true, abs_bndry=abs_bndry, corr_factor=corr_factor,
+                                                                                                                nondim=nondim, empty_interior=empty_interior)
             else
                 frame_samples, c_solutions, times, region_ids, _ = diffusion_time_dependent_GPU_hi_res!(c_init, c₀, sp_cen_indices, spore_rad, t_max;
                                                                                                         D=D, Db=Db, dt=dt, dx=dx,
-                                                                                                        n_save_frames=n_save_frames, abs_bndry=abs_bndry, corr_factor=corr_factor)
+                                                                                                        n_save_frames=n_save_frames, abs_bndry=abs_bndry, corr_factor=corr_factor,
+                                                                                                        nondim=nondim, empty_interior=empty_interior)
             end
         end
 
