@@ -119,7 +119,7 @@ module Solver
             Db (float) - the diffusion constant through the spore
             spore_idx (tuple) - the indices of the spore location
             cluster_spacing (int) - the spacing between spores in the cluster in lattice units
-            cluster_size (int) - the number of neighbours in the cluster
+            cluster_size (int) - the number of spores in the cluster
             abs_bndry (bool) - whether to use absorbing boundary conditions
             neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction
         """
@@ -166,7 +166,7 @@ module Solver
             Ddtdx2back = spore_dist_vec == (-1, 0, 0) || at_spore ? Db * dtdx2 : D * dtdx2
 
             # First neighbour
-            if cluster_size > 0
+            if cluster_size > 1
                 spore_dist_vec = (idx[1] - spore_idx[1], idx[2] - spore_idx[2], idx[3] - spore_idx[3] + cluster_spacing)
                 at_spore = spore_dist_vec == (0, 0, 0)
                 Ddtdx2bottom = spore_dist_vec == (0, 0, 1) || at_spore ? Db * dtdx2 : Ddtdx2bottom
@@ -178,7 +178,7 @@ module Solver
             end
 
             # Second neighbour
-            if cluster_size > 1
+            if cluster_size > 2
                 spore_dist_vec = (idx[1] - spore_idx[1], idx[2] - spore_idx[2], idx[3] - spore_idx[3] - cluster_spacing)
                 at_spore = spore_dist_vec == (0, 0, 0)
                 Ddtdx2bottom = spore_dist_vec == (0, 0, 1) || at_spore ? Db * dtdx2 : Ddtdx2bottom
@@ -190,7 +190,7 @@ module Solver
             end
 
             # Third neighbour
-            if cluster_size > 2
+            if cluster_size > 3
                 spore_dist_vec = (idx[1] - spore_idx[1], idx[2] - spore_idx[2] + cluster_spacing, idx[3] - spore_idx[3])
                 at_spore = spore_dist_vec == (0, 0, 0)
                 Ddtdx2bottom = spore_dist_vec == (0, 0, 1) || at_spore ? Db * dtdx2 : Ddtdx2bottom
@@ -202,7 +202,7 @@ module Solver
             end
 
             # Fourth neighbour
-            if cluster_size > 3
+            if cluster_size > 4
                 spore_dist_vec = (idx[1] - spore_idx[1], idx[2] - spore_idx[2] - cluster_spacing, idx[3] - spore_idx[3])
                 at_spore = spore_dist_vec == (0, 0, 0)
                 Ddtdx2bottom = spore_dist_vec == (0, 0, 1) || at_spore ? Db * dtdx2 : Ddtdx2bottom
@@ -214,7 +214,7 @@ module Solver
             end
 
             # Fifth neighbour
-            if cluster_size > 4
+            if cluster_size > 5
                 spore_dist_vec = (idx[1] - spore_idx[1] + cluster_spacing, idx[2] - spore_idx[2], idx[3] - spore_idx[3])
                 at_spore = spore_dist_vec == (0, 0, 0)
                 Ddtdx2bottom = spore_dist_vec == (0, 0, 1) || at_spore ? Db * dtdx2 : Ddtdx2bottom
@@ -226,7 +226,7 @@ module Solver
             end
 
             # Sixth neighbour
-            if cluster_size > 5
+            if cluster_size > 6
                 spore_dist_vec = (idx[1] - spore_idx[1] - cluster_spacing, idx[2] - spore_idx[2], idx[3] - spore_idx[3])
                 at_spore = spore_dist_vec == (0, 0, 0)
                 Ddtdx2bottom = spore_dist_vec == (0, 0, 1) || at_spore ? Db * dtdx2 : Ddtdx2bottom
@@ -510,7 +510,7 @@ module Solver
     end
 
 
-    function initialise_lattice_and_operator_GPU!(c_init, colidx, valsA, valsB, region_ids, c₀, sp_cen_i, sp_cen_j, sp_cen_k, spore_rad_lattice, cw_thickness, D, Dcw, Db, dtdx2, N, H, crank_nicolson=true)
+    function initialise_lattice_and_operator_GPU!(c_init, colidx, valsA, valsB, region_ids, c₀, sp_cen_i, sp_cen_j, sp_cen_k, spore_rad_lattice, cw_thickness, D, Dcw, Db, dtdx2, N, H, crank_nicolson=true, empty_interior=true)
         """
         GPU kernel for building the operator sparse matrix for implicitly solving the diffusion equation
         using the Crank-Nicolson method and initialising the lattice. Also assigns region IDs to the lattice.
@@ -532,6 +532,7 @@ module Solver
             N (int) - the number of lattice rows/columns
             H (int) - the number of lattice layers
             crank_nicolson (bool) - whether the operators are suited for Crank-Nicolson method
+            empty_interior (bool) - whether to make interior beyond the cell wall inaccessible for diffusion
         """
 
         i, j, k = CUDA.blockIdx().x, CUDA.blockIdx().y, CUDA.blockIdx().z
@@ -544,7 +545,7 @@ module Solver
             return nothing
         end
         
-        idx_lin = (idx[3] - 1) * N * H + (idx[2] - 1) * H + idx[1]
+        idx_lin = (idx[3] - 1) * N^2 + (idx[2] - 1) * N + idx[1]
         colidx[idx_lin*7-6] = idx_lin
 
         diag_val = 0f0
@@ -556,16 +557,20 @@ module Solver
         if (spore_rad_lattice - cw_thickness ≤ dist) && (dist ≤ spore_rad_lattice)
             # Cell wall site
             region_id = 1
-            c_init[idx_lin] = c₀
-        elseif dist < spore_rad_lattice - cw_thickness
+            c_init[idx_lin] = 1f0#c₀
+        elseif (dist < spore_rad_lattice - cw_thickness) && empty_interior
             # Interior site
             region_id = 2
+        elseif (dist < spore_rad_lattice - cw_thickness) && !empty_interior
+            # Spore interior site
+            region_id = 1
+            c_init[idx_lin] = 1f0
         end
 
         # Get neighbour coefficients
         # ===== Bottom neighbour =====
         ni, nj, nk = idx[1], idx[2], mod1(idx[3] - 1, H)
-        n_idx = (nk - 1) * N * H + (nj - 1) * H + ni
+        n_idx = (nk - 1) * N^2 + (nj - 1) * N + ni
         colidx[idx_lin*7-5] = n_idx
         dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
         coeff = 0f0
@@ -591,8 +596,7 @@ module Solver
 
         # ===== Top neighbour =====
         ni, nj, nk = idx[1], idx[2], mod1(idx[3] + 1, H)
-        # n_idx = (ni - 1) * N * H + (nj - 1) * H + nk
-        n_idx = (nk - 1) * N * H + (nj - 1) * H + ni
+        n_idx = (nk - 1) * N^2 + (nj - 1) * N + ni
         colidx[idx_lin*7-4] = n_idx
         dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
         coeff = 0f0
@@ -617,8 +621,7 @@ module Solver
 
         # ===== Left neighbour =====
         ni, nj, nk = idx[1], mod1(idx[2] - 1, H), idx[3]
-        # n_idx = (ni - 1) * N * H + (nj - 1) * H + nk
-        n_idx = (nk - 1) * N * H + (nj - 1) * H + ni
+        n_idx = (nk - 1) * N^2 + (nj - 1) * N + ni
         colidx[idx_lin*7-3] = n_idx
         dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
         coeff = 0f0
@@ -643,8 +646,7 @@ module Solver
 
         # ===== Right neighbour =====
         ni, nj, nk = idx[1], mod1(idx[2] + 1, H), idx[3]
-        # n_idx = (ni - 1) * N * H + (nj - 1) * H + nk
-        n_idx = (nk - 1) * N * H + (nj - 1) * H + ni
+        n_idx = (nk - 1) * N^2 + (nj - 1) * N + ni
         colidx[idx_lin*7-2] = n_idx
         dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
         coeff = 0f0
@@ -669,8 +671,7 @@ module Solver
 
         # ===== Front neighbour =====
         ni, nj, nk = mod1(idx[1] - 1, H), idx[2], idx[3]
-        # n_idx = (ni - 1) * N * H + (nj - 1) * H + nk
-        n_idx = (nk - 1) * N * H + (nj - 1) * H + ni
+        n_idx = (nk - 1) * N^2 + (nj - 1) * N + ni
         colidx[idx_lin*7-1] = n_idx
         dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
         coeff = 0f0
@@ -695,7 +696,7 @@ module Solver
 
         # ===== Back neighbour =====
         ni, nj, nk = mod1(idx[1] + 1, H), idx[2], idx[3]
-        n_idx = (nk - 1) * N * H + (nj - 1) * H + ni
+        n_idx = (nk - 1) * N^2 + (nj - 1) * N + ni
         colidx[idx_lin*7] = n_idx
         dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
         coeff = 0f0
@@ -728,7 +729,7 @@ module Solver
     end
 
 
-    function initialise_lattice_and_operator_GPU_abs_bndry!(c_init, colidx, valsA, valsB, region_ids, c₀, sp_cen_i, sp_cen_j, sp_cen_k, spore_rad_lattice, cw_thickness, D, Dcw, Db, dtdx2, N, H, crank_nicolson=true)
+    function initialise_lattice_and_operator_GPU_abs_bndry!(c_init, colidx, valsA, valsB, region_ids, c₀, sp_cen_i, sp_cen_j, sp_cen_k, spore_rad_lattice, cw_thickness, D, Dcw, Db, dtdx2, N, H, crank_nicolson=true, empty_interior=true)
         """
         GPU kernel for building the operator sparse matrix for implicitly solving the diffusion equation
         using the Crank-Nicolson method and initialising the lattice. Also assigns region IDs to the lattice.
@@ -750,6 +751,7 @@ module Solver
             N (int) - the number of lattice rows/columns
             H (int) - the number of lattice layers
             crank_nicolson (bool) - whether the operators are suited for Crank-Nicolson method
+            empty_interior (bool) - whether to make interior beyond the cell wall inaccessible for diffusion
         """
 
         i, j, k = CUDA.blockIdx().x, CUDA.blockIdx().y, CUDA.blockIdx().z
@@ -762,8 +764,7 @@ module Solver
             return nothing
         end
 
-        # idx_lin = (idx[1] - 1) * N * H + (idx[2] - 1) * H + idx[3]
-        idx_lin = (idx[3] - 1) * N * H + (idx[2] - 1) * H + idx[1]
+        idx_lin = (idx[3] - 1) * N^2 + (idx[2] - 1) * N + idx[1]
         colidx[idx_lin*7-6] = idx_lin
 
         diag_val = 0f0
@@ -775,10 +776,14 @@ module Solver
         if (spore_rad_lattice - cw_thickness ≤ dist) && (dist ≤ spore_rad_lattice)
             # Cell wall site
             region_id = 1
-            c_init[idx_lin] = c₀
-        elseif dist < spore_rad_lattice - cw_thickness
+            c_init[idx_lin] = 1f0#c₀
+        elseif (dist < spore_rad_lattice - cw_thickness) && empty_interior
             # Interior site
             region_id = 2
+        elseif (dist < spore_rad_lattice - cw_thickness) && !empty_interior
+            # Spore interior site
+            region_id = 1
+            c_init[idx_lin] = 1f0
         end
 
         # Get neighbour coefficients
@@ -786,8 +791,7 @@ module Solver
         # ===== Bottom neighbour =====
         if idx[3] > 1
             ni, nj, nk = idx[1], idx[2], idx[3] - 1
-            # n_idx = (ni - 1) * N * H + (nj - 1) * H + nk
-            n_idx = (nk - 1) * N * H + (nj - 1) * H + ni
+            n_idx = (nk - 1) * N^2 + (nj - 1) * N + ni
             colidx[idx_lin*7-5] = n_idx
             dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
             coeff = 0f0
@@ -815,8 +819,7 @@ module Solver
         # ===== Top neighbour =====
         if idx[3] < H
             ni, nj, nk = idx[1], idx[2], idx[3] + 1
-            # n_idx = (ni - 1) * N * H + (nj - 1) * H + nk
-            n_idx = (nk - 1) * N * H + (nj - 1) * H + ni
+            n_idx = (nk - 1) * N^2 + (nj - 1) * N + ni
             colidx[idx_lin*7-4] = n_idx
             dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
             coeff = 0f0
@@ -843,8 +846,7 @@ module Solver
         # ===== Left neighbour =====
         if idx[2] > 1
             ni, nj, nk = idx[1], idx[2] - 1, idx[3]
-            # n_idx = (ni - 1) * N * H + (nj - 1) * H + nk
-            n_idx = (nk - 1) * N * H + (nj - 1) * H + ni
+            n_idx = (nk - 1) * N^2 + (nj - 1) * N + ni
             colidx[idx_lin*7-3] = n_idx
             dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
             coeff = 0f0
@@ -869,10 +871,9 @@ module Solver
         end
 
         # ===== Right neighbour =====
-        if idx[2] < H
+        if idx[2] < N
             ni, nj, nk = idx[1], idx[2] + 1, idx[3]
-            # n_idx = (ni - 1) * N * H + (nj - 1) * H + nk
-            n_idx = (nk - 1) * N * H + (nj - 1) * H + ni
+            n_idx = (nk - 1) * N^2 + (nj - 1) * N + ni
             colidx[idx_lin*7-2] = n_idx
             dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
             coeff = 0f0
@@ -899,8 +900,7 @@ module Solver
         # ===== Front neighbour =====
         if idx[1] > 1
             ni, nj, nk = idx[1] - 1, idx[2], idx[3]
-            # n_idx = (ni - 1) * N * H + (nj - 1) * H + nk
-            n_idx = (nk - 1) * N * H + (nj - 1) * H + ni
+            n_idx = (nk - 1) * N^2 + (nj - 1) * N + ni
             colidx[idx_lin*7-1] = n_idx
             dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
             coeff = 0f0
@@ -925,10 +925,9 @@ module Solver
         end
 
         # ===== Back neighbour =====
-        if idx[1] < H
+        if idx[1] < N
             ni, nj, nk = idx[1] + 1, idx[2], idx[3]
-            # n_idx = (ni - 1) * N * H + (nj - 1) * H + nk
-            n_idx = (nk - 1) * N * H + (nj - 1) * H + ni
+            n_idx = (nk - 1) * N^2 + (nj - 1) * N + ni
             colidx[idx_lin*7] = n_idx
             dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
             coeff = 0f0
@@ -954,7 +953,6 @@ module Solver
 
         valsA[idx_lin*7-6] = 1 + diag_val
         valsB[idx_lin*7-6] = crank_nicolson ? 1 - diag_val : 1f0
-        # pc_vals[idx_lin] = 1/(1 + diag_val)
 
         region_ids[idx...] = region_id
 

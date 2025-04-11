@@ -230,7 +230,7 @@ module Conversions
             # println("Central spore nodes: ", sum(central_spore_mask))
 
             region_ids = region_ids .* central_spore_mask
-            println("Cell wall nodes: ", sum(region_ids .== 1))
+            # println("Cell wall nodes: ", sum(region_ids .== 1))
 
             # Compute the cell wall moles
             moles_cw_voxels = c_frames .* (region_ids .== 1) .* dx^3

@@ -238,7 +238,7 @@ __precompile__(false)
 
     # ===== NUMERICAL SOLUTIONS =====
     function diffusion_time_dependent_GPU!(c_init, t_max; D=1.0, Db=nothing, Ps=1.0, dt=0.005, dx=5, n_save_frames=100,
-        spore_idx=nothing, c_thresholds=nothing, abs_bndry=false, neumann_z=false, cluster_size=0, cluster_spacing=10)
+        spore_idx=nothing, c_thresholds=nothing, abs_bndry=false, neumann_z=false, cluster_size=1, cluster_spacing=10, nondim=false)
         """
         Compute the evolution of a square lattice of concentration scalars
         based on the time-dependent diffusion equation.
@@ -258,6 +258,7 @@ __precompile__(false)
             neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction; defaults to false
             cluster_size (int) - if provided, creates an orthogonal neighbour cluster with the given size
             cluster_spacing (int) - spacing between the spores in the cluster
+            nondim (bool) - whether to use nondimensionalisation; defaults to false
         outputs:
             c_evolotion (array) - the states of the lattice at all moments in time
             times (array) - the times at which the states were saved
@@ -265,7 +266,7 @@ __precompile__(false)
         """
 
         @argcheck ndims(c_init) == 3 "c_init must be a 3D array"
-        @argcheck cluster_size ≤ 7 "Cluster size must be less than or equal to 7"
+        @argcheck 0 < cluster_size ≤ 7 "Cluster size must be less than or equal to 7"
 
         GC.gc()
 
@@ -295,6 +296,18 @@ __precompile__(false)
             for spc in spore_cluster
                 c_init[spc...] = c_init[spore_idx...]
             end
+        end
+
+        # Non-dimensionalise
+        if nondim
+            lengthscale = dx
+            timescale = lengthscale / Ps
+            D = D / (Ps * lengthscale)
+            dx = 1.0
+            dt = dt / timescale
+            t_max = t_max / timescale
+            Ps = 1.0
+            println("Parameters rescaled to D = $D, Ps = $Ps, dt = $dt, dx = $dx, t_max = $t_max")
         end
 
         # Save update factor
@@ -352,8 +365,15 @@ __precompile__(false)
             if (t - 1) % save_interval == 0 && save_ct ≤ n_save_frames
                 c_evolution[save_ct, :, :, :] .= Array(c_A_gpu)
                 times[save_ct] = (t - 1) * dt
-                print("\rFrame $save_ct saved.")
+                # print("\rFrame $save_ct saved.")
                 # println(maximum(c_evolution[save_ct, :, :, :]))
+                # println("Concentration at center: ", c_evolution[save_ct, spore_idx...])
+                # if cluster_size > 1
+                #     for spc in spore_cluster
+                #         println("Concentration at neighbour $(spc): ", c_evolution[save_ct, spc...])
+                #     end
+                #     println("======")
+                # end
                 save_ct += 1
             end
 
@@ -378,11 +398,16 @@ __precompile__(false)
         c_evolution[save_ct, :, :, :] .= Array(c_A_gpu)
         times[save_ct] = t_max
 
+        # Re-dimensionalise
+        if nondim
+            times .= times .* timescale
+        end
+
         return c_evolution, times, t_thresholds
     end
 
     function diffusion_time_dependent_GPU_low_res(c_init, c₀, t_max; D=1.0, Pₛ=1.0, A=150, V=125, dt=150, dx=25, n_save_frames=100,
-                                                    spore_vol_idx=nothing, c_thresholds=nothing, neumann_z=false, cluster_size=1, cluster_spacing=10)
+                                                    spore_vol_idx=nothing, c_thresholds=nothing, neumann_z=false, cluster_size=1, cluster_spacing=10, nondim=false)
         """
         Compute the evolution of a square lattice of concentration scalars
         based on the time-dependent diffusion equation. A concentration source
@@ -404,6 +429,7 @@ __precompile__(false)
             neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction; defaults to false
             cluster_size (int) - if provided, creates an orthogonal neighbour cluster with the given size
             cluster_spacing (int) - spacing between the spores in the cluster
+            nondim (bool) - whether to use nondimensionalisation; defaults to false
         outputs:
             c_evolotion (array) - the states of the lattice at all moments in time
             times (array) - the times at which the states were saved
@@ -422,6 +448,18 @@ __precompile__(false)
         # Set spore volume index
         if isnothing(spore_vol_idx)
             spore_vol_idx = (N ÷ 2, N ÷ 2, H ÷ 2)
+        end
+
+        # Non-dimensionalise
+        if nondim
+            lengthscale = dx
+            timescale = lengthscale / Ps
+            D = D / (Pₛ * lengthscale)
+            dx = 1.0
+            dt = dt / timescale
+            t_max = t_max / timescale
+            Pₛ = 1.0
+            println("Parameters rescaled to D = $D, Pₛ = $Pₛ, dt = $dt, dx = $dx, t_max = $t_max")
         end
 
         # Save update factors
@@ -523,11 +561,16 @@ __precompile__(false)
         c_spore_evolution[save_ct] = CUDA.reduce(max_reduce_kernel, c_spore_gpu, init=-Inf)
         times[save_ct] = t_max
 
+        # Re-dimensionalise
+        if nondim
+            times .= times .* timescale
+        end
+
         return c_med_evolution, c_spore_evolution, times, t_thresholds
     end
 
     function diffusion_time_dependent_GPU_hi_res!(c_init, c₀, sp_cen_indices, spore_rad, t_max; D=1.0, Db=1.0, dt=0.005, dx=0.2, n_save_frames=100,
-        c_thresholds=nothing, abs_bndry=false, neumann_z=false, corr_factor=1.45)
+        c_thresholds=nothing, abs_bndry=false, neumann_z=false, corr_factor=1.1, nondim=false, empty_interior=true)
         """
         Compute the evolution of a square lattice of concentration scalars
         based on the time-dependent diffusion equation.
@@ -546,6 +589,8 @@ __precompile__(false)
             abs_bndry (bool) - whether to use absorbing boundary conditions; defaults to false
             neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction; defaults to false
             corr_factor (float) - correction factor for calculating the cell wall thickness
+            nondim (bool) - whether to use nondimensionalisation; defaults to false
+            empty_interior (bool) - whether to make interior beyond the cell wall inaccessible for diffusion
         outputs:
             c_evolotion (array) - the states of the lattice at all moments in time
             times (array) - the times at which the states were saved
@@ -562,6 +607,24 @@ __precompile__(false)
         H = size(c_init)[3]
 
         @assert spore_rad < N * dx && spore_rad < H * dx "spore_rad must be less than N and H"
+
+        # Radus in lattice units
+        spore_rad_lattice = spore_rad / dx
+        println("Spore radius in lattice units: ", spore_rad_lattice)
+
+        # Non-dimensionalise
+        if nondim
+            lengthscale = spore_rad * 2
+            timescale = lengthscale^2 / Db
+            D = D / Db
+            dx = dx / lengthscale
+            dt = dt / timescale
+            t_max = t_max / timescale
+            Db = 1.0
+            println("Parameters rescaled to D = $D, Db = $Db, dt = $dt, dx = $dx, t_max = $t_max")
+        else
+            lengthscale = 1.0
+        end
 
         # Save update factor
         dtdx2 = dt / (dx^2)
@@ -582,10 +645,6 @@ __precompile__(false)
             println("Warning: inappropriate scaling of dx and dt due to Dcw, may result in an unstable simulation; Dcwdt/dx2 = $(Dcw*dtdx2).")
         end
 
-        # Radus in lattice units
-        spore_rad_lattice = spore_rad / dx
-        println("Spore radius in lattice units: ", spore_rad_lattice)
-
         # Construct cell wall index map
         steps = [0, -1, 1]
         moore_nbrs = vec([(di, dj, dk) for di in steps, dj in steps, dk in steps])
@@ -596,17 +655,28 @@ __precompile__(false)
         cw_thickness = corr_factor*sqrt(3)
         for i in 1:N, j in 1:N, k in 1:H
             for sp_cen_idx in sp_cen_indices
-                if spore_rad_lattice - cw_thickness ≤ sqrt((i - sp_cen_idx[1])^2 + (j - sp_cen_idx[2])^2 + (k - sp_cen_idx[3])^2) ≤ spore_rad_lattice
-                    # Cell wall
-                    c_init[i, j, k] += c₀
-                    region_ids[i, j, k] = 1
-                elseif sqrt((i - sp_cen_idx[1])^2 + (j - sp_cen_idx[2])^2 + (k - sp_cen_idx[3])^2) ≤ spore_rad_lattice - cw_thickness
-                    # Interior
-                    c_init[i, j, k] += 0.0
-                    region_ids[i, j, k] = 2
+                if empty_interior
+                    if spore_rad_lattice - cw_thickness ≤ sqrt((i - sp_cen_idx[1])^2 + (j - sp_cen_idx[2])^2 + (k - sp_cen_idx[3])^2) ≤ spore_rad_lattice
+                        # Cell wall
+                        c_init[i, j, k] += 1.0#c₀
+                        region_ids[i, j, k] = 1
+                    elseif sqrt((i - sp_cen_idx[1])^2 + (j - sp_cen_idx[2])^2 + (k - sp_cen_idx[3])^2) ≤ spore_rad_lattice - cw_thickness
+                        # Interior
+                        region_ids[i, j, k] = 2
+                    end
+                else
+                    if sqrt((i - sp_cen_idx[1])^2 + (j - sp_cen_idx[2])^2 + (k - sp_cen_idx[3])^2) ≤ spore_rad_lattice
+                        # Spore interior
+                        c_init[i, j, k] += 1.0
+                        region_ids[i, j, k] = 1
+                    end
                 end
             end
         end
+        # Count concentration sites and distribute spore concentration over volume
+        n_spore_sites = sum(region_ids .> 0.0)
+        n_cw_sites = sum(region_ids .== 1.0)
+        c_init .= c_init .* c₀ .* n_cw_sites / n_spore_sites
         println("Concentrations initialised.")
 
         # println("Ideal cell wall volume: ", 4/3 * π * (spore_rad^3 - (spore_rad - dx * 2)^3))
@@ -655,7 +725,7 @@ __precompile__(false)
             if (t - 1) % save_interval == 0 && save_ct ≤ n_save_frames
                 CUDA.synchronize()
                 c_frames[save_ct, :, :] .= Array(c_A_gpu)[:, N ÷ 2, :]
-                c_spore[save_ct] = compute_spore_concentration(reshape(Array(c_A_gpu), (1, N, N, H)), Array(region_ids_gpu), spore_rad, dx)[1]
+                c_spore[save_ct] = compute_spore_concentration(reshape(Array(c_A_gpu), (1, N, N, H)), Array(region_ids_gpu), spore_rad, dx * lengthscale)[1]
                 # println(c_spore[save_ct])
                 # println(maximum(c_frames[save_ct, :, :]))
                 times[save_ct] = (t - 1) * dt
@@ -679,15 +749,20 @@ __precompile__(false)
         # Save final frame
         CUDA.synchronize()
         c_frames[save_ct, :, :] .= Array(c_A_gpu)[:, N ÷ 2, :]
-        c_spore[save_ct] = compute_spore_concentration(reshape(Array(c_A_gpu), (1, N, N, H)), Array(region_ids_gpu), spore_rad, dx)[1]
+        c_spore[save_ct] = compute_spore_concentration(reshape(Array(c_A_gpu), (1, N, N, H)), Array(region_ids_gpu), spore_rad, dx * lengthscale)[1]
         times[save_ct] = t_max
+
+        # Re-dimensionalise
+        if nondim
+            times .= times .* timescale
+        end
 
         return c_frames, c_spore, times, region_ids[:, N ÷ 2, :], t_thresholds
     end
 
 
     function diffusion_time_dependent_GPU_hi_res_implicit(c_init, c₀, sp_cen_indices, spore_rad, t_max; D=1.0, Db=1.0, dt=0.005, dx=0.2, n_save_frames=100,
-        c_thresholds=nothing, crank_nicolson=true, abs_bndry=false, neumann_z=false, corr_factor=1.45)
+        c_thresholds=nothing, crank_nicolson=true, abs_bndry=false, neumann_z=false, corr_factor=1.1, nondim=false, empty_interior=true)
         """
         Compute the evolution of a square lattice of concentration scalars
         based on the time-dependent diffusion equation using the Crank–Nicolson
@@ -708,6 +783,8 @@ __precompile__(false)
             abs_bndry (bool) - whether to use absorbing boundary conditions; defaults to false
             neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction; defaults to false
             corr_factor (float) - correction factor for calculating the cell wall thickness
+            nondim (bool) - whether to use nondimensionalisation; defaults to false
+            empty_interior (bool) - whether to make interior beyond the cell wall inaccessible for diffusion
         outputs:
             c_evolotion (array) - the states of the lattice at all moments in time
             times (array) - the times at which the states were saved
@@ -725,6 +802,31 @@ __precompile__(false)
 
         @assert spore_rad < N * dx && spore_rad < H * dx "spore_rad must be less than N and H"
 
+        # Radus in lattice units
+        spore_rad_lattice = spore_rad / dx
+        println("Spore radius in lattice units: ", spore_rad_lattice)
+
+        # Non-dimensionalise
+        if nondim
+            lengthscale = spore_rad * 2
+            timescale = lengthscale^2 / D
+            dx = dx / lengthscale
+            dt = dt / timescale
+            t_max = t_max / timescale
+            Db = Db / D
+            # D = 1.0
+            # lengthscale = spore_rad * 2
+            # timescale = lengthscale^2 / Db
+            # D = D / Db
+            # dx = dx / lengthscale
+            # dt = dt / timescale
+            # t_max = t_max / timescale
+            # Db = 1.0
+            println("Parameters rescaled to D = $D, Db = $Db, dt = $dt, dx = $dx, t_max = $t_max")
+        else
+            lengthscale = 1.0
+        end
+
         # Save update factor
         dtdx2 = dt / (dx^2)
 
@@ -737,12 +839,7 @@ __precompile__(false)
         println("D*dt/dx2 = $(D*dtdx2), Db*dt/dx2 = $(Db*dtdx2), Dcw*dt/dx2 = $(Dcw*dtdx2)")
         println("Timescale for accuracy: ", dx^2 / max([D, Db, Dcw]...))
 
-        # Radus in lattice units
-        spore_rad_lattice = spore_rad / dx
-        println("Spore radius in lattice units: ", spore_rad_lattice)
-
         kernel_blocks, kernel_threads = invoke_smart_kernel_3D(size(c_init))
-
         
         # Initialise sparse matrix elements
         Nt = N * N * H
@@ -761,21 +858,36 @@ __precompile__(false)
         # pc_rowptr = 1:Nt+1
         # pc_rowptr_gpu = cu(collect(pc_rowptr))
         # pc_colidx_gpu = cu(collect(1:Nt))
+        # if abs_bndry
+        #     for sp_cen_idx in sp_cen_indices
+        #         @cuda threads=kernel_threads blocks=kernel_blocks initialise_lattice_and_operator_GPU_abs_bndry!(c_gpu, colidx_gpu, valsA_gpu, valsB_gpu, region_ids_gpu,
+        #                                                                                                         c₀, sp_cen_idx[1], sp_cen_idx[2], sp_cen_idx[3],
+        #                                                                                                         spore_rad_lattice, cw_thickness, D, Dcw, Db, dtdx2, N, H, crank_nicolson)
+        #     end
+        # else
+        #     for sp_cen_idx in sp_cen_indices
+        #         @cuda threads=kernel_threads blocks=kernel_blocks initialise_lattice_and_operator_GPU!(c_gpu, colidx_gpu, valsA_gpu, valsB_gpu, region_ids_gpu, #pc_vals_gpu, debugger_gpu,
+        #                                                                                                 c₀, sp_cen_idx[1], sp_cen_idx[2], sp_cen_idx[3],
+        #                                                                                                 spore_rad_lattice, cw_thickness, D, Dcw, Db, dtdx2, N, H, crank_nicolson)
+        #     end
+        # end
         if abs_bndry
             for sp_cen_idx in sp_cen_indices
                 @cuda threads=kernel_threads blocks=kernel_blocks initialise_lattice_and_operator_GPU_abs_bndry!(c_gpu, colidx_gpu, valsA_gpu, valsB_gpu, region_ids_gpu,
-                                                                                                        c₀, sp_cen_idx[1], sp_cen_idx[2], sp_cen_idx[3],
-                                                                                                        spore_rad_lattice, cw_thickness, D, Dcw, Db, dtdx2, N, H, crank_nicolson)
+                                                                                                                1f0, sp_cen_idx[1], sp_cen_idx[2], sp_cen_idx[3],
+                                                                                                                spore_rad_lattice, cw_thickness, D, Dcw, Db, dtdx2, N, H, crank_nicolson, empty_interior)
             end
         else
             for sp_cen_idx in sp_cen_indices
                 @cuda threads=kernel_threads blocks=kernel_blocks initialise_lattice_and_operator_GPU!(c_gpu, colidx_gpu, valsA_gpu, valsB_gpu, region_ids_gpu, #pc_vals_gpu, debugger_gpu,
-                                                                                                        c₀, sp_cen_idx[1], sp_cen_idx[2], sp_cen_idx[3],
-                                                                                                        spore_rad_lattice, cw_thickness, D, Dcw, Db, dtdx2, N, H, crank_nicolson)
+                                                                                                        1f0, sp_cen_idx[1], sp_cen_idx[2], sp_cen_idx[3],
+                                                                                                        spore_rad_lattice, cw_thickness, D, Dcw, Db, dtdx2, N, H, crank_nicolson, empty_interior)
             end
         end
         CUDA.synchronize()
         # println(unique(Array(valsA_gpu)))
+        # regids = Array(region_ids_gpu)
+        # println("Sum of region ids: ", sum(regids))
         op_A_gpu = CuSparseMatrixCSR(rowptr_gpu, colidx_gpu, valsA_gpu, (Nt, Nt))
         op_B_gpu = CuSparseMatrixCSR(rowptr_gpu, colidx_gpu, valsB_gpu, (Nt, Nt))
         # precond = CuSparseMatrixCSR(pc_rowptr_gpu, pc_colidx_gpu, pc_vals_gpu, (Nt, Nt))
@@ -786,8 +898,17 @@ __precompile__(false)
         # println("Discretised spore volume: ", sum(region_ids .≥ 1) * dx^3)
 
         # println(size(reshape(Array(c_gpu), (1, N, N, H))))
-        # c_temp = compute_spore_concentration(reshape(Array(c_gpu), (1, N, N, H)), reshape(Array(region_ids_gpu), (N, N, H)), spore_rad, dx*sqrt(2), dx)
+        # c_temp = compute_spore_concentration(reshape(Array(c_gpu), (1, N, N, H)), reshape(Array(region_ids_gpu), (N, N, H)), spore_rad, dx*sqrt(2), dx * lengthscale)
         # println(size(c_temp))
+
+        # Distribute concentration
+        region_ids = Array(region_ids_gpu)
+        n_spore_sites = sum(region_ids .> 0.0)
+        n_cw_sites = sum(region_ids .== 1.0)
+        # println(n_spore_sites, " spore sites")
+        # println(n_cw_sites, " cell wall sites")
+        # println("Rescaled concentration: ", c₀ * n_spore_sites / n_cw_sites)
+        c_gpu .= c_gpu .* c₀ .* (n_spore_sites / n_cw_sites)
         
         # Determine number of frames
         n_frames = Int(floor(t_max / dt))
@@ -822,10 +943,11 @@ __precompile__(false)
             # Save frame
             if (t - 1) % save_interval == 0 && save_ct ≤ n_save_frames
                 CUDA.synchronize()
-                # c_frames[save_ct, :, :] .= reshape(Array(c_gpu), (N, N, H))[:, N ÷ 2, :]
-                c_frames[save_ct, :, :] .= reshape(Array(c_gpu), (N, N, H))[N ÷ 2, :, :]
+                c_frames[save_ct, :, :] .= reshape(Array(c_gpu), (N, N, H))[:, N ÷ 2, :]
+                # println("Spore radius: ", spore_rad)
+                # println("Correction factor: ", corr_factor)
                 c_spore[save_ct] = compute_spore_concentration(reshape(Array(c_gpu), (1, N, N, H)),
-                                                                reshape(Array(region_ids_gpu), (N, N, H)), spore_rad, dx)[1]
+                                                                reshape(Array(region_ids_gpu), (N, N, H)), spore_rad, dx * lengthscale)[1]
                 times[save_ct] = (t - 1) * dt
                 # println(maximum(c_frames[save_ct, :, :]))
                 println(c_spore[save_ct])
@@ -834,7 +956,7 @@ __precompile__(false)
             end
 
             # Update the lattice
-            b_gpu = crank_nicolson ? op_B_gpu * c_gpu : c_gpu#  # Right-hand side
+            b_gpu = crank_nicolson ? op_B_gpu * c_gpu : c_gpu  # Right-hand side
             c_gpu, stats = Krylov.cg(op_A_gpu, b_gpu; atol=Float32(1e-12), itmax=1000)
 
             # Check for threshold crossing
@@ -850,12 +972,17 @@ __precompile__(false)
         CUDA.synchronize()
         c_frames[save_ct, :, :] .= reshape(Array(c_gpu), (N, N, H))[:, N ÷ 2, :]
         c_spore[save_ct] = compute_spore_concentration(reshape(Array(c_gpu), (1, N, N, H)),
-                                                        reshape(Array(region_ids_gpu), (N, N, H)), spore_rad, dx)[1]
+                                                        reshape(Array(region_ids_gpu), (N, N, H)), spore_rad, dx * lengthscale)[1]
         times[save_ct] = t_max
         # println(maximum(c_frames[save_ct, :, :]))
 
-        region_ids = Array(region_ids_gpu)[:, N ÷ 2, :]
+        # Re-dimensionalise
+        if nondim
+            times .= times .* timescale
+        end
 
-        return c_frames, c_spore, times, region_ids, t_thresholds#, Array(debugger_gpu)[:, N ÷ 2, :]
+        # region_ids = Array(region_ids_gpu)[:, N ÷ 2, :]
+
+        return c_frames, c_spore, times, region_ids[:, N ÷ 2, :], t_thresholds#, Array(debugger_gpu)[:, N ÷ 2, :]
     end
 end
