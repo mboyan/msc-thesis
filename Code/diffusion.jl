@@ -891,6 +891,8 @@ __precompile__(false)
         op_A_gpu = CuSparseMatrixCSR(rowptr_gpu, colidx_gpu, valsA_gpu, (Nt, Nt))
         op_B_gpu = CuSparseMatrixCSR(rowptr_gpu, colidx_gpu, valsB_gpu, (Nt, Nt))
         # precond = CuSparseMatrixCSR(pc_rowptr_gpu, pc_colidx_gpu, pc_vals_gpu, (Nt, Nt))
+        
+        # debugger = sparse(op_A_gpu)
 
         # println("Ideal cell wall volume: ", 4/3 * π * (spore_rad^3 - (spore_rad - dx * 2)^3))
         # println("Discretised cell wall volume: ", sum(region_ids .== 1) * dx^3)
