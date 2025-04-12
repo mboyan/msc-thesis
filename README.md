@@ -1,6 +1,11 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## How to approach concentration drops?
+- Herrero-Garcia (2011) and Chitarra (2004) relate germination percentages to specific added concentrations of 1-octen-3-ol. But the spores likely already contain a certain concentration. This means that the added concentration emulates the effect of denser spore release.
+- The decrease in germination under added 1-octen-3-ol can be correlated with the effect of crowding (also documented in Herrero-Garcia (2011)). This possibly allows us to map concentrations of 1-octen-3-ol to spore densities and, consecutively, to concentrations per spore?
+- **Issue**: in the case of crowding, the inhibitor is released _gradually_. See if you can reverse-engineer spore concentrations from this.
+
 ## ChatGPT analysis of implicit-vs-explicit discrepancy
 Below is a conceptual explanation that I hope clarifies the situation. We have two very different schemes:
 
