@@ -26,8 +26,9 @@ __precompile__(false)
 
     export permeation_time_dependent_analytical
     export diffusion_time_dependent_analytical_src
-    export slow_release_src_grid
-    export slow_release_src_grid_src
+    export slow_release_pt_src_grid
+    export slow_release_pt_src_grid_at_src
+    export slow_release_shell_src_grid
     export compute_permeation_constant
     export diffusion_time_dependent_GPU!
     export diffusion_time_dependent_GPU_low_res
@@ -96,7 +97,7 @@ __precompile__(false)
     end
 
 
-    function slow_release_src_grid(x, src_density, c₀, times, D, Pₛ, A, V; discrete=true)
+    function slow_release_pt_src_grid(x, src_density, c₀, times, D, Pₛ, A, V; discrete=true)
         """
         Compute the concentration at sampling points
         due to periodically repeating permeating sources within an
@@ -189,7 +190,7 @@ __precompile__(false)
     end
 
 
-    function slow_release_src_grid_src(src_density, c₀, times, D, Pₛ, A, V; discrete=true)
+    function slow_release_pt_src_grid_at_src(src_density, c₀, times, D, Pₛ, A, V; discrete=true)
         """
         Compute the concentration inside a spore source
         due to periodically repeating permeating sources within an
@@ -212,10 +213,39 @@ __precompile__(false)
 
         # c_ins = zeros(size(times, 1))
         decay = exp.(-times./τ)
-        c_out = slow_release_src_grid([(0, 0, 0)], src_density, c₀, times, D, Pₛ, A, V, discrete=discrete)[1, :]
+        c_out = slow_release_pt_src_grid([(0, 0, 0)], src_density, c₀, times, D, Pₛ, A, V, discrete=discrete)[1, :]
         c_ins = decay .* (c₀ .+ c_out)
 
         return c_ins
+    end
+
+    function slow_release_shell_src_grid(r, t; R, D, Pₛ, c₀, A, V)
+
+        # Distance from sphere surface
+        δ = r - R
+    
+        # Prefactor
+        prefactor = (R^2 * Pₛ * c₀) / (D * r)
+    
+        # Define g(δ, τ)
+        function g(δ, τ)
+            if τ == 0
+                return 0.0  # avoid division by zero
+            end
+            sqrtDt = sqrt(4π * D * τ)
+            exponent1 = exp(-(δ^2) / (4D * τ))
+            argument_erfc = δ / (2sqrt(D * τ)) + Pₛ * sqrt(τ) / D
+            exponent2 = exp(Pₛ * δ / D + Pₛ^2 * τ / D^2)
+            return (1 / sqrtDt) * (exponent1 - (Pₛ / D) * exponent2 * erfc(argument_erfc))
+        end
+    
+        # Define the integrand
+        integrand(τ) = exp(-τ * Pₛ * A / V) * g(δ, t - τ)
+    
+        # Perform integration
+        integral, _ = quadgk(integrand, 0.0, t, rtol=1e-6)
+    
+        return prefactor * integral
     end
 
     function compute_permeation_constant(c_in_target, c_out, c_0, t, A, V; alpha=1.0)
