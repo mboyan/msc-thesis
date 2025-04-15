@@ -28,7 +28,8 @@ __precompile__(false)
     export diffusion_time_dependent_analytical_src
     export slow_release_pt_src_grid
     export slow_release_pt_src_grid_at_src
-    export slow_release_shell_src_grid
+    export slow_release_shell_src
+    export slow_release_shell_src_at_src
     export compute_permeation_constant
     export diffusion_time_dependent_GPU!
     export diffusion_time_dependent_GPU_low_res
@@ -72,11 +73,6 @@ __precompile__(false)
         return result
     end
 
-
-    # function aggregation_time_integral(t, τ, D, r)
-    #     return t^(-3/2) * exp(t/τ - r^2/(4 * D * t))
-    # end
-
     function aggregation_time_integral(r, t, Ps, A, V, D)
         ϵ = 1e-12
         if t < ϵ
@@ -89,15 +85,15 @@ __precompile__(false)
         return val
     end
     
-    function aggregation_space_integral(t, Ps, A, V, D, ρₛ, R_diff)
+    function aggregation_space_integral(t, Ps, A, V, D, ρₛ, Rmin, Rdiff)
         integrand_r(r) = r^2 * aggregation_time_integral(r, t, Ps, A, V, D)
         # Integrate over r from 0 to R_diff
-        val, err = quadgk(integrand_r, 0, R_diff, rtol=1e-8)
+        val, err = quadgk(integrand_r, Rmin, Rdiff, rtol=1e-8)
         return 4 * π * ρₛ * val
     end
 
 
-    function slow_release_pt_src_grid(x, src_density, c₀, times, D, Pₛ, A, V; discrete=true)
+    function slow_release_pt_src_grid(x, src_density, c₀, times, D, Pₛ, A, V; discrete=true, Rmin=0.0)
         """
         Compute the concentration at sampling points
         due to periodically repeating permeating sources within an
@@ -113,6 +109,7 @@ __precompile__(false)
             V (float): source volume in um^3
             dt (float): time step size in seconds
             discrete (bool): whether to compute the neighbour contributions discretely or continuously
+            Rmin (float): minimum distance from the source to consider for the diffusion radius
         """
 
         # Conversions
@@ -141,20 +138,29 @@ __precompile__(false)
         # n_nbrs = zeros(size(times)[1])
         for (i, t) in enumerate(times)
             # Find diffusion radius
-            R = sqrt(6 * D * t)
+            Rdiff = sqrt(6 * D * t)
             
             if discrete
 
                 # Generate relevant source positions
-                if R > dx
-                    src_x = vec(0:dx:R)
+                if Rdiff > dx
+                    src_x = vec(0:dx:Rdiff)
                     src_x = [reverse(-src_x[2:end]); src_x]
                     src_pts = vec([(x, y, z) for x in src_x, y in src_x, z in src_x])
+
+                    # Exclude the origin within the minimum radius
+                    src_pts = src_pts[norm.(src_pts) .> Rmin] 
                 else
-                    src_pts = [(0, 0, 0)]
+                    if Rmin > 0
+                        # Singular origin not excluded
+                        src_pts = [(0, 0, 0)]
+                    else
+                        # Singular origin excluded
+                        return zeros(size(x)[1], size(times)[1])
+                    end
                 end
-                src_pts = src_pts[norm.(src_pts) .≤ R]
-                # println("Number of source points at R=$R: ", length(src_pts))
+                src_pts = src_pts[norm.(src_pts) .≤ Rdiff]
+                # println("Number of source points at R=$Rdiff: ", length(src_pts))
 
                 # Compute distances
                 src_distances = [map(x_pt -> norm(x_pt .- src_pt), x) for src_pt in src_pts]
@@ -180,7 +186,7 @@ __precompile__(false)
                 src_sums[:, i] = sum(contributions, dims=2)
             else
                 # Compute the integral over the source grid
-                src_sums[:, i] .= aggregation_space_integral(t, Pₛ, A, V, D, src_density, R)
+                src_sums[:, i] .= aggregation_space_integral(t, Pₛ, A, V, D, src_density, Rmin, Rdiff)
             end
         end
 
@@ -192,7 +198,7 @@ __precompile__(false)
 
     function slow_release_pt_src_grid_at_src(src_density, c₀, times, D, Pₛ, A, V; discrete=true)
         """
-        Compute the concentration inside a spore source
+        Compute the concentration inside a singular spore source
         due to periodically repeating permeating sources within an
         effective diffusion radius.
         inputs:
@@ -211,7 +217,6 @@ __precompile__(false)
         # Constants
         τ = V / (A * Pₛ)
 
-        # c_ins = zeros(size(times, 1))
         decay = exp.(-times./τ)
         c_out = slow_release_pt_src_grid([(0, 0, 0)], src_density, c₀, times, D, Pₛ, A, V, discrete=discrete)[1, :]
         c_ins = decay .* (c₀ .+ c_out)
@@ -219,7 +224,19 @@ __precompile__(false)
         return c_ins
     end
 
-    function slow_release_shell_src_grid(r, t; R, D, Pₛ, c₀, A, V)
+    function slow_release_shell_src(r, times; R, D, Pₛ, c₀, A, V)
+        """
+        Compute the concentration at a distance r from the center of a spore.
+        inputs:
+            r (float) - the distance from the center of the spore
+            times (float) - time
+            R (float) - the radius of the spore
+            D (float) - the diffusion constant
+            Pₛ (float) - the permeation constant through the spore barrier
+            c₀ (float) - the initial concentration of the solute at the spore
+            A (float) - the surface area of the spore
+            V (float) - the volume of the spore
+        """
 
         # Distance from sphere surface
         δ = r - R
@@ -232,21 +249,57 @@ __precompile__(false)
             if τ == 0
                 return 0.0  # avoid division by zero
             end
+            if sum(4π * D * τ .< 0) > 0
+                println(τ)
+            end
             sqrtDt = sqrt(4π * D * τ)
             exponent1 = exp(-(δ^2) / (4D * τ))
             argument_erfc = δ / (2sqrt(D * τ)) + Pₛ * sqrt(τ) / D
             exponent2 = exp(Pₛ * δ / D + Pₛ^2 * τ / D^2)
             return (1 / sqrtDt) * (exponent1 - (Pₛ / D) * exponent2 * erfc(argument_erfc))
         end
+        
+        integrals = zeros(length(times))
+        for (i, t) in enumerate(times)
+            # Define the integrand
+            integrand(τ) = exp(-τ * Pₛ * A / V) * g.(δ, t - τ)
+        
+            # Perform integration
+            integrals[i], _ = quadgk.(integrand, 0.0, t, rtol=1e-6)
+        end
     
-        # Define the integrand
-        integrand(τ) = exp(-τ * Pₛ * A / V) * g(δ, t - τ)
-    
-        # Perform integration
-        integral, _ = quadgk(integrand, 0.0, t, rtol=1e-6)
-    
-        return prefactor * integral
+        return prefactor .* integrals
     end
+
+    function slow_release_shell_src_at_src(src_density, c₀, times, D, Pₛ, spore_dia; discrete=true)
+        """
+        Compute the concentration inside a spore source with a finite radius
+        due to periodically repeating permeating sources within an
+        effective diffusion radius.
+        inputs:
+            src_density (float): number density of sources in spores/mL
+            c₀ (float): initial concentration at the sources in mol/L
+            times (array of floats): times at which to compute the concentration
+            D (float): diffusion coefficient in um^2/s
+            Pₛ (float): source release rate in um/s
+            spore_dia (float): diameter of the spore in um
+            discrete (bool): whether to compute the neighbour contributions discretely or continuously
+        """
+
+        # Constants
+        A, V = compute_spore_area_and_volume_from_dia(spore_dia)
+        τ = V / (A * Pₛ)
+        spore_rad = spore_dia * 0.5
+
+        decay = exp.(-times./τ)
+        c_bg = slow_release_pt_src_grid([(0, 0, 0)], src_density, c₀, times, D, Pₛ, A, V, discrete=discrete, Rmin=spore_dia*0.5)[1, :]
+        c_self = slow_release_shell_src(spore_rad, times; R=spore_rad, D=D, Pₛ=Pₛ, c₀=c₀, A=A, V=V)
+        c_out = c_bg .+ c_self
+        c_ins = decay .* (c₀ .+ c_out)
+
+        return c_ins
+    end
+
 
     function compute_permeation_constant(c_in_target, c_out, c_0, t, A, V; alpha=1.0)
         """

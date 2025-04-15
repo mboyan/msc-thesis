@@ -20,7 +20,7 @@ module Conversions
     export convert_D_to_Ps
     export convert_Ps_to_D
     export compute_stokes_radius
-    export compute_spore_area_and_volume
+    export compute_spore_area_and_volume_from_dia
     export compute_D_from_radius_and_viscosity
     export measure_coverage
     export extract_mean_cw_concentration
@@ -173,7 +173,7 @@ module Conversions
         return Ps * d / K
     end
 
-    function compute_spore_area_and_volume(diameter)
+    function compute_spore_area_and_volume_from_dia(diameter)
         """
         Compute the area and volume of a spherical spore
         given its diameter.

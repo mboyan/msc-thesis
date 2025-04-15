@@ -133,7 +133,7 @@ __precompile__(false)
                     else
                         spore_diameter = 5.0 # default value in microns
                     end
-                    A_spore, V_spore = compute_spore_area_and_volume(spore_diameter)
+                    A_spore, V_spore = compute_spore_area_and_volume_from_dia(spore_diameter)
                     tau = result_dict[:Ps][1] .* A_spore / V_spore
                     exponent = -exponent / tau
                     delete!(result_dict, :Ps)
