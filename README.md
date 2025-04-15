@@ -1,6 +1,32 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## Logarithmic behaviour points to Langmuir adsorption (from ChatGPT)
+The physical picture behind adsorption to the spore interface (i.e. the cell wall of a conidium) in the context of germination inhibitor molecules is that the cell wall does not merely serve as a passive barrier but also has chemical and physical properties that allow it to interact with, and even bind, these molecules. Here are some key points to explain the phenomenon:
+
+### 1. Composition and Structure of the Conidial Cell Wall
+- **Biomolecular Makeup:** Conidial cell walls are typically rich in polysaccharides (such as chitin and glucans) and glycoproteins. These components create a complex, porous, and heterogeneous structure.
+- **Surface Functional Groups:** The surface of the cell wall possesses various functional groups (e.g., hydroxyl, amine, carboxyl) which can participate in hydrogen bonding, electrostatic interactions, and hydrophobic interactions. These groups provide “sticky” sites where small molecules can temporarily bind.
+
+### 2. Mechanism of Adsorption
+- **Non-Specific Adsorption:** Many small molecules, such as germination inhibitors, may adsorb onto the cell wall by non-specific forces. For instance, van der Waals forces and hydrophobic interactions can cause the inhibitor molecules to accumulate at the interface.
+- **Specific Binding Sites:** In some cases, the cell wall may even have specific binding sites (receptor-like domains or protein domains) that can interact more strongly with inhibitor molecules. While this is often the case for nutrients or signaling molecules, even inhibitors may “stick” preferentially to the wall if they can form hydrogen bonds or electrostatic complexes with the wall’s components.
+- **Langmuir-Type Behavior:** The adsorption process is often modeled by a Langmuir isotherm, which assumes a finite number of binding sites. At low inhibitor concentrations, the adsorption increases linearly with concentration, but as sites become saturated, further increases in the bulk concentration produce a logarithmic (or more complicated) relationship. This nonlinearity captures the transition from unsaturated to saturated binding behavior.
+
+### 3. Role in Germination Inhibition
+- **Local Concentration Modulation:** When inhibitor molecules are released by the spore or added exogenously, some of them bind to the cell wall. This adsorption can effectively sequester a fraction of the inhibitor, thereby modulating the concentration difference across the cell wall. The adsorbed inhibitor may later be released (desorption) into the medium, acting as a reservoir that smooths out the concentration gradient.
+- **Delay in Effective Release:** The binding and subsequent desorption process can delay the effective diffusion of the inhibitor away from the spore. This delay may cause the time evolution of the external concentration to deviate from the simple solution of the diffusion equation. In mathematical terms, the boundary condition at the wall becomes nonlinear, reflecting the kinetics of adsorption/desorption.
+- **Impact on Germination Dynamics:** The overall effect on germination is that the inhibitor’s availability is not solely determined by its free concentration in the medium but also by its binding equilibrium with the cell wall. This can result in a logarithmic-like relationship between the exogenous concentration (or effective source density) and the concentration sensed by the spore, as the cell wall effectively “buffers” the inhibitor.
+
+### 4. Summary
+
+The key idea is that the conidial cell wall is an active interface:
+- Its complex structure and chemical functionality allow for the adsorption (and subsequent possible desorption) of germination inhibitor molecules.
+- This adsorption alters the local concentration gradient, thereby affecting the flux of inhibitor out of (or into) the spore.
+- When modeled properly (using, e.g., a Langmuir isotherm or nonlinear boundary condition), these effects can lead to effective behaviors—like a logarithmic relationship between external addition and internal concentration—that differ from what a purely linear (non-adsorptive) diffusion model would predict.
+
+In essence, the adsorption to the spore interface plays a critical role in determining how inhibitor molecules are distributed near the spore, which in turn influences the onset of germination.
+
 ## How to approach concentration drops?
 - Herrero-Garcia (2011) and Chitarra (2004) relate germination percentages to specific added concentrations of 1-octen-3-ol. But the spores likely already contain a certain concentration. This means that the added concentration emulates the effect of denser spore release.
 - The decrease in germination under added 1-octen-3-ol can be correlated with the effect of crowding (also documented in Herrero-Garcia (2011)). This possibly allows us to map concentrations of 1-octen-3-ol to spore densities and, consecutively, to concentrations per spore?
