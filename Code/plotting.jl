@@ -479,11 +479,12 @@ __precompile__(false)
     end
 
 
-    function plot_lattice_regions(region_ids)
+    function plot_lattice_regions(region_ids; zoom=1.0)
         """
         Plots the exterior, cell wall and interior lattice regions.
         inputs
             region_ids (Array{Int}): region IDs
+            zoom (float): zoom factor for the plot
         """
 
         N, H = size(region_ids)
@@ -492,6 +493,8 @@ __precompile__(false)
         ax.set_title("Lattice regions")
         ax.set_xlabel(@L_str"i")
         ax.set_ylabel(@L_str"j")
+        ax.set_xlim((1-zoom)*0.5*N, (1+zoom)*0.5*N)
+        ax.set_ylim((1-zoom)*0.5*H, (1+zoom)*0.5*H)
         
         gcf()
     end

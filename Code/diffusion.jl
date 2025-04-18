@@ -712,6 +712,9 @@ __precompile__(false)
         # Save update factor
         dtdx2 = dt / (dx^2)
 
+        # Correction factor due to area overestimation
+        Db = Db * 2 / 3
+
         # Compute internal cell wall diffusion constant from effective diffusion constant
         Dcw = Db * D / (2 * D - Db)
         println("Using D = $D, Db = $Db, Dcw = $Dcw")
@@ -913,11 +916,14 @@ __precompile__(false)
         # Save update factor
         dtdx2 = dt / (dx^2)
 
+        # Correction factor due to area overestimation
+        Db = Db * 2 / 3
+
         # Cell wall thickness
         cw_thickness = corr_factor*sqrt(3)
 
         # Compute internal cell wall diffusion constant from effective diffusion constant
-        Dcw = Db * D / (2 * D - Db)
+        Dcw = Db #* D / (2 * D - Db)
         println("Using D = $D, Db = $Db, Dcw = $Dcw")
         println("D*dt/dx2 = $(D*dtdx2), Db*dt/dx2 = $(Db*dtdx2), Dcw*dt/dx2 = $(Dcw*dtdx2)")
         println("Timescale for accuracy: ", dx^2 / max([D, Db, Dcw]...))
