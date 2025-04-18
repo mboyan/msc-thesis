@@ -73,6 +73,31 @@ __precompile__(false)
         return result
     end
 
+
+    function concentration_at_spore_ambient_sources(t, c₀, c_ex, ρₛ, R, Pₛ)
+        """
+        Compute the concentration in the spore at time t_max
+        given a density of releasing spores.
+        inputs:
+            times (array) - the times at which the concentration is to be computed
+            c₀ (float) - the initial concentration at the spore in M
+            c_ex (float) - the external concentration in M
+            ρₛ (float) - the density of spores in spores/mL
+            R (float) - the radius of the spore in um
+            Pₛ (float) - the permeation constant through the spore barrier in um/s
+        """
+
+        # Conversions
+        ρₛ = inverse_mL_to_cubic_um(ρₛ) # spores/mL to spores/um^3
+
+        A, V = compute_spore_area_and_volume_from_dia(2 * R)
+        τ = V / (A * Pₛ)
+        ϕ = ρₛ * V # volume fraction
+
+        return ϕ * c0 + (1 - ϕ) * (c_ex + (c₀ - c_ex) * exp.(-t ./ τ))
+    end
+
+        
     function aggregation_time_integral(r, t, Ps, A, V, D)
         ϵ = 1e-12
         if t < ϵ
