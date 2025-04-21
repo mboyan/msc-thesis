@@ -293,7 +293,8 @@ __precompile__(false)
     end
 
 
-    function plot_concentration_evolution(c_vals::Array{Float64}, times::Vector{Float64}, label=nothing, ax=nothing, logx=false, logy=false, fit_exp=false, cmap=nothing, cmap_idx=1, time_cutoff=nothing, title=nothing)
+    function plot_concentration_evolution(c_vals::Array{Float64}, times::Vector{Float64};
+                                            label=nothing, ax=nothing, logx=false, logy=false, fit_exp=false, cmap=nothing, cmap_idx=1, time_cutoff=nothing, title=nothing, ylim=nothing)
         """
         Plots the time-series of a calculated concentration.
         inputs:
@@ -307,6 +308,8 @@ __precompile__(false)
             cmap (str): colormap
             cmap_idx (int): index of colour in colormap
             time_cutoff (float): time cutoff for the plot
+            title (str): title of the plot
+            ylim (Tuple): y-axis limits
         """
         
         if isnothing(ax)
@@ -344,7 +347,6 @@ __precompile__(false)
         end
         ax.grid(true)
         ax.legend()
-        # ax.set_ylim(1.495, 1.5)
 
         if logx
             ax.set_xscale("log")
@@ -353,7 +355,10 @@ __precompile__(false)
 
         if logy
             ax.set_yscale("log")
-            ax.set_ylim(max(minimum(c_vals), 1e-20), max(maximum(c_vals)*1.5, 1.0))
+        end
+
+        if !isnothing(ylim)
+            ax.set_ylim(ylim[1], ylim[2])
         end
 
         if plotself
@@ -376,7 +381,8 @@ __precompile__(false)
     end
 
     
-    function compare_concentration_evolutions(c_vals_array, times_array, labels=nothing, ax=nothing; logx=false, logy=false, fit_exp=false, cmap=nothing, cmap_idx_base=0, title=nothing, time_cutoff=nothing)
+    function compare_concentration_evolutions(c_vals_array, times_array, labels=nothing, ax=nothing;
+                                                logx=false, logy=false, fit_exp=false, cmap=nothing, cmap_idx_base=0, title=nothing, time_cutoff=nothing, ylim=nothing)
         """
         Plot multiple concentration evolutions on the same axis.
         inputs:
@@ -391,6 +397,7 @@ __precompile__(false)
             cmap_idx_base (int): base index of the colormap
             title (str): title of the plot
             time_cutoff (float): time cutoff for the plot
+            ylim (Tuple): y-axis limits
         """
 
         # @argcheck (typeof(c_vals_array) in [Vector{Vector{Float64}}, Matrix{Float64}]) "c_groups must be a vector of matrices or a matrix"
@@ -415,7 +422,7 @@ __precompile__(false)
         end
         
         for i in eachindex(c_vals_array)
-            plot_concentration_evolution(c_vals_array[i], times_array[i], labels[i], ax, logx, logy, fit_exp, cmap, cmap_idx_base+i-1, time_cutoff, title)
+            plot_concentration_evolution(c_vals_array[i], times_array[i]; label=labels[i], ax, logx, logy, fit_exp, cmap, cmap_idx=cmap_idx_base+i-1, time_cutoff, title, ylim)
         end
 
         if plotself
@@ -426,7 +433,8 @@ __precompile__(false)
     end
 
 
-    function compare_concentration_evolution_groups(c_groups, times_groups, group_labels=nothing, ax=nothing; logx=false, logy=false, fit_exp=false, title=nothing, time_cutoff=nothing)
+    function compare_concentration_evolution_groups(c_groups, times_groups, group_labels=nothing, ax=nothing;
+                                                    logx=false, logy=false, fit_exp=false, title=nothing, time_cutoff=nothing, ylim=nothing)
         """
         Compare the concentration evolutions from groups of simulations
         on the same axis, with corresponding colors.
@@ -440,6 +448,7 @@ __precompile__(false)
             fit_exp (bool): whether to fit an exponential to the data
             title (str): title of the plot
             time_cutoff (float): time cutoff for the plot
+            ylim (Tuple): y-axis limits
         """
 
         # @argcheck (typeof(c_groups) in [Vector{Vector{Vector{Float64}}}, Matrix{Float64}, Array{Float64, 3}]) "c_groups must be a vector of matrices or a matrix"
@@ -465,7 +474,7 @@ __precompile__(false)
 
         cmap = get_cmap("tab20c")
         for i in eachindex(c_groups)
-            compare_concentration_evolutions(c_groups[i], times_groups[i], group_labels[i], ax; logx, logy, fit_exp, cmap, cmap_idx_base=(i - 1)*4, title=title, time_cutoff=time_cutoff)
+            compare_concentration_evolutions(c_groups[i], times_groups[i], group_labels[i], ax; logx, logy, fit_exp, cmap, cmap_idx_base=(i - 1)*4, title=title, time_cutoff=time_cutoff, ylim=ylim)
         end
 
         if plotself
