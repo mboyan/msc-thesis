@@ -353,7 +353,7 @@ __precompile__(false)
 
         if logy
             ax.set_yscale("log")
-            ax.set_ylim(max(minimum(c_vals), 1e-20), 1.0)
+            ax.set_ylim(max(minimum(c_vals), 1e-20), max(maximum(c_vals)*1.5, 1.0))
         end
 
         if plotself

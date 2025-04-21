@@ -26,6 +26,7 @@ __precompile__(false)
 
     export permeation_time_dependent_analytical
     export diffusion_time_dependent_analytical_src
+    export concentration_at_spore_ambient_sources
     export slow_release_pt_src_grid
     export slow_release_pt_src_grid_at_src
     export slow_release_shell_src
@@ -94,7 +95,7 @@ __precompile__(false)
         τ = V / (A * Pₛ)
         ϕ = ρₛ * V # volume fraction
 
-        return ϕ * c0 + (1 - ϕ) * (c_ex + (c₀ - c_ex) * exp.(-t ./ τ))
+        return ϕ * c₀ .+ (1 - ϕ) .* (c_ex .+ (c₀ - c_ex) .* exp.(-t ./ τ))
     end
 
         
