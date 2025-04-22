@@ -5,6 +5,7 @@ module Conversions
     
     using QuadGK
     using LinearAlgebra
+    using MeshGrid
 
     export cm_to_um
     export um_to_cm
@@ -25,6 +26,7 @@ module Conversions
     export measure_coverage
     export extract_mean_cw_concentration
     export compute_spore_concentration
+    export generate_spore_positions
 
     function cm_to_um(cm)
         """
@@ -354,6 +356,51 @@ module Conversions
         c_spore = moles_cw / spore_vol
 
         return c_spore[:]
+    end
+
+    function generate_spore_positions(spore_density, Lx, Lz; base_height=nothing)
+        """
+        Generate positions of spores in a 3D grid.
+        inputs:
+            spore_density (float): density of spores in spores/mL
+            Lx (float): length of the grid in micrometers
+            Lz (float): height of the grid in micrometers
+            base_height (float): height of the base of the grid in micrometers, if specified, a 2D grid is generated
+        """
+
+        # Convert spore density to spores/micrometer^3
+        spore_density = inverse_mL_to_cubic_um(spore_density)
+
+        # Calculate the number of spores to place
+        V_grid = Lx^2 * Lz
+        n_spores = spore_density * V_grid
+
+        if isnothing(base_height)
+            n_spores_1D = round(Int, cbrt(n_spores))
+        else
+            # Calculate the number of spores to place
+            n_spores_1D = round(Int, sqrt(n_spores))
+        end
+        println("Effective density: $(n_spores_1D^3 / V_grid) spores/micrometer^3")
+
+        spore_spacing = Lx / n_spores_1D
+
+        println("Populating volume of $(V_grid) micrometers^3 with $(n_spores) spores, $(n_spores_1D) spores per dimension")
+        println("Spore spacing: $(spore_spacing) micrometers")
+
+        spores_x = collect(0:spore_spacing:Lx)
+        if isnothing(base_height)
+            spores_z = collect(0:spore_spacing:Lz)
+            spores_x, spores_y, spores_z = meshgrid(spores_x, spores_x, spores_z)
+        else
+            spores_x, spores_y = meshgrid(spores_x, spores_x)
+            spores_z = zeros(length(spores_x)) .+ base_height
+        end
+
+        spore_coords = zeros(Float64, length(spores_x), 3)
+        spore_coords .= hcat(vec(spores_x), vec(spores_y), vec(spores_z))  # Concatenate the coordinates
+
+        return spore_coords, spore_spacing
     end
 
 end

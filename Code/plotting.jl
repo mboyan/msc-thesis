@@ -33,7 +33,9 @@ __precompile__(false)
     export plot_functional_relationship
     export compare_functional_relationships
     export compare_functional_relationships_groups
-    
+    export plot_spore_positions
+    export plot_spore_arrangements
+
 
     function generate_ax_grid_pyplot(n_rows, n_cols, figsize=(8, 4))
         """
@@ -667,5 +669,89 @@ __precompile__(false)
             ax.legend(fontsize="small")
             gcf()
         end
+    end
+
+
+    function plot_spore_positions(Lx, Lz, spore_positions; ax=nothing, title=nothing, top_view=false)
+        """
+        Creates a scatter plot of the spore positions.
+        inputs:
+            Lx (float): length of the x/y-axis
+            Lz (float): length of the z-axis
+            spore_positions (Array{Tuple}): spore positions
+            ax (Axis): axis to plot on
+            title (str): title of the plot
+            top_view (bool): whether to plot in top view
+        """
+
+        if isnothing(ax)
+            if top_view 
+                fig, ax = subplots(1, 1, figsize=(6, 6))
+            else
+                fig = figure(figsize=(6, 6))
+                ax = fig[:add_subplot](projection="3d")
+                ax.scatter(spore_positions[:, 1], spore_positions[:, 2], spore_positions[:, 3], color="blue", alpha=0.5, s=10)
+            end
+            plotself = true
+        else
+            plotself = false
+        end
+
+        if top_view
+            ax.scatter(spore_positions[:, 1], spore_positions[:, 2], color="blue", alpha=0.5, s=10)
+        else
+            ax.scatter(spore_positions[:, 1], spore_positions[:, 2], spore_positions[:, 3], color="blue", alpha=0.5, s=10)
+        end
+        
+        ax.set_xlim(0, Lx)
+        ax.set_ylim(0, Lx)
+        ax.set_xlabel(L"x\ [μm]")
+        ax.set_ylabel(L"y\ [μm]")
+        if !top_view
+            ax.set_zlim(0, Lz)
+            ax.set_zlabel(L"z\ [μm]")
+        end
+
+        if !isnothing(title)
+            ax.set_title(title)
+        end
+
+        if plotself
+            gcf()
+        end
+    end
+
+
+    function plot_spore_arrangements(Lx, Lz, spore_arrangements, labels=nothing; title=nothing, top_view=false)
+        """
+        Creates multiple scatter plots for the different spore arrangements.
+        inputs:
+            Lx (float): length of the x/y-axis
+            Lz (float): length of the z-axis
+            spore_arrangements (Array{Array{Tuple}}): spore arrangements
+            labels (Array{String}): labels for the plots
+            title (str): title of the plot
+            top_view (bool): whether to plot in top view
+        """
+        if isnothing(labels)
+            labels = ["Arrangement $i" for i in 1:length(spore_arrangements)]
+        end
+
+        # Convert to nested arrays
+        spore_arrangements = to_nested(spore_arrangements)
+        
+        if top_view 
+            fig, axs = subplots(1, 1, figsize=(6, 6))
+        else
+            fig, axs = subplots(1, length(spore_arrangements), figsize=(6*length(spore_arrangements), 6), subplot_kw=Dict("projection"=>"3d",))
+        end
+
+        for (i, arrangement) in enumerate(spore_arrangements)
+            plot_spore_positions(Lx, Lz, arrangement; ax=axs[i], title=labels[i], top_view=top_view)
+        end
+        fig.tight_layout()
+        fig.suptitle(title)
+
+        gcf()
     end
 end
