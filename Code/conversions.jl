@@ -370,22 +370,21 @@ module Conversions
 
         # Convert spore density to spores/micrometer^3
         spore_density = inverse_mL_to_cubic_um(spore_density)
+        println("Spore density: $(spore_density) spores per micrometer^3")
 
         # Calculate the number of spores to place
         V_grid = Lx^2 * Lz
-        n_spores = spore_density * V_grid
+        # n_spores = spore_density * V_grid
 
         if isnothing(base_height)
-            n_spores_1D = round(Int, cbrt(n_spores))
+            n_spores_1D = cbrt(spore_density)
         else
-            # Calculate the number of spores to place
-            n_spores_1D = round(Int, sqrt(n_spores))
+            n_spores_1D = sqrt(spore_density)
         end
-        println("Effective density: $(n_spores_1D^3 / V_grid) spores/micrometer^3")
 
-        spore_spacing = Lx / n_spores_1D
+        spore_spacing = 1 / n_spores_1D
 
-        println("Populating volume of $(V_grid) micrometers^3 with $(n_spores) spores, $(n_spores_1D) spores per dimension")
+        println("Populating volume of $(V_grid) micrometers^3 with $(spore_density) spores per um^3, $(n_spores_1D) spores per dimension")
         println("Spore spacing: $(spore_spacing) micrometers")
 
         spores_x = collect(0:spore_spacing:Lx)

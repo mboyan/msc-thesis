@@ -1075,6 +1075,7 @@ __precompile__(false)
             # Update the lattice
             b_gpu = crank_nicolson ? op_B_gpu * c_gpu : c_gpu  # Right-hand side
             c_gpu, stats = Krylov.cg(op_A_gpu, b_gpu; atol=Float32(1e-12), itmax=1000)
+            println(stats)
 
             # Check for threshold crossing
             if !isnothing(c_thresholds)
