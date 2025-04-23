@@ -24,9 +24,11 @@ module Conversions
     export compute_spore_area_and_volume_from_dia
     export compute_D_from_radius_and_viscosity
     export measure_coverage
+    export measure_shielding_index
     export extract_mean_cw_concentration
     export compute_spore_concentration
     export generate_spore_positions
+
 
     function cm_to_um(cm)
         """
@@ -39,6 +41,7 @@ module Conversions
         return cm * 1e4
     end
 
+
     function um_to_cm(um)
         """
         Convert micrometers to centimeters.
@@ -49,6 +52,7 @@ module Conversions
         """
         return um * 1e-4
     end
+
 
     function nm_to_um(nm)
         """
@@ -61,6 +65,7 @@ module Conversions
         return nm * 1e-3
     end
 
+
     function um_to_nm(um)
         """
         Convert micrometers to nanometers.
@@ -71,6 +76,7 @@ module Conversions
         """
         return um * 1e3
     end
+
 
     function cm2_to_um2(cm2)
         """
@@ -83,6 +89,7 @@ module Conversions
         return cm2 * 1e8
     end
 
+
     function um2_to_cm2(um2)
         """
         Convert square micrometers to square centimeters.
@@ -93,6 +100,7 @@ module Conversions
         """
         return um2 * 1e-8
     end
+
 
     function mL_to_cubic_um(mL)
         """
@@ -105,6 +113,7 @@ module Conversions
         return mL * 1e12
     end
 
+
     function inverse_mL_to_cubic_um(mL_inv)
         """
         Convert inverse milliliters to inverse micrometers cubed.
@@ -115,6 +124,7 @@ module Conversions
         """
         return mL_inv * 1e-12
     end
+
 
     function cubic_um_to_mL(cubic_um)
         """
@@ -127,6 +137,7 @@ module Conversions
         return cubic_um * 1e-12
     end
 
+
     function inverse_cubic_um_to_mL(cubic_um_inv)
         """
         Convert inverse micrometers cubed to inverse milliliters.
@@ -138,6 +149,7 @@ module Conversions
         return cubic_um_inv * 1e12
     end
 
+
     function inverse_uL_to_mL(uL_inv)
         """
         Convert inverse milliliters to inverse micrometers cubed.
@@ -148,6 +160,7 @@ module Conversions
         """
         return uL_inv * 1000
     end
+
 
     function convert_D_to_Ps(D, K, d)
         """
@@ -162,6 +175,7 @@ module Conversions
         return D * K / d
     end
 
+
     function convert_Ps_to_D(Ps, K, d)
         """
         Convert permeability to diffusion coefficient.
@@ -174,6 +188,7 @@ module Conversions
         """
         return Ps * d / K
     end
+
 
     function compute_spore_area_and_volume_from_dia(diameter)
         """
@@ -191,6 +206,7 @@ module Conversions
         return A, V
     end
 
+
     function coverage_integral(ϕ, R, d)
         """
         The coverage function for a sphere.
@@ -204,6 +220,7 @@ module Conversions
         Δ = d * cos(ϕ) - sqrt(R^2 - (d * sin(ϕ))^2) - R
         return exp(-Δ) * sin(ϕ)
     end
+
 
     function measure_coverage(sample_shere_center::Tuple, nbr_sphere_centers; rad=1, dx=1)
         """
@@ -228,6 +245,34 @@ module Conversions
 
         return 0.5 * intsum
     end
+
+
+    function measure_shielding_index(sample_shere_center::Tuple, nbr_sphere_centers)
+        """
+        Measure the shielding index of neighboring spheres on a sample sphere
+        using the non-dominant eigenvalues of the unnormalised orientation tensor.
+        inputs:
+            sample_shere_center (Tuple{Float64, 1}): center of the sample sphere
+            nbr_sphere_centers (Array{Tuple{Float64}, 1}): centers of the neighboring spheres
+        outputs:
+            (float) cumulative shadow intensity
+        """
+        # Create matrix
+        M = zeros(Float64, 3, 3)
+        for nbr in nbr_sphere_centers
+            nbr = collect(nbr)
+            u = nbr .- sample_shere_center
+            u = u ./ norm(u)
+            M += u * u'
+        end
+
+        # Eigenvalues
+        λ = eigvals(M)
+        λ = sort(λ, rev=true)
+        
+        return λ[2] + λ[3]
+    end
+
 
     function compute_stokes_radius(mass, density)
         """

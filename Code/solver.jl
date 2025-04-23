@@ -510,7 +510,7 @@ module Solver
     end
 
 
-    function initialise_lattice_and_operator_GPU!(c_init, colidx, valsA, valsB, region_ids, c₀, sp_cen_i, sp_cen_j, sp_cen_k, spore_rad_lattice, cw_thickness, D, Dcw, Db, dtdx2, N, H, crank_nicolson=true, empty_interior=true)
+    function initialise_lattice_and_operator_GPU!(c_init, colidx, valsA, valsB, region_ids, pc_vals, c₀, sp_cen_i, sp_cen_j, sp_cen_k, spore_rad_lattice, cw_thickness, D, Dcw, Db, dtdx2, N, H, crank_nicolson=true, empty_interior=true, abs_bndry=false)
         """
         GPU kernel for building the operator sparse matrix for implicitly solving the diffusion equation
         using the Crank-Nicolson method and initialising the lattice. Also assigns region IDs to the lattice.
@@ -533,6 +533,7 @@ module Solver
             H (int) - the number of lattice layers
             crank_nicolson (bool) - whether the operators are suited for Crank-Nicolson method
             empty_interior (bool) - whether to make interior beyond the cell wall inaccessible for diffusion
+            abs_bndry (bool) - whether to use absorbing boundary conditions
         """
 
         i, j, k = CUDA.blockIdx().x, CUDA.blockIdx().y, CUDA.blockIdx().z
@@ -575,179 +576,201 @@ module Solver
 
         # Get neighbour coefficients
         # ===== Bottom neighbour =====
-        ni, nj, nk = idx[1], idx[2], mod1(idx[3] - 1, H)
-        n_idx = (nk - 1) * N^2 + (nj - 1) * N + ni
-        colidx[idx_lin*7-5] = n_idx
-        dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
-        coeff = 0f0
-        if (spore_rad_lattice - cw_thickness ≤ dist) && (dist ≤ spore_rad_lattice)
-            # Cell wall neighbour
-            if region_id == 0 # Exterior - cell wall
-                coeff = Float32(Db * dtdx2 * factor)
-                # debugger[idx...] = 1
-            elseif region_id == 1 # Cell wall - cell wall
+        if (abs_bndry && idx[3] > 1) || !abs_bndry
+            ni, nj, nk = idx[1], idx[2], mod1(idx[3] - 1, H)
+            n_idx = (nk - 1) * N^2 + (nj - 1) * N + ni
+            colidx[idx_lin*7-5] = n_idx
+            dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
+            coeff = 0f0
+            if (spore_rad_lattice - cw_thickness ≤ dist) && (dist ≤ spore_rad_lattice)
+                # Cell wall neighbour
+                if region_id == 0 # Exterior - cell wall
+                    coeff = Float32(Db * dtdx2 * factor)
+                    # debugger[idx...] = 1
+                elseif region_id == 1 # Cell wall - cell wall
+                    coeff = Float32(Dcw * dtdx2 * factor)
+                end
+            elseif dist > spore_rad_lattice
+                # Exterior neighbour
+                if region_id == 0 # Exterior - exterior
+                    coeff = Float32(D * dtdx2 * factor)
+                elseif region_id == 1 # Cell wall - exterior
+                    coeff = Float32(Db * dtdx2 * factor)
+                end
+            elseif !empty_interior
+                # Interior neighbour
                 coeff = Float32(Dcw * dtdx2 * factor)
             end
-        elseif dist > spore_rad_lattice
-            # Exterior neighbour
-            if region_id == 0 # Exterior - exterior
-                coeff = Float32(D * dtdx2 * factor)
-            elseif region_id == 1 # Cell wall - exterior
-                coeff = Float32(Db * dtdx2 * factor)
-            end
-        elseif !empty_interior
-            # Interior neighbour
-            coeff = Float32(Dcw * dtdx2 * factor)
+            diag_val += coeff
+            valsA[idx_lin*7-5] = valsA[idx_lin*7-5] != 0 ? - min(abs(valsA[idx_lin*7-5]), coeff) : - coeff
+            valsB[idx_lin*7-5] = crank_nicolson ? (valsB[idx_lin*7-5] != 0 ? min(valsB[idx_lin*7-5], coeff) : coeff) : 0f0
         end
-        diag_val += coeff
-        valsA[idx_lin*7-5] = - coeff
-        valsB[idx_lin*7-5] = crank_nicolson ? coeff : 0f0
 
         # ===== Top neighbour =====
-        ni, nj, nk = idx[1], idx[2], mod1(idx[3] + 1, H)
-        n_idx = (nk - 1) * N^2 + (nj - 1) * N + ni
-        colidx[idx_lin*7-4] = n_idx
-        dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
-        coeff = 0f0
-        if (spore_rad_lattice - cw_thickness ≤ dist) && (dist ≤ spore_rad_lattice)
-            # Cell wall neighbour
-            if region_id == 0 # Exterior - cell wall
-                coeff = Float32(Db * dtdx2 * factor)
-            elseif region_id == 1 # Cell wall - cell wall
+        if (abs_bndry && idx[3] < H) || !abs_bndry
+            ni, nj, nk = idx[1], idx[2], mod1(idx[3] + 1, H)
+            n_idx = (nk - 1) * N^2 + (nj - 1) * N + ni
+            colidx[idx_lin*7-4] = n_idx
+            dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
+            coeff = 0f0
+            if (spore_rad_lattice - cw_thickness ≤ dist) && (dist ≤ spore_rad_lattice)
+                # Cell wall neighbour
+                if region_id == 0 # Exterior - cell wall
+                    coeff = Float32(Db * dtdx2 * factor)
+                elseif region_id == 1 # Cell wall - cell wall
+                    coeff = Float32(Dcw * dtdx2 * factor)
+                end
+            elseif dist > spore_rad_lattice
+                # Exterior neighbour
+                if region_id == 0 # Exterior - exterior
+                    coeff = Float32(D * dtdx2 * factor)
+                elseif region_id == 1 # Cell wall - exterior
+                    coeff = Float32(Db * dtdx2 * factor)
+                end
+            elseif !empty_interior
+                # Interior neighbour
                 coeff = Float32(Dcw * dtdx2 * factor)
             end
-        elseif dist > spore_rad_lattice
-            # Exterior neighbour
-            if region_id == 0 # Exterior - exterior
-                coeff = Float32(D * dtdx2 * factor)
-            elseif region_id == 1 # Cell wall - exterior
-                coeff = Float32(Db * dtdx2 * factor)
-            end
-        elseif !empty_interior
-            # Interior neighbour
-            coeff = Float32(Dcw * dtdx2 * factor)
+            diag_val += coeff
+            # valsA[idx_lin*7-4] = - coeff
+            # valsB[idx_lin*7-4] = crank_nicolson ? coeff : 0f0
+            valsA[idx_lin*7-4] = valsA[idx_lin*7-4] != 0 ? - min(abs(valsA[idx_lin*7-4]), coeff) : - coeff
+            valsB[idx_lin*7-4] = crank_nicolson ? (valsB[idx_lin*7-4] != 0 ? min(valsB[idx_lin*7-4], coeff) : coeff) : 0f0
         end
-        diag_val += coeff
-        valsA[idx_lin*7-4] = - coeff
-        valsB[idx_lin*7-4] = crank_nicolson ? coeff : 0f0
 
         # ===== Left neighbour =====
-        ni, nj, nk = idx[1], mod1(idx[2] - 1, H), idx[3]
-        n_idx = (nk - 1) * N^2 + (nj - 1) * N + ni
-        colidx[idx_lin*7-3] = n_idx
-        dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
-        coeff = 0f0
-        if (spore_rad_lattice - cw_thickness ≤ dist) && (dist ≤ spore_rad_lattice)
-            # Cell wall neighbour
-            if region_id == 0 # Exterior - cell wall
-                coeff = Float32(Db * dtdx2 * factor)
-            elseif region_id == 1 # Cell wall - cell wall
+        if (abs_bndry && idx[2] > 1) || !abs_bndry
+            ni, nj, nk = idx[1], mod1(idx[2] - 1, H), idx[3]
+            n_idx = (nk - 1) * N^2 + (nj - 1) * N + ni
+            colidx[idx_lin*7-3] = n_idx
+            dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
+            coeff = 0f0
+            if (spore_rad_lattice - cw_thickness ≤ dist) && (dist ≤ spore_rad_lattice)
+                # Cell wall neighbour
+                if region_id == 0 # Exterior - cell wall
+                    coeff = Float32(Db * dtdx2 * factor)
+                elseif region_id == 1 # Cell wall - cell wall
+                    coeff = Float32(Dcw * dtdx2 * factor)
+                end
+            elseif dist > spore_rad_lattice
+                # Exterior neighbour
+                if region_id == 0 # Exterior - exterior
+                    coeff = Float32(D * dtdx2 * factor)
+                elseif region_id == 1 # Cell wall - exterior
+                    coeff = Float32(Db * dtdx2 * factor)
+                end
+            elseif !empty_interior
+                # Interior neighbour
                 coeff = Float32(Dcw * dtdx2 * factor)
             end
-        elseif dist > spore_rad_lattice
-            # Exterior neighbour
-            if region_id == 0 # Exterior - exterior
-                coeff = Float32(D * dtdx2 * factor)
-            elseif region_id == 1 # Cell wall - exterior
-                coeff = Float32(Db * dtdx2 * factor)
-            end
-        elseif !empty_interior
-            # Interior neighbour
-            coeff = Float32(Dcw * dtdx2 * factor)
+            diag_val += coeff
+            # valsA[idx_lin*7-3] = - coeff
+            # valsB[idx_lin*7-3] = crank_nicolson ? coeff : 0f0
+            valsA[idx_lin*7-3] = valsA[idx_lin*7-3] != 0 ? - min(abs(valsA[idx_lin*7-3]), coeff) : - coeff
+            valsB[idx_lin*7-3] = crank_nicolson ? (valsB[idx_lin*7-3] != 0 ? min(valsB[idx_lin*7-3], coeff) : coeff) : 0f0
         end
-        diag_val += coeff
-        valsA[idx_lin*7-3] = - coeff
-        valsB[idx_lin*7-3] = crank_nicolson ? coeff : 0f0
 
         # ===== Right neighbour =====
-        ni, nj, nk = idx[1], mod1(idx[2] + 1, H), idx[3]
-        n_idx = (nk - 1) * N^2 + (nj - 1) * N + ni
-        colidx[idx_lin*7-2] = n_idx
-        dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
-        coeff = 0f0
-        if (spore_rad_lattice - cw_thickness ≤ dist) && (dist ≤ spore_rad_lattice)
-            # Cell wall neighbour
-            if region_id == 0 # Exterior - cell wall
-                coeff = Float32(Db * dtdx2 * factor)
-            elseif region_id == 1 # Cell wall - cell wall
+        if (abs_bndry && idx[2] < N) || !abs_bndry
+            ni, nj, nk = idx[1], mod1(idx[2] + 1, H), idx[3]
+            n_idx = (nk - 1) * N^2 + (nj - 1) * N + ni
+            colidx[idx_lin*7-2] = n_idx
+            dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
+            coeff = 0f0
+            if (spore_rad_lattice - cw_thickness ≤ dist) && (dist ≤ spore_rad_lattice)
+                # Cell wall neighbour
+                if region_id == 0 # Exterior - cell wall
+                    coeff = Float32(Db * dtdx2 * factor)
+                elseif region_id == 1 # Cell wall - cell wall
+                    coeff = Float32(Dcw * dtdx2 * factor)
+                end
+            elseif dist > spore_rad_lattice
+                # Exterior neighbour
+                if region_id == 0 # Exterior - exterior
+                    coeff = Float32(D * dtdx2 * factor)
+                elseif region_id == 1 # Cell wall - exterior
+                    coeff = Float32(Db * dtdx2 * factor)
+                end
+            elseif !empty_interior
+                # Interior neighbour
                 coeff = Float32(Dcw * dtdx2 * factor)
             end
-        elseif dist > spore_rad_lattice
-            # Exterior neighbour
-            if region_id == 0 # Exterior - exterior
-                coeff = Float32(D * dtdx2 * factor)
-            elseif region_id == 1 # Cell wall - exterior
-                coeff = Float32(Db * dtdx2 * factor)
-            end
-        elseif !empty_interior
-            # Interior neighbour
-            coeff = Float32(Dcw * dtdx2 * factor)
+            diag_val += coeff
+            # valsA[idx_lin*7-2] = - coeff
+            # valsB[idx_lin*7-2] = crank_nicolson ? coeff : 0f0
+            valsA[idx_lin*7-2] = valsA[idx_lin*7-2] != 0 ? - min(abs(valsA[idx_lin*7-2]), coeff) : - coeff
+            valsB[idx_lin*7-2] = crank_nicolson ? (valsB[idx_lin*7-2] != 0 ? min(valsB[idx_lin*7-2], coeff) : coeff) : 0f0
         end
-        diag_val += coeff
-        valsA[idx_lin*7-2] = - coeff
-        valsB[idx_lin*7-2] = crank_nicolson ? coeff : 0f0
 
         # ===== Front neighbour =====
-        ni, nj, nk = mod1(idx[1] - 1, H), idx[2], idx[3]
-        n_idx = (nk - 1) * N^2 + (nj - 1) * N + ni
-        colidx[idx_lin*7-1] = n_idx
-        dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
-        coeff = 0f0
-        if (spore_rad_lattice - cw_thickness ≤ dist) && (dist ≤ spore_rad_lattice)
-            # Cell wall neighbour
-            if region_id == 0 # Exterior - cell wall
-                coeff = Float32(Db * dtdx2 * factor)
-            elseif region_id == 1 # Cell wall - cell wall
+        if (abs_bndry && idx[1] > 1) || !abs_bndry
+            ni, nj, nk = mod1(idx[1] - 1, H), idx[2], idx[3]
+            n_idx = (nk - 1) * N^2 + (nj - 1) * N + ni
+            colidx[idx_lin*7-1] = n_idx
+            dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
+            coeff = 0f0
+            if (spore_rad_lattice - cw_thickness ≤ dist) && (dist ≤ spore_rad_lattice)
+                # Cell wall neighbour
+                if region_id == 0 # Exterior - cell wall
+                    coeff = Float32(Db * dtdx2 * factor)
+                elseif region_id == 1 # Cell wall - cell wall
+                    coeff = Float32(Dcw * dtdx2 * factor)
+                end
+            elseif dist > spore_rad_lattice
+                # Exterior neighbour
+                if region_id == 0 # Exterior - exterior
+                    coeff = Float32(D * dtdx2 * factor)
+                elseif region_id == 1 # Cell wall - exterior
+                    coeff = Float32(Db * dtdx2 * factor)
+                end
+            elseif !empty_interior
+                # Interior neighbour
                 coeff = Float32(Dcw * dtdx2 * factor)
             end
-        elseif dist > spore_rad_lattice
-            # Exterior neighbour
-            if region_id == 0 # Exterior - exterior
-                coeff = Float32(D * dtdx2 * factor)
-            elseif region_id == 1 # Cell wall - exterior
-                coeff = Float32(Db * dtdx2 * factor)
-            end
-        elseif !empty_interior
-            # Interior neighbour
-            coeff = Float32(Dcw * dtdx2 * factor)
+            diag_val += coeff
+            # valsA[idx_lin*7-1] = - coeff
+            # valsB[idx_lin*7-1] = crank_nicolson ? coeff : 0f0
+            valsA[idx_lin*7-1] = valsA[idx_lin*7-1] != 0 ? - min(abs(valsA[idx_lin*7-1]), coeff) : - coeff
+            valsB[idx_lin*7-1] = crank_nicolson ? (valsB[idx_lin*7-1] != 0 ? min(valsB[idx_lin*7-1], coeff) : coeff) : 0f0
         end
-        diag_val += coeff
-        valsA[idx_lin*7-1] = - coeff
-        valsB[idx_lin*7-1] = crank_nicolson ? coeff : 0f0
 
         # ===== Back neighbour =====
-        ni, nj, nk = mod1(idx[1] + 1, H), idx[2], idx[3]
-        n_idx = (nk - 1) * N^2 + (nj - 1) * N + ni
-        colidx[idx_lin*7] = n_idx
-        dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
-        coeff = 0f0
-        if (spore_rad_lattice - cw_thickness ≤ dist) && (dist ≤ spore_rad_lattice)
-            # Cell wall neighbour
-            if region_id == 0 # Exterior - cell wall
-                coeff = Float32(Db * dtdx2 * factor)
-            elseif region_id == 1 # Cell wall - cell wall
+        if (abs_bndry && idx[1] < N) || !abs_bndry
+            ni, nj, nk = mod1(idx[1] + 1, H), idx[2], idx[3]
+            n_idx = (nk - 1) * N^2 + (nj - 1) * N + ni
+            colidx[idx_lin*7] = n_idx
+            dist = sqrt((ni - sp_cen_i)^2 + (nj - sp_cen_j)^2 + (nk - sp_cen_k)^2)
+            coeff = 0f0
+            if (spore_rad_lattice - cw_thickness ≤ dist) && (dist ≤ spore_rad_lattice)
+                # Cell wall neighbour
+                if region_id == 0 # Exterior - cell wall
+                    coeff = Float32(Db * dtdx2 * factor)
+                elseif region_id == 1 # Cell wall - cell wall
+                    coeff = Float32(Dcw * dtdx2 * factor)
+                end
+            elseif dist > spore_rad_lattice
+                # Exterior neighbour
+                if region_id == 0 # Exterior - exterior
+                    coeff = Float32(D * dtdx2 * factor)
+                elseif region_id == 1 # Cell wall - exterior
+                    coeff = Float32(Db * dtdx2 * factor)
+                end
+            elseif !empty_interior
+                # Interior neighbour
                 coeff = Float32(Dcw * dtdx2 * factor)
             end
-        elseif dist > spore_rad_lattice
-            # Exterior neighbour
-            if region_id == 0 # Exterior - exterior
-                coeff = Float32(D * dtdx2 * factor)
-            elseif region_id == 1 # Cell wall - exterior
-                coeff = Float32(Db * dtdx2 * factor)
-            end
-        elseif !empty_interior
-            # Interior neighbour
-            coeff = Float32(Dcw * dtdx2 * factor)
+            diag_val += coeff
+            # valsA[idx_lin*7] = - coeff
+            # valsB[idx_lin*7] = crank_nicolson ? coeff : 0f0
+            valsA[idx_lin*7] = valsA[idx_lin*7] != 0 ? - min(abs(valsA[idx_lin*7]), coeff) : - coeff
+            valsB[idx_lin*7] = crank_nicolson ? (valsB[idx_lin*7] != 0 ? min(valsB[idx_lin*7]) : coeff) : 0f0
         end
-        diag_val += coeff
-        valsA[idx_lin*7] = - coeff
-        valsB[idx_lin*7] = crank_nicolson ? coeff : 0f0
 
-        valsA[idx_lin*7-6] = 1 + diag_val
-        valsB[idx_lin*7-6] = crank_nicolson ? 1 - diag_val : 1f0
-        # pc_vals[idx_lin] = 1/(1 + diag_val)
+        valsA[idx_lin*7-6] = valsA[idx_lin*7-6] == 0 ? 1 + diag_val : min(valsA[idx_lin*7-6], 1 + diag_val)
+        valsB[idx_lin*7-6] = crank_nicolson ? max(valsB[idx_lin*7-6], 1 - diag_val) : 1f0
+        pc_vals[idx_lin] = 1/(1 + diag_val)
 
-        region_ids[idx...] = region_id
+        region_ids[idx...] = max(region_ids[idx...], region_id)
 
         return nothing
     end
@@ -817,7 +840,6 @@ module Solver
         end
 
         # Get neighbour coefficients
-        nbr_ct = 1
         # ===== Bottom neighbour =====
         if idx[3] > 1
             ni, nj, nk = idx[1], idx[2], idx[3] - 1

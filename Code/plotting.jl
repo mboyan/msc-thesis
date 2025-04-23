@@ -6,6 +6,7 @@ __precompile__(false)
 
     using ArgCheck
     using PyPlot
+    using PyCall
     using GLMakie
     using GeometryBasics
     using Revise
@@ -143,7 +144,7 @@ __precompile__(false)
     end
 
 
-    function plot_spore_clusters(cluster_sizes, spore_rad, L, per_row=2; cut_half=false, spore_spacings=nothing)
+    function plot_spore_clusters(cluster_sizes, spore_rad, L, per_row=2; cut_half=false, spore_spacings=nothing, measure_shielding=false)
         """
         Create multiple plots for a range of spore cluster sizes.
         inputs:
@@ -153,6 +154,7 @@ __precompile__(false)
             per_row (int): number of plots per row
             cut_half (bool): whether to cut the cluster in half
             spore_spacings (Array{Float64}): distances between spores, if unspecified, spore diameter is used
+            shielding (bool): whether to label the shielding index, otherwise labels the coverage
         """
 
         n_rows = ceil(Int, length(cluster_sizes) / per_row)
@@ -167,8 +169,14 @@ __precompile__(false)
             centers = setup_spore_cluster(cluster_size, L, spore_spacings[i]*0.5, cut_half)
             sample_sphere_center = centers[1]
             nbr_sphere_centers = centers[2:end]
-            coverage = measure_coverage(sample_sphere_center, Array{Tuple}(nbr_sphere_centers); rad=spore_spacings[i]*0.5)
-            plot_spheres!(centers, spore_rad, L, inline=true, title="Cluster size: $(size(nbr_sphere_centers)[1]) + 1, Q = $(round(coverage,digits=5))", ax=axs[i])
+            if measure_shielding
+                shielding = measure_shielding_index(sample_sphere_center, Array{Tuple}(nbr_sphere_centers))
+                label = "Cluster size: $(size(nbr_sphere_centers)[1]) + 1, S = $(round(shielding,digits=5))"
+            else
+                coverage = measure_coverage(sample_sphere_center, Array{Tuple}(nbr_sphere_centers); rad=spore_spacings[i]*0.5)
+                label = "Cluster size: $(size(nbr_sphere_centers)[1]) + 1, Q = $(round(coverage,digits=5))"
+            end
+            plot_spheres!(centers, spore_rad, L, inline=true, title=label, ax=axs[i])
         end
 
         display(fig)
@@ -500,12 +508,19 @@ __precompile__(false)
 
         N, H = size(region_ids)
         fig, ax = subplots(1, 1, figsize=(8, 4))
-        ax.imshow(region_ids, cmap="rainbow", interpolation="nearest")
+        img = ax.imshow(region_ids, cmap="rainbow", interpolation="nearest")
         ax.set_title("Lattice regions")
         ax.set_xlabel(@L_str"i")
         ax.set_ylabel(@L_str"j")
         ax.set_xlim((1-zoom)*0.5*N, (1+zoom)*0.5*N)
         ax.set_ylim((1-zoom)*0.5*H, (1+zoom)*0.5*H)
+
+        # Create a discrete color legend
+        Patch = pyimport("matplotlib.patches").Patch
+        legend_labels = ["Exterior", "Inhibitor space", "Interior"]
+        cmap = get_cmap("rainbow")
+        patches = [Patch(color=cmap((i-1)/2.0), label=legend_labels[i]) for i in eachindex(legend_labels)]
+        ax.legend(handles=patches, loc="upper right", fontsize="small")
         
         gcf()
     end
