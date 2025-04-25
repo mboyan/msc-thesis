@@ -508,7 +508,7 @@ __precompile__(false)
 
         N, H = size(region_ids)
         fig, ax = subplots(1, 1, figsize=(8, 4))
-        img = ax.imshow(region_ids, cmap="rainbow", interpolation="nearest")
+        img = ax.imshow(region_ids, cmap="rainbow", interpolation="nearest", vmin=0, vmax=2)
         ax.set_title("Lattice regions")
         ax.set_xlabel(@L_str"i")
         ax.set_ylabel(@L_str"j")
@@ -526,7 +526,7 @@ __precompile__(false)
     end
 
 
-    function plot_functional_relationship(input, response, axlabels, title=nothing, label=nothing; ax=nothing, logx=false, logy=false, fit=nothing, cmap=nothing, cmap_idx=1)
+    function plot_functional_relationship(input, response, axlabels, title=nothing, label=nothing; ax=nothing, logx=false, logy=false, fit=nothing, cmap=nothing, cmap_idx=1, scatter=false)
         """
         Plots the functional relationship between input and response.
         inputs:
@@ -541,6 +541,7 @@ __precompile__(false)
             fit (str): type of fit to perform
             cmap (str): colormap
             cmap_idx (int): index of colour in colormap
+            scatter (bool): whether to plot as scatter points
         """
 
         if isnothing(ax)
@@ -548,15 +549,23 @@ __precompile__(false)
         end
         
         if isnothing(cmap)
-            ax.plot(input, response, marker="o", label=label)
+            if scatter
+                ax.scatter(input, response, label=label)
+            else
+                ax.plot(input, response, marker="o", label=label)
+            end
         else
-            ax.plot(input, response, marker="o", label=label, color=cmap(cmap_idx), alpha=0.75)
+            if scatter
+                ax.scatter(input, response, label=label, color=cmap(cmap_idx), alpha=0.75)
+            else
+                ax.plot(input, response, marker="o", label=label, color=cmap(cmap_idx), alpha=0.75)
+            end
         end
 
         if fit == "lin"
             fit = linear_fit(input, response)
             println("Fitted linear: ", fit)
-            fit_vals = fit[1] .* input .+ fit[2]
+            fit_vals = fit[2] .* input .+ fit[1]
         elseif fit == "exp"
             fit = exp_fit(input, response)
             println("Fitted exponential: ", fit)
