@@ -949,7 +949,7 @@ __precompile__(false)
         cw_thickness = corr_factor*sqrt(3)
 
         # Compute internal cell wall diffusion constant from effective diffusion constant
-        Dcw = Db #* D / (2 * D - Db)
+        Dcw = Db * D / (2 * D - Db)
         println("Using D = $D, Db = $Db, Dcw = $Dcw")
         println("D*dt/dx2 = $(D*dtdx2), Db*dt/dx2 = $(Db*dtdx2), Dcw*dt/dx2 = $(Dcw*dtdx2)")
         println("Timescale for accuracy: ", dx^2 / max([D, Db, Dcw]...))
@@ -969,35 +969,14 @@ __precompile__(false)
         c_gpu = cu(vec(c_init))
         region_ids_gpu = CUDA.zeros(Int, N, N, H)
         # debugger_gpu = CUDA.zeros(Int, N, N, H)
-        # pc_vals_gpu = CUDA.zeros(Float32, Nt)
-        # pc_rowptr = 1:Nt+1
-        # pc_rowptr_gpu = cu(collect(pc_rowptr))
-        # pc_colidx_gpu = cu(collect(1:Nt))
-        # if abs_bndry
-        #     for sp_cen_idx in sp_cen_indices
-        #         @cuda threads=kernel_threads blocks=kernel_blocks initialise_lattice_and_operator_GPU_abs_bndry!(c_gpu, colidx_gpu, valsA_gpu, valsB_gpu, region_ids_gpu,
-        #                                                                                                         c₀, sp_cen_idx[1], sp_cen_idx[2], sp_cen_idx[3],
-        #                                                                                                         spore_rad_lattice, cw_thickness, D, Dcw, Db, dtdx2, N, H, crank_nicolson)
-        #     end
-        # else
-        #     for sp_cen_idx in sp_cen_indices
-        #         @cuda threads=kernel_threads blocks=kernel_blocks initialise_lattice_and_operator_GPU!(c_gpu, colidx_gpu, valsA_gpu, valsB_gpu, region_ids_gpu, #pc_vals_gpu, debugger_gpu,
-        #                                                                                                 c₀, sp_cen_idx[1], sp_cen_idx[2], sp_cen_idx[3],
-        #                                                                                                 spore_rad_lattice, cw_thickness, D, Dcw, Db, dtdx2, N, H, crank_nicolson)
-        #     end
-        # end
-        if abs_bndry
-            for sp_cen_idx in sp_cen_indices
-                @cuda threads=kernel_threads blocks=kernel_blocks initialise_lattice_and_operator_GPU_abs_bndry!(c_gpu, colidx_gpu, valsA_gpu, valsB_gpu, region_ids_gpu,
-                                                                                                                1f0, sp_cen_idx[1], sp_cen_idx[2], sp_cen_idx[3],
-                                                                                                                spore_rad_lattice, cw_thickness, D, Dcw, Db, dtdx2, N, H, crank_nicolson, empty_interior)
-            end
-        else
-            for sp_cen_idx in sp_cen_indices
-                @cuda threads=kernel_threads blocks=kernel_blocks initialise_lattice_and_operator_GPU!(c_gpu, colidx_gpu, valsA_gpu, valsB_gpu, region_ids_gpu, #pc_vals_gpu, debugger_gpu,
-                                                                                                        1f0, sp_cen_idx[1], sp_cen_idx[2], sp_cen_idx[3],
-                                                                                                        spore_rad_lattice, cw_thickness, D, Dcw, Db, dtdx2, N, H, crank_nicolson, empty_interior)
-            end
+        pc_vals_gpu = CUDA.zeros(Float32, Nt)
+        pc_rowptr = 1:Nt+1
+        pc_rowptr_gpu = cu(collect(pc_rowptr))
+        pc_colidx_gpu = cu(collect(1:Nt))
+        for sp_cen_idx in sp_cen_indices
+            @cuda threads=kernel_threads blocks=kernel_blocks initialise_lattice_and_operator_GPU!(c_gpu, colidx_gpu, valsA_gpu, valsB_gpu, region_ids_gpu, pc_vals_gpu, #debugger_gpu,
+                                                                                                    1f0, sp_cen_idx[1], sp_cen_idx[2], sp_cen_idx[3],
+                                                                                                    spore_rad_lattice, cw_thickness, D, Dcw, Db, dtdx2, N, H, crank_nicolson, empty_interior, abs_bndry)
         end
         CUDA.synchronize()
         # println(unique(Array(valsA_gpu)))
@@ -1005,7 +984,7 @@ __precompile__(false)
         # println("Sum of region ids: ", sum(regids))
         op_A_gpu = CuSparseMatrixCSR(rowptr_gpu, colidx_gpu, valsA_gpu, (Nt, Nt))
         op_B_gpu = CuSparseMatrixCSR(rowptr_gpu, colidx_gpu, valsB_gpu, (Nt, Nt))
-        # precond = CuSparseMatrixCSR(pc_rowptr_gpu, pc_colidx_gpu, pc_vals_gpu, (Nt, Nt))
+        precond = CuSparseMatrixCSR(pc_rowptr_gpu, pc_colidx_gpu, pc_vals_gpu, (Nt, Nt))
         
         # debugger = sparse(op_A_gpu)
 
@@ -1075,7 +1054,8 @@ __precompile__(false)
             # Update the lattice
             b_gpu = crank_nicolson ? op_B_gpu * c_gpu : c_gpu  # Right-hand side
             c_gpu, stats = Krylov.cg(op_A_gpu, b_gpu; atol=Float32(1e-12), itmax=1000)
-            println(stats)
+            # c_gpu, stats = Krylov.cg(op_A_gpu, b_gpu; atol=Float32(1e-12), itmax=1000, M=precond)
+            # println(stats.solved)
 
             # Check for threshold crossing
             if !isnothing(c_thresholds)
