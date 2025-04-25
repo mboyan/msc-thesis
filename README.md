@@ -1,6 +1,12 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## Notes from meeting with Han (25.04.2025)
+- Table of diffusivities - note both $D$ and $P_s$, consistent barrier thicknesses, sort by diffusivity, relate to concrete composition scenarios (e.g. 400 nm cell wall with rate-limiting 10 nm rodlet layer, 400 nm polysaccharide cell wall, etc.), finally express everything as $P_{\textrm{eff}}$;
+- Take the same $c_0$ for 1-octen-3-ol and heat-labile peptide;
+- Affinity for polysaccharides - captured in model through adsorption?
+- Read Robillard paper on diffusiviy of hydrophobin layer.
+
 ## Logarithmic behaviour points to Langmuir adsorption (from ChatGPT)
 The physical picture behind adsorption to the spore interface (i.e. the cell wall of a conidium) in the context of germination inhibitor molecules is that the cell wall does not merely serve as a passive barrier but also has chemical and physical properties that allow it to interact with, and even bind, these molecules. Here are some key points to explain the phenomenon:
 
