@@ -290,6 +290,7 @@ module Conversions
         return (3 * vol / 4π)^(1/3)# * 1e6
     end
 
+
     function compute_D_from_radius_and_viscosity(a, eta)
         """
         Compute the diffusion coefficient from the Stokes radius and viscosity.
@@ -325,6 +326,7 @@ module Conversions
 
         return c_avg
     end
+
 
     function compute_spore_concentration(c_frames, region_ids, spore_rad, dx, cw_thickness=nothing)
         """
@@ -403,6 +405,7 @@ module Conversions
         return c_spore[:]
     end
 
+    
     function generate_spore_positions(spore_density, Lx, Lz; base_height=nothing)
         """
         Generate positions of spores in a 3D grid.
