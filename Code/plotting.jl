@@ -392,7 +392,7 @@ __precompile__(false)
 
     
     function compare_concentration_evolutions(c_vals_array, times_array, labels=nothing, ax=nothing;
-                                                logx=false, logy=false, fit_exp=false, cmap=nothing, cmap_idx_base=0, title=nothing, time_cutoff=nothing, ylim=nothing)
+                                                logx=false, logy=false, fit_exp=false, cmap=nothing, cmap_idx_base=0, title=nothing, time_cutoff=nothing, ylim=nothing, legend_loc=nothing)
         """
         Plot multiple concentration evolutions on the same axis.
         inputs:
@@ -408,6 +408,7 @@ __precompile__(false)
             title (str): title of the plot
             time_cutoff (float): time cutoff for the plot
             ylim (Tuple): y-axis limits
+            legend_loc (str): location of the legend
         """
 
         # @argcheck (typeof(c_vals_array) in [Vector{Vector{Float64}}, Matrix{Float64}]) "c_groups must be a vector of matrices or a matrix"
@@ -436,7 +437,7 @@ __precompile__(false)
         end
 
         if plotself
-            ax.legend(fontsize="small")
+            ax.legend(fontsize="small", loc=legend_loc)
             gcf()
         end
 
@@ -444,7 +445,7 @@ __precompile__(false)
 
 
     function compare_concentration_evolution_groups(c_groups, times_groups, group_labels=nothing, ax=nothing;
-                                                    logx=false, logy=false, fit_exp=false, title=nothing, time_cutoff=nothing, ylim=nothing)
+                                                    logx=false, logy=false, fit_exp=false, title=nothing, time_cutoff=nothing, ylim=nothing, legend_loc=nothing)
         """
         Compare the concentration evolutions from groups of simulations
         on the same axis, with corresponding colors.
@@ -459,6 +460,7 @@ __precompile__(false)
             title (str): title of the plot
             time_cutoff (float): time cutoff for the plot
             ylim (Tuple): y-axis limits
+            legend_loc (str): location of the legend
         """
 
         # @argcheck (typeof(c_groups) in [Vector{Vector{Vector{Float64}}}, Matrix{Float64}, Array{Float64, 3}]) "c_groups must be a vector of matrices or a matrix"
@@ -484,14 +486,14 @@ __precompile__(false)
 
         cmap = get_cmap("tab20c")
         for i in eachindex(c_groups)
-            compare_concentration_evolutions(c_groups[i], times_groups[i], group_labels[i], ax; logx, logy, fit_exp, cmap, cmap_idx_base=(i - 1)*4, title=title, time_cutoff=time_cutoff, ylim=ylim)
+            compare_concentration_evolutions(c_groups[i], times_groups[i], group_labels[i], ax; logx, logy, fit_exp, cmap, cmap_idx_base=(i - 1)*4, title=title, time_cutoff=time_cutoff, ylim=ylim, legend_loc=legend_loc)
         end
 
         if plotself
             if length(collect(group_labels)) > 4
                 ax.legend(fontsize="small", loc="upper left", bbox_to_anchor=(1.05, 1))
             else
-                ax.legend(fontsize="small")
+                ax.legend(fontsize="small", loc=legend_loc)
             end
             gcf()
         end

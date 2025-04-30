@@ -21,6 +21,7 @@ module Conversions
     export convert_D_to_Ps
     export convert_Ps_to_D
     export compute_stokes_radius
+    export composite_Ps
     export compute_spore_area_and_volume_from_dia
     export compute_D_from_radius_and_viscosity
     export measure_coverage
@@ -187,6 +188,18 @@ module Conversions
             (float) diffusion constant in micrometers squared per second
         """
         return Ps * d / K
+    end
+
+
+    function composite_Ps(permeabilities)
+        """
+        Compute the composite permeability of a series of membranes in parallel.
+        inputs:
+            permeabilities (Array{Float64, 1}): array of permeabilities in micrometers per second
+        outputs:
+            (float) composite permeability in micrometers per second
+        """
+        return 1 / sum(1 ./ permeabilities)
     end
 
 
