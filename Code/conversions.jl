@@ -21,6 +21,7 @@ module Conversions
     export convert_D_to_Ps
     export convert_Ps_to_D
     export compute_stokes_radius
+    export composite_Ps
     export compute_spore_area_and_volume_from_dia
     export compute_D_from_radius_and_viscosity
     export measure_coverage
@@ -190,6 +191,18 @@ module Conversions
     end
 
 
+    function composite_Ps(permeabilities)
+        """
+        Compute the composite permeability of a series of membranes in parallel.
+        inputs:
+            permeabilities (Array{Float64, 1}): array of permeabilities in micrometers per second
+        outputs:
+            (float) composite permeability in micrometers per second
+        """
+        return 1 / sum(1 ./ permeabilities)
+    end
+
+
     function compute_spore_area_and_volume_from_dia(diameter)
         """
         Compute the area and volume of a spherical spore
@@ -290,6 +303,7 @@ module Conversions
         return (3 * vol / 4π)^(1/3)# * 1e6
     end
 
+
     function compute_D_from_radius_and_viscosity(a, eta)
         """
         Compute the diffusion coefficient from the Stokes radius and viscosity.
@@ -325,6 +339,7 @@ module Conversions
 
         return c_avg
     end
+
 
     function compute_spore_concentration(c_frames, region_ids, spore_rad, dx, cw_thickness=nothing)
         """
@@ -403,6 +418,7 @@ module Conversions
         return c_spore[:]
     end
 
+    
     function generate_spore_positions(spore_density, Lx, Lz; base_height=nothing)
         """
         Generate positions of spores in a 3D grid.
