@@ -6,6 +6,8 @@ module Conversions
     using QuadGK
     using LinearAlgebra
     using MeshGrid
+    using Distributions
+    using SpecialFunctions
 
     export cm_to_um
     export um_to_cm
@@ -29,6 +31,7 @@ module Conversions
     export extract_mean_cw_concentration
     export compute_spore_concentration
     export generate_spore_positions
+    export germination_response
 
 
     function cm_to_um(cm)
@@ -463,4 +466,52 @@ module Conversions
         return spore_coords, spore_spacing
     end
 
+
+    function germination_response(ρ, c_ex, Pₛ, μ_ψ, σ_ψ, μ_γ, σ_γ, μ_ξ, σ_ξ, t)
+        """
+        Compute the germination_response for a given set of parameters.
+        inputs:
+            ρ - spore density in spores/mL
+            c_ex - exogenously added concentration in M
+            Pₛ - permeation constant in um/s
+            μ_ψ - mean initial concentration
+            σ_ψ - standard deviation of initial concentration
+            μ_γ - mean inhibition threshold
+            σ_γ - standard deviation of inhibition threshold
+            μ_ξ - mean spore radius in um
+            σ_ξ - standard deviation of spore radius in um
+            t - time
+        output:
+            germination_response - the germination response for the given parameters
+        """
+    
+        # Convert units
+        ρ = inverse_mL_to_cubic_um(ρ) # Convert from spores/mL to spores/m^3
+        
+        function integrand_xi(ξ)
+    
+            dist_ξ = truncated(Normal(μ_ξ, σ_ξ), 0.0, Inf)
+    
+            V = 4/3 * π .* ξ^3
+            A = 4 * π .* ξ^2
+            τ = V ./ (Pₛ * A)
+            ϕ = ρ .* V
+            β = ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ)))
+            χ = (1 .- ϕ) .* (1 .- exp.(-t ./ (τ .* (1 .- ϕ))))
+    
+            function integrand_psi(ψ)
+                dist_ψ = truncated(Normal(μ_ψ, σ_ψ), 0.0, Inf)
+                z = (β .+ χ .* c_ex ./ ψ .- μ_γ) ./ σ_γ
+                Φ = 0.5 .* (1 .+ erf.(z ./ √2))
+                return (1 .- Φ) .* pdf(dist_ψ, ψ)
+            end
+    
+            ψ_lo = max(0.0, μ_ψ - 6σ_ψ)
+            ψ_hi = μ_ψ + 6σ_ψ
+            
+            return quadgk(x -> integrand_psi(x), ψ_lo, ψ_hi, rtol=1e-8)[1] .* pdf(dist_ξ, ξ)
+        end
+    
+        return quadgk(x -> integrand_xi(x), 0.0, Inf, rtol=1e-8)[1]
+    end
 end
