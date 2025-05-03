@@ -149,7 +149,7 @@ __precompile__(false)
             spore_diameter = 5.0 # Default value in microns
         end
         spore_rad = spore_diameter / 2.0 # Convert to radius
-        A_spore, V_spore = compute_spore_area_and_volume(spore_diameter)
+        A_spore, V_spore = compute_spore_area_and_volume_from_dia(spore_diameter)
 
         # Lattice height
         if haskey(sim_params, :H)
