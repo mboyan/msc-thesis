@@ -19,12 +19,13 @@ module Conversions
     export inverse_mL_to_cubic_um
     export cubic_um_to_mL
     export inverse_cubic_um_to_mL
-    export inverse_uL_to_mL
+    export inverse_um_to_mL
     export convert_D_to_Ps
     export convert_Ps_to_D
     export compute_stokes_radius
     export composite_Ps
     export compute_spore_area_and_volume_from_dia
+    export compute_c_eq
     export compute_D_from_radius_and_viscosity
     export measure_coverage
     export measure_shielding_index
@@ -154,7 +155,7 @@ module Conversions
     end
 
 
-    function inverse_uL_to_mL(uL_inv)
+    function inverse_um_to_mL(uL_inv)
         """
         Convert inverse milliliters to inverse micrometers cubed.
         inputs:
@@ -220,6 +221,23 @@ module Conversions
         A = 4 * π * rad^2
         V = 4/3 * π * rad^3
         return A, V
+    end
+
+
+    function compute_c_eq(ρ, V, c₀, c_ex)
+        """
+        Compute the equilibrium concentration of a spore in a solution.
+        inputs:
+            ρ (float): spore density in spores/mL
+            V (float): volume of the solution in micrometers cubed
+            c₀ (float): initial concentration of the solution in M
+            c_ex (float): exogenous concentration in M
+        outputs:
+            c_eq (float): equilibrium concentration in M
+        """
+        ρ = inverse_mL_to_cubic_um(ρ)  # Convert from spores/mL to spores/m^3
+        ϕ = ρ * V
+        return ϕ * c₀ + (1 - ϕ) * c_ex
     end
 
 
