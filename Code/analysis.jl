@@ -13,6 +13,7 @@ __precompile__(false)
 
     export get_concentration_evolution_from_file
     export get_coverage_and_exponent_from_files
+    export get_density_and_exponent_from_files
 
     function parse_parameters!(exp_ID, sim_ID, param_dict, extra_params=nothing)
         """
@@ -150,4 +151,72 @@ __precompile__(false)
         return result_dict
     end
 
+
+    function get_density_and_exponent_from_files(exp_ID; norm_exponent=true)
+        """
+        Infer the spore density from the grid size and retrieve the
+        permeation constant and fitted decay exponent from the simulation files
+        of an experiment and identify the varying parameters
+        related to them.
+        inputs:
+            exp_ID (string): experiment ID
+            normalize_exponent (bool): whether to normalise the decay exponent given the Ps parameter
+        """
+        path = @__DIR__
+        path = joinpath(path, "Data", exp_ID)
+        
+        # Find all result files
+        result_dict = Dict(:spore_density => [], :spore_spacing => [], :Ps => [], :exponent => [])
+        for file in readdir(path)
+            if endswith(file, "results.jld2")
+                # println(occursin("cluster_size", file))
+
+                filepath_res = joinpath(path, file)
+                exponent = load(filepath_res, "exponent")
+
+                # Find corresponding simulation parameters
+                sim_ID = join(split(file, '_')[1:(end-1)], '_')
+                if norm_exponent
+                    parse_parameters!(exp_ID, sim_ID, result_dict, [:N, :H, :dx, :spore_diameter])
+                    if haskey(result_dict, :spore_diameter)
+                        spore_diameter = result_dict[:spore_diameter][1]
+                    else
+                        spore_diameter = 5.0 # default value in microns
+                    end
+                    A_spore, V_spore = compute_spore_area_and_volume_from_dia(spore_diameter)
+                    tau = V_spore ./ (result_dict[:Ps][1] .* A_spore)
+                    exponent = -exponent * tau
+                    delete!(result_dict, :spore_diameter)
+                else
+                    parse_parameters!(exp_ID, sim_ID, result_dict, [:N, :H, :dx])
+                end
+
+                if haskey(result_dict, :H)
+                    H = result_dict[:H][1]
+                else
+                    H = result_dict[:N][1]
+                end
+
+                spore_density = 1 / (result_dict[:N][1] * H * result_dict[:dx][1]^3)
+                spore_spacing = result_dict[:N][1] * result_dict[:dx][1]
+
+                if norm_exponent
+                    ϕ = spore_density * V_spore
+                    exponent = exponent * (1 - ϕ)
+                    # println("Exponent: $(exponent)")
+                end
+
+                spore_density = inverse_cubic_um_to_mL(spore_density)
+
+                push!(result_dict[:spore_density], spore_density)
+                push!(result_dict[:spore_spacing], spore_spacing)
+                push!(result_dict[:exponent], exponent)
+                delete!(result_dict, :N)
+                delete!(result_dict, :H)
+                delete!(result_dict, :dx)
+            end
+        end
+
+        return result_dict
+    end
 end

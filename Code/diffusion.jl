@@ -95,7 +95,7 @@ __precompile__(false)
         τ = V / (A * Pₛ)
         ϕ = ρₛ * V # volume fraction
 
-        return ϕ * c₀ .+ (1 - ϕ) .* (c_ex .+ (c₀ - c_ex) .* exp.(-t ./ τ))
+        return ϕ * c₀ .+ (1 - ϕ) .* (c_ex .+ (c₀ - c_ex) .* exp.(-t ./ (τ .* (1 - ϕ))))
     end
 
         
