@@ -1,6 +1,11 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+# Notes from meeting with Han (02.05.2025)
+- Format numbers in tables consistently.
+- Adapt model to incorporate _inducer_, permeating cell wall inwards.
+- Possibly look into interaction between inducer and inhibitor.
+
 ## Note for further model analysis
 - Investigate whether the germination probability has an asymptotic limit under the current model.
 - If not, it contradicts the model of Dantigny, in which germination reaches saturation limit.
