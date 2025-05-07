@@ -565,6 +565,10 @@ __precompile__(false)
             end
         end
 
+        if !isnothing(label)
+            println(label)
+        end
+        
         if fit == "lin"
             fit = linear_fit(input, response)
             println("Fitted linear: ", fit)
