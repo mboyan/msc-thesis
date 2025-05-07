@@ -300,8 +300,8 @@ __precompile__(false)
         end
 
         # Fit exponent
-        if haskey(sim_params, :fit_lim)
-            times_mask = (times .> sim_params[:fit_lim][1]) .& (times .< sim_params[:fit_lim][2])
+        if haskey(sim_params, :fit_max)
+            times_mask = times .< sim_params[:fit_max]
             fit = exp_fit(times[times_mask], c_solutions[times_mask])
             exponent = fit[2]
         else
