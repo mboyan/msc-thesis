@@ -50,6 +50,12 @@ module Utils
         tauCIlow_vals = [x[2] for x in tau_parsed]
         tauCIhigh_vals = [x[3] for x in tau_parsed]
 
+        # Parse d and its confidence intervals
+        d_parsed = [parse_numbers(row[1]) for row in eachrow(df_germination_swelling[!, 6])]
+        d_vals = [x[1] for x in d_parsed]
+        dCIlow_vals = [x[2] for x in d_parsed]
+        dCIhigh_vals = [x[3] for x in d_parsed]
+
         # Reconstruct the DataFrame with the parsed values
         df_germination_rebuilt = DataFrame(
             :CarbonSource => df_germination_swelling[!, 2],
@@ -60,6 +66,9 @@ module Utils
             :tau => tau_vals,
             :tau_CI_Lower => tauCIlow_vals,
             :tau_CI_Upper => tauCIhigh_vals,
+            :d => d_vals,
+            :d_CI_Lower => dCIlow_vals,
+            :d_CI_Upper => dCIhigh_vals,
             :N => df_germination_swelling[!, 8],
             :M => df_germination_swelling[!, 9]
         )
