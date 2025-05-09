@@ -1,7 +1,13 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
-# Notes from meeting with Han (02.05.2025)
+## Remarks on Dantigny model
+- It has been mentioned that the design parameter represents the heterogeneity of the spore culture. It also controls the steepness of the germination onset. This makes sense, since more heterogeneous spores will have a larger spread of germination times, thus stretching the approach to saturation.
+- Optimisation algorithm should fit _time-dependent_ model realisations to pre-computed Dantigny curves with the corresponding $P_{\textrm{max}}$ and $\tau_g$.
+- Quantify goodness of fit (e.g. using RMSD).
+- Fit models once with a constant inducer signal and once with a time-dependent inducer signal.
+
+## Notes from meeting with Han (02.05.2025)
 - Format numbers in tables consistently.
 - Adapt model to incorporate _inducer_, permeating cell wall inwards.
 - Possibly look into interaction between inducer and inhibitor.
