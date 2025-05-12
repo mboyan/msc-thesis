@@ -14,12 +14,14 @@ __precompile__(false)
 
     include("./setup.jl")
     include("./conversions.jl")
+    include("./datautils.jl")
     # using .Setup
     # using .Conversions
     Revise.includet("./conversions.jl")
     Revise.includet("./setup.jl")
     using .Conversions
     using .Setup
+    using .DataUtils
 
     export generate_ax_grid_pyplot
     export generate_grid_layout_glmakie
@@ -36,6 +38,8 @@ __precompile__(false)
     export compare_functional_relationships_groups
     export plot_spore_positions
     export plot_spore_arrangements
+    export plot_dantigny_time_course
+    export compare_time_course_to_dantigny
 
 
     function generate_ax_grid_pyplot(n_rows, n_cols, figsize=(8, 4))
@@ -784,5 +788,85 @@ __precompile__(false)
         fig.suptitle(title)
 
         gcf()
+    end
+
+
+    function plot_dantigny_time_course(p_max, τ_g, ν; germination_responses=nothing, times=nothing, ax=nothing, title=nothing)
+        """
+        Plots the time course of the Dantigny germination responses.
+        inputs:
+            p_max (float): maximum germination response in %
+            τ_g (float): half-saturation time
+            ν (float): design parameter
+            germination_responses (Array{Float64}): germination responses
+            times (Array{Float64}): time labels in seconds
+            ax (Axis): axis to plot on
+            title (str): title of the plot
+        """
+        if isnothing(ax)
+            fig, ax = subplots(1, 1, figsize=(6, 4))
+            plotself = true
+        else
+            plotself = false
+        end
+
+        if isnothing(times)
+            times = collect(LinRange(0, τ_g * 5, 100)) .* 3600
+        end
+
+        if isnothing(germination_responses)
+            germination_responses = dantigny.(times ./3600, p_max, τ_g, ν) * 0.01
+        end
+
+        ax.plot(times ./ 3600, germination_responses .* 100, label="Germination response")
+        ax.axhline(p_max, color="red", linestyle="--", label=L"p_{\text{max}}")
+        ax.axvline(τ_g, color="green", linestyle="--", label=L"\tau_g")
+        ax.set_xlabel("Time [h]")
+        ax.set_ylabel("Germination response [%]")
+        ax.grid(true)
+        
+        if !isnothing(title)
+            ax.set_title(title)
+        end
+
+        if plotself
+            ax.legend(fontsize="small")
+            gcf()
+        end
+    end
+
+
+    function compare_time_course_to_dantigny(germination_responses, times, p_max, τ_g, ν; ax=nothing, title=nothing)
+        """
+        Compare simulated germination responses to the Dantigny model.
+        inputs:
+            germination_responses (Array{Float64}): simulated germination responses
+            times (Array{Float64}): time labels in seconds
+            p_max (float): maximum germination response in %
+            τ_g (float): half-saturation time
+            ν (float): design parameter
+            ax (Axis): axis to plot on
+            title (str): title of the plot
+        """
+        if isnothing(ax)
+            fig, ax = subplots(1, 1, figsize=(6, 4))
+            plotself = true
+        else
+            plotself = false
+        end
+
+        plot_dantigny_time_course(p_max, τ_g, ν, ax=ax)
+        println(times[1])
+        println(times[2])
+        ax.plot(times ./ 3600, germination_responses .* 100, label="Volume-based model")
+
+        if !isnothing(title)
+            ax.set_title(title)
+        end
+
+        if plotself
+            ax.legend(fontsize="small")
+            gcf()
+        end
     end
 end

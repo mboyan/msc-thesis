@@ -35,6 +35,7 @@ module Conversions
     export germination_response
     export germination_response_simple
     export germination_response_equilibrium
+    export germination_response_combined_independent
 
 
     function cm_to_um(cm)
@@ -489,7 +490,8 @@ module Conversions
 
     function germination_response(ρ, c_ex, Pₛ, μ_ψ, σ_ψ, μ_γ, σ_γ, μ_ξ, σ_ξ, t)
         """
-        Compute the germination response for a given set of parameters.
+        Compute the germination response for purely 
+        inhibition-dependent germination for a given set of parameters.
         inputs:
             ρ - spore density in spores/mL
             c_ex - exogenously added concentration in M
@@ -538,7 +540,8 @@ module Conversions
 
     function germination_response_simple(ρ, Pₛ, μ_γ, σ_γ, μ_ξ, σ_ξ, t)
         """
-        Compute the germination response for a given set of parameters,
+        Compute the germination response for purely
+        inhibition-dependent germination for a given set of parameters,
         without considering an external initial concentration.
         inputs:
             ρ - spore density in spores/mL
@@ -573,7 +576,8 @@ module Conversions
 
     function germination_response_equilibrium(ρ, μ_γ, σ_γ, μ_ξ, σ_ξ)
         """
-        Compute the equilibrium germination response for a given set of parameters,
+        Compute the equilibrium germination response for a purely
+        inhibition-driven germination for a given set of parameters,
         without considering an external initial concentration.
         inputs:
             ρ - spore density in spores/mL
@@ -598,5 +602,42 @@ module Conversions
         end
 
         return quadgk(x -> integrand(x), 0.0, Inf, rtol=1e-8)[1]
+    end
+
+
+    function germination_response_combined_independent(s, μ_ω, σ_ω, ρ, Pₛ, μ_γ, σ_γ, μ_ξ, σ_ξ, t; c_ex=nothing, μ_ψ=nothing, σ_ψ=nothing)
+        """
+        Compute the equilibrium germination response for independent
+        inhibition and induction for a given set of parameters,
+        without considering an external initial concentration.
+        inputs:
+            s - inducer signal strength
+            μ_ω - mean induction threshold
+            σ_ω - standard deviation of induction threshold
+            ρ - spore density in spores/mL
+            Pₛ - permeation constant in um/s
+            μ_γ - mean inhibition threshold
+            σ_γ - standard deviation of inhibition threshold
+            μ_ξ - mean spore radius in um
+            σ_ξ - standard deviation of spore radius in um
+            t - time
+            c_ex - exogenously added concentration in M
+            μ_ψ - mean initial concentration
+            σ_ψ - standard deviation of initial concentration
+        output:
+            germination_response - the germination response for the given parameters
+        """
+
+        # Convert units
+        ρ = inverse_mL_to_cubic_um(ρ) # Convert from spores/mL to spores/m^3
+        
+        z = (s .- μ_ω) ./ σ_ω
+        induction_factor = 0.5 .* (1 .+ erf.(z ./ √2))
+        
+        if isnothing(c_ex) || isnothing(μ_ψ) || isnothing(σ_ψ)
+            return induction_factor .* germination_response_simple(ρ, Pₛ, μ_γ, σ_γ, μ_ξ, σ_ξ, t)
+        else
+            return induction_factor .* germination_response(ρ, c_ex, Pₛ, μ_ψ, σ_ψ, μ_γ, σ_γ, μ_ξ, σ_ξ, t)
+        end
     end
 end
