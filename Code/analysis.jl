@@ -179,12 +179,12 @@ __precompile__(false)
                 if norm_exponent
                     parse_parameters!(exp_ID, sim_ID, result_dict, [:N, :H, :dx, :spore_diameter])
                     if haskey(result_dict, :spore_diameter)
-                        spore_diameter = result_dict[:spore_diameter][1]
+                        spore_diameter = result_dict[:spore_diameter][end]
                     else
                         spore_diameter = 5.0 # default value in microns
                     end
                     A_spore, V_spore = compute_spore_area_and_volume_from_dia(spore_diameter)
-                    tau = V_spore ./ (result_dict[:Ps][1] .* A_spore)
+                    tau = V_spore ./ (result_dict[:Ps][end] .* A_spore)
                     exponent = -exponent * tau
                     delete!(result_dict, :spore_diameter)
                 else
@@ -192,13 +192,14 @@ __precompile__(false)
                 end
 
                 if haskey(result_dict, :H)
-                    H = result_dict[:H][1]
+                    H = result_dict[:H][end]
                 else
-                    H = result_dict[:N][1]
+                    H = result_dict[:N][end]
                 end
 
-                spore_density = 1 / (result_dict[:N][1] * H * result_dict[:dx][1]^3)
-                spore_spacing = result_dict[:N][1] * result_dict[:dx][1]
+                spore_density = 1 / (result_dict[:N][end] * H * result_dict[:dx][end]^3)
+                # spore_spacing = result_dict[:N][1] * result_dict[:dx][1]
+                spore_spacing = 1 / cbrt(spore_density)
 
                 if norm_exponent
                     ϕ = spore_density * V_spore

@@ -299,8 +299,15 @@ __precompile__(false)
             end
         end
 
-        fit = exp_fit(times, c_solutions)
-        exponent = fit[2]
+        # Fit exponent
+        if haskey(sim_params, :fit_max)
+            times_mask = times .< sim_params[:fit_max]
+            fit = exp_fit(times[times_mask], c_solutions[times_mask])
+            exponent = fit[2]
+        else
+            fit = exp_fit(times, c_solutions)
+            exponent = fit[2]
+        end
 
         return c_solutions, frame_samples, times, coverage, exponent
     end

@@ -6,6 +6,8 @@ module Conversions
     using QuadGK
     using LinearAlgebra
     using MeshGrid
+    using Distributions
+    using SpecialFunctions
 
     export cm_to_um
     export um_to_cm
@@ -17,18 +19,22 @@ module Conversions
     export inverse_mL_to_cubic_um
     export cubic_um_to_mL
     export inverse_cubic_um_to_mL
-    export inverse_uL_to_mL
+    export inverse_um_to_mL
     export convert_D_to_Ps
     export convert_Ps_to_D
     export compute_stokes_radius
     export composite_Ps
     export compute_spore_area_and_volume_from_dia
+    export compute_c_eq
     export compute_D_from_radius_and_viscosity
     export measure_coverage
     export measure_shielding_index
     export extract_mean_cw_concentration
     export compute_spore_concentration
     export generate_spore_positions
+    export germination_response
+    export germination_response_simple
+    export germination_response_equilibrium
 
 
     function cm_to_um(cm)
@@ -151,7 +157,7 @@ module Conversions
     end
 
 
-    function inverse_uL_to_mL(uL_inv)
+    function inverse_um_to_mL(uL_inv)
         """
         Convert inverse milliliters to inverse micrometers cubed.
         inputs:
@@ -217,6 +223,23 @@ module Conversions
         A = 4 * π * rad^2
         V = 4/3 * π * rad^3
         return A, V
+    end
+
+
+    function compute_c_eq(ρ, V, c₀, c_ex)
+        """
+        Compute the equilibrium concentration of a spore in a solution.
+        inputs:
+            ρ (float): spore density in spores/mL
+            V (float): volume of the solution in micrometers cubed
+            c₀ (float): initial concentration of the solution in M
+            c_ex (float): exogenous concentration in M
+        outputs:
+            c_eq (float): equilibrium concentration in M
+        """
+        ρ = inverse_mL_to_cubic_um(ρ)  # Convert from spores/mL to spores/m^3
+        ϕ = ρ * V
+        return ϕ * c₀ + (1 - ϕ) * c_ex
     end
 
 
@@ -463,4 +486,117 @@ module Conversions
         return spore_coords, spore_spacing
     end
 
+
+    function germination_response(ρ, c_ex, Pₛ, μ_ψ, σ_ψ, μ_γ, σ_γ, μ_ξ, σ_ξ, t)
+        """
+        Compute the germination response for a given set of parameters.
+        inputs:
+            ρ - spore density in spores/mL
+            c_ex - exogenously added concentration in M
+            Pₛ - permeation constant in um/s
+            μ_ψ - mean initial concentration
+            σ_ψ - standard deviation of initial concentration
+            μ_γ - mean inhibition threshold
+            σ_γ - standard deviation of inhibition threshold
+            μ_ξ - mean spore radius in um
+            σ_ξ - standard deviation of spore radius in um
+            t - time
+        output:
+            germination_response - the germination response for the given parameters
+        """
+    
+        # Convert units
+        ρ = inverse_mL_to_cubic_um(ρ) # Convert from spores/mL to spores/m^3
+        
+        function integrand_xi(ξ)
+    
+            dist_ξ = truncated(Normal(μ_ξ, σ_ξ), 0.0, Inf)
+    
+            V = 4/3 * π .* ξ^3
+            A = 4 * π .* ξ^2
+            τ = V ./ (Pₛ * A)
+            ϕ = ρ .* V
+            β = ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ)))
+            χ = (1 .- ϕ) .* (1 .- exp.(-t ./ (τ .* (1 .- ϕ))))
+    
+            function integrand_psi(ψ)
+                dist_ψ = truncated(Normal(μ_ψ, σ_ψ), 0.0, Inf)
+                z = (β .+ χ .* c_ex ./ ψ .- μ_γ) ./ σ_γ
+                Φ = 0.5 .* (1 .+ erf.(z ./ √2))
+                return (1 .- Φ) .* pdf(dist_ψ, ψ)
+            end
+    
+            ψ_lo = max(0.0, μ_ψ - 6σ_ψ)
+            ψ_hi = μ_ψ + 6σ_ψ
+            
+            return quadgk(x -> integrand_psi(x), ψ_lo, ψ_hi, rtol=1e-8)[1] .* pdf(dist_ξ, ξ)
+        end
+    
+        return quadgk(x -> integrand_xi(x), 0.0, Inf, rtol=1e-8)[1]
+    end
+
+
+    function germination_response_simple(ρ, Pₛ, μ_γ, σ_γ, μ_ξ, σ_ξ, t)
+        """
+        Compute the germination response for a given set of parameters,
+        without considering an external initial concentration.
+        inputs:
+            ρ - spore density in spores/mL
+            Pₛ - permeation constant in um/s
+            μ_γ - mean inhibition threshold
+            σ_γ - standard deviation of inhibition threshold
+            μ_ξ - mean spore radius in um
+            σ_ξ - standard deviation of spore radius in um
+            t - time
+        output:
+            germination_response - the germination response for the given parameters
+        """
+
+        # Convert units
+        ρ = inverse_mL_to_cubic_um(ρ) # Convert from spores/mL to spores/m^3
+        
+        function integrand(ξ)
+            dist_ξ = truncated(Normal(μ_ξ, σ_ξ), 0.0, Inf)
+            V = 4/3 * π .* ξ^3
+            A = 4 * π .* ξ^2
+            τ = V ./ (Pₛ * A)
+            ϕ = ρ .* V
+            β = ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ)))
+            z = (β .- μ_γ) ./ σ_γ
+            Φ = 0.5 .* (1 .+ erf.(z ./ √2))
+            return (1 .- Φ) .* pdf(dist_ξ, ξ)
+        end
+
+        return quadgk(x -> integrand(x), 0.0, Inf, rtol=1e-8)[1]
+    end
+
+
+    function germination_response_equilibrium(ρ, μ_γ, σ_γ, μ_ξ, σ_ξ)
+        """
+        Compute the equilibrium germination response for a given set of parameters,
+        without considering an external initial concentration.
+        inputs:
+            ρ - spore density in spores/mL
+            μ_γ - mean inhibition threshold
+            σ_γ - standard deviation of inhibition threshold
+            μ_ξ - mean spore radius in um
+            σ_ξ - standard deviation of spore radius in um
+        output:
+            germination_response - the germination response for the given parameters
+        """
+
+        # Convert units
+        ρ = inverse_mL_to_cubic_um(ρ) # Convert from spores/mL to spores/m^3
+        
+        function integrand(ξ)
+            dist_ξ = truncated(Normal(μ_ξ, σ_ξ), 0.0, Inf)
+            V = 4/3 * π .* ξ^3
+            ϕ = ρ .* V
+            z = (ϕ .- μ_γ) ./ σ_γ
+            Φ = 0.5 .* (1 .+ erf.(z ./ √2))
+            return (1 .- Φ) .* pdf(dist_ξ, ξ)
+        end
+
+        return quadgk(x -> integrand(x), 0.0, Inf, rtol=1e-8)[1]
+    end
 end
