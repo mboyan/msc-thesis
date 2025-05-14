@@ -40,6 +40,7 @@ __precompile__(false)
     export plot_spore_arrangements
     export plot_dantigny_time_course
     export compare_time_course_to_dantigny
+    export plot_germination_data_fit
 
 
     function generate_ax_grid_pyplot(n_rows, n_cols, figsize=(8, 4))
@@ -796,8 +797,9 @@ __precompile__(false)
         Plots the time course of the Dantigny germination responses.
         inputs:
             p_max (float): maximum germination response in %
-            τ_g (float): half-saturation time
+            τ_g (float): half-saturation time in hours
             ν (float): design parameter
+            t_max (float): maximum time in hours
             germination_responses (Array{Float64}): germination responses
             times (Array{Float64}): time labels in seconds
             ax (Axis): axis to plot on
@@ -841,9 +843,9 @@ __precompile__(false)
         Compare simulated germination responses to the Dantigny model.
         inputs:
             germination_responses (Array{Float64}): simulated germination responses
-            times (Array{Float64}): time labels in seconds
-            p_max (float): maximum germination response in %
-            τ_g (float): half-saturation time
+            times (Array{Float64}): time labels in hours
+            p_max (float): maximum germination response fraction
+            τ_g (float): half-saturation time in hours
             ν (float): design parameter
             ax (Axis): axis to plot on
             title (str): title of the plot
@@ -855,17 +857,57 @@ __precompile__(false)
             plotself = false
         end
 
-        plot_dantigny_time_course(p_max, τ_g, ν, ax=ax)
-        println(times[1])
-        println(times[2])
+        plot_dantigny_time_course(p_max, τ_g, ν, ax=ax, times=times)
         ax.plot(times ./ 3600, germination_responses .* 100, label="Volume-based model")
+        ax.legend(fontsize="small")
 
         if !isnothing(title)
             ax.set_title(title)
         end
 
         if plotself
-            ax.legend(fontsize="small")
+            gcf()
+        end
+    end
+
+
+    function plot_germination_data_fit(data_densities, data_responses, model_densities, model_responses, sources; yerr=nothing, ax=nothing, title=nothing)
+        """
+        Plots the germination data and the fitted model.
+        inputs:
+            data_densities (Array{Float64}): germination data spore densities in spores/mL
+            data_responses (Array{Float64}): germination data response fractions
+            model_densities (Array{Float64}): model sporedensities in spores/mL
+            model_responses (Array{Float64}): model response fractions
+            sources (Array{String}): carbon sources
+            yerr (Array{Float64}): error in the data responses
+            ax (Axis): axis to plot on
+            title (str): title of the plot
+        """
+        if isnothing(ax)
+            fig, ax = subplots(1, 1, figsize=(6, 4))
+            plotself = true
+        else
+            plotself = false
+        end
+
+        for (i, src) in enumerate(sources)
+            ax.plot(model_densities, model_responses, label=src)
+            ax.errorbar(data_densities, data_responses[i, :], yerr=yerr[i, :, :]', fmt="o", markersize=5, label="Data ($(src))")
+        end
+
+        ax.set_xscale("log")
+        ax.set_xlabel("Spore Density (spores/mL)")
+        ax.set_ylabel("Germination Response")
+        ax.set_ylim(0, 110)
+        ax.grid()
+        ax.legend(fontsize="small")
+
+        if !isnothing(title)
+            ax.set_title(title)
+        end
+
+        if plotself
             gcf()
         end
     end

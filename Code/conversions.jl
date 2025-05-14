@@ -36,6 +36,8 @@ module Conversions
     export germination_response_simple
     export germination_response_equilibrium
     export germination_response_combined_independent
+    export germination_response_combined_independent_eq
+    export germination_response_inhibitor_dependent_inducer_thresh
 
 
     function cm_to_um(cm)
@@ -550,7 +552,7 @@ module Conversions
             σ_γ - standard deviation of inhibition threshold
             μ_ξ - mean spore radius in um
             σ_ξ - standard deviation of spore radius in um
-            t - time
+            t - time in seconds
         output:
             germination_response - the germination response for the given parameters
         """
@@ -607,9 +609,8 @@ module Conversions
 
     function germination_response_combined_independent(s, μ_ω, σ_ω, ρ, Pₛ, μ_γ, σ_γ, μ_ξ, σ_ξ, t; c_ex=nothing, μ_ψ=nothing, σ_ψ=nothing)
         """
-        Compute the equilibrium germination response for independent
-        inhibition and induction for a given set of parameters,
-        without considering an external initial concentration.
+        Compute the germination response for independent
+        inhibition and induction for a given set of parameters.
         inputs:
             s - inducer signal strength
             μ_ω - mean induction threshold
@@ -620,7 +621,7 @@ module Conversions
             σ_γ - standard deviation of inhibition threshold
             μ_ξ - mean spore radius in um
             σ_ξ - standard deviation of spore radius in um
-            t - time
+            t - time in seconds
             c_ex - exogenously added concentration in M
             μ_ψ - mean initial concentration
             σ_ψ - standard deviation of initial concentration
@@ -639,5 +640,77 @@ module Conversions
         else
             return induction_factor .* germination_response(ρ, c_ex, Pₛ, μ_ψ, σ_ψ, μ_γ, σ_γ, μ_ξ, σ_ξ, t)
         end
+    end
+
+
+    function germination_response_combined_independent_eq(s, μ_ω, σ_ω, ρ, μ_γ, σ_γ, μ_ξ, σ_ξ)
+        """
+        Compute the germination response for independent
+        inhibition and induction for a given set of parameters.
+        inputs:
+            s - inducer signal strength
+            μ_ω - mean induction threshold
+            σ_ω - standard deviation of induction threshold
+            ρ - spore density in spores/mL
+            μ_γ - mean inhibition threshold
+            σ_γ - standard deviation of inhibition threshold
+            μ_ξ - mean spore radius in um
+            σ_ξ - standard deviation of spore radius in um
+        output:
+            germination_response - the germination response for the given parameters
+        """
+
+        # Convert units
+        ρ = inverse_mL_to_cubic_um(ρ) # Convert from spores/mL to spores/m^3
+        
+        z = (s .- μ_ω) ./ σ_ω
+        induction_factor = 0.5 .* (1 .+ erf.(z ./ √2))
+        
+        return induction_factor .* germination_response_equilibrium(ρ, μ_γ, σ_γ, μ_ξ, σ_ξ)
+    end
+
+
+    function germination_response_inhibitor_dependent_inducer_thresh(s, k, μ_ω, σ_ω, ρ, Pₛ, μ_ψ, σ_ψ, μ_ξ, σ_ξ, t)
+        """
+        Compute the germination response for an inhibitor-dependent
+        induction threshold for a given set of parameters.
+        inputs:
+            s - inducer signal strength
+            k - inhibition strength over induction signal
+            μ_ω - mean induction threshold
+            σ_ω - standard deviation of induction threshold
+            ρ - spore density in spores/mL
+            Pₛ - permeation constant in um/s
+            μ_ψ - mean initial concentration
+            σ_ψ - standard deviation of initial concentration
+            μ_ξ - mean spore radius in um
+            σ_ξ - standard deviation of spore radius in um
+            t - time in seconds
+        output:
+            germination_response - the germination response for the given parameters
+        """
+
+        # Convert units
+        ρ = inverse_mL_to_cubic_um(ρ) # Convert from spores/mL to spores/m^3
+
+        function integrand_xi(ξ)
+    
+            dist_ξ = truncated(Normal(μ_ξ, σ_ξ), 0.0, Inf)
+    
+            function integrand_psi(ψ)
+                dist_ψ = truncated(Normal(μ_ψ, σ_ψ), 0.0, Inf)
+                c_in = concentration_at_spore_ambient_sources(t, ψ, 0.0, ρ, ξ, Pₛ)
+                z = (s .- k .* c_in .- μ_ω) ./ σ_ω
+                Φ = 0.5 .* (1 .+ erf.(z ./ √2))
+                return Φ .* pdf(dist_ψ, ψ)
+            end
+    
+            ψ_lo = max(0.0, μ_ψ - 6σ_ψ)
+            ψ_hi = μ_ψ + 6σ_ψ
+            
+            return quadgk(x -> integrand_psi(x), ψ_lo, ψ_hi, rtol=1e-8)[1] .* pdf(dist_ξ, ξ)
+        end
+    
+        return quadgk(x -> integrand_xi(x), 0.0, Inf, rtol=1e-8)[1]
     end
 end
