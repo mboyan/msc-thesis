@@ -4,7 +4,7 @@ Includes materials for Master's Thesis Project
 ## To do for final model fitting:
 - Double-check parameter bounds:
    - $P_s$ can vary more in combination with the inducer
-   - $\mu_\gamma$ should be from $10^{-5}$ to $10^{-1}$
+   - $\mu_\gamma$ should be from $10^{-5}$ to $10^{-10}$ M
 - How come glucose was released super slow as an inhibitor, but permeates inwards at a considerable rate? Look deeper into this.
 
 ## Remarks on Dantigny model
