@@ -15,10 +15,9 @@ __precompile__(false)
     include("./setup.jl")
     include("./conversions.jl")
     include("./datautils.jl")
-    # using .Setup
-    # using .Conversions
     Revise.includet("./conversions.jl")
     Revise.includet("./setup.jl")
+    Revise.includet("./datautils.jl")
     using .Conversions
     using .Setup
     using .DataUtils
@@ -892,13 +891,13 @@ __precompile__(false)
         end
 
         for (i, src) in enumerate(sources)
-            ax.plot(model_densities, model_responses, label=src)
+            ax.plot(model_densities, model_responses[i], label=src)
             ax.errorbar(data_densities, data_responses[i, :], yerr=yerr[i, :, :]', fmt="o", markersize=5, label="Data ($(src))")
         end
 
         ax.set_xscale("log")
-        ax.set_xlabel("Spore Density (spores/mL)")
-        ax.set_ylabel("Germination Response")
+        ax.set_xlabel("Spore Density [spores/mL]")
+        ax.set_ylabel("Long-term germination Response [%]")
         ax.set_ylim(0, 110)
         ax.grid()
         ax.legend(fontsize="small")

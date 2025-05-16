@@ -4,10 +4,12 @@ module Conversions
     """
     
     using QuadGK
+    using Cubature
     using LinearAlgebra
     using MeshGrid
     using Distributions
     using SpecialFunctions
+    using Revise
 
     export cm_to_um
     export um_to_cm
@@ -32,12 +34,18 @@ module Conversions
     export extract_mean_cw_concentration
     export compute_spore_concentration
     export generate_spore_positions
-    export germination_response
-    export germination_response_simple
-    export germination_response_equilibrium
-    export germination_response_combined_independent
-    export germination_response_combined_independent_eq
-    export germination_response_inhibitor_dependent_inducer_thresh
+    export germ_response
+    export germ_response_simple
+    export germ_response_equilibrium
+    export germ_response_combined_independent
+    export germ_response_combined_independent_eq
+    export germ_response_inhibitor_dependent_inducer_thresh
+    export germ_response_inhibitor_dependent_inducer_signal
+    export germ_response_inhibitor_dependent_inducer_combined
+    export germ_response_combined_independent_st
+    export germ_response_inducer_dependent_inhibitor_thresh_st
+    export germ_response_inducer_dependent_inhibitor_perm_st
+    export germ_response_inducer_dependent_inhibitor_combined_st
 
 
     function cm_to_um(cm)
@@ -229,19 +237,19 @@ module Conversions
     end
 
 
-    function compute_c_eq(ρ, V, c₀, c_ex)
+    function compute_c_eq(ρₛ, V, c₀, c_ex)
         """
         Compute the equilibrium concentration of a spore in a solution.
         inputs:
-            ρ (float): spore density in spores/mL
+            ρₛ (float): spore density in spores/mL
             V (float): volume of the solution in micrometers cubed
             c₀ (float): initial concentration of the solution in M
             c_ex (float): exogenous concentration in M
         outputs:
             c_eq (float): equilibrium concentration in M
         """
-        ρ = inverse_mL_to_cubic_um(ρ)  # Convert from spores/mL to spores/m^3
-        ϕ = ρ * V
+        ρₛ = inverse_mL_to_cubic_um(ρₛ)  # Convert from spores/mL to spores/m^3
+        ϕ = ρₛ * V
         return ϕ * c₀ + (1 - ϕ) * c_ex
     end
 
@@ -490,12 +498,12 @@ module Conversions
     end
 
 
-    function germination_response(ρ, c_ex, Pₛ, μ_ψ, σ_ψ, μ_γ, σ_γ, μ_ξ, σ_ξ, t)
+    function germ_response(ρₛ, c_ex, Pₛ, μ_ψ, σ_ψ, μ_γ, σ_γ, μ_ξ, σ_ξ, t)
         """
         Compute the germination response for purely 
         inhibition-dependent germination for a given set of parameters.
         inputs:
-            ρ - spore density in spores/mL
+            ρₛ - spore density in spores/mL
             c_ex - exogenously added concentration in M
             Pₛ - permeation constant in um/s
             μ_ψ - mean initial concentration
@@ -506,25 +514,26 @@ module Conversions
             σ_ξ - standard deviation of spore radius in um
             t - time
         output:
-            germination_response - the germination response for the given parameters
+            germ_response - the germination response for the given parameters
         """
     
         # Convert units
-        ρ = inverse_mL_to_cubic_um(ρ) # Convert from spores/mL to spores/m^3
+        ρₛ = inverse_mL_to_cubic_um(ρₛ) # Convert from spores/mL to spores/m^3
+
+        # Distributions
+        dist_ξ = truncated(Normal(μ_ξ, σ_ξ), 0.0, Inf)
+        dist_ψ = truncated(Normal(μ_ψ, σ_ψ), 0.0, Inf)
         
         function integrand_xi(ξ)
-    
-            dist_ξ = truncated(Normal(μ_ξ, σ_ξ), 0.0, Inf)
     
             V = 4/3 * π .* ξ^3
             A = 4 * π .* ξ^2
             τ = V ./ (Pₛ * A)
-            ϕ = ρ .* V
+            ϕ = ρₛ .* V
             β = ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ)))
             χ = (1 .- ϕ) .* (1 .- exp.(-t ./ (τ .* (1 .- ϕ))))
     
             function integrand_psi(ψ)
-                dist_ψ = truncated(Normal(μ_ψ, σ_ψ), 0.0, Inf)
                 z = (β .+ χ .* c_ex ./ ψ .- μ_γ) ./ σ_γ
                 Φ = 0.5 .* (1 .+ erf.(z ./ √2))
                 return (1 .- Φ) .* pdf(dist_ψ, ψ)
@@ -540,13 +549,13 @@ module Conversions
     end
 
 
-    function germination_response_simple(ρ, Pₛ, μ_γ, σ_γ, μ_ξ, σ_ξ, t)
+    function germ_response_simple(ρₛ, Pₛ, μ_γ, σ_γ, μ_ξ, σ_ξ, t)
         """
         Compute the germination response for purely
         inhibition-dependent germination for a given set of parameters,
         without considering an external initial concentration.
         inputs:
-            ρ - spore density in spores/mL
+            ρₛ - spore density in spores/mL
             Pₛ - permeation constant in um/s
             μ_γ - mean inhibition threshold
             σ_γ - standard deviation of inhibition threshold
@@ -554,18 +563,20 @@ module Conversions
             σ_ξ - standard deviation of spore radius in um
             t - time in seconds
         output:
-            germination_response - the germination response for the given parameters
+            germ_response - the germination response for the given parameters
         """
 
         # Convert units
-        ρ = inverse_mL_to_cubic_um(ρ) # Convert from spores/mL to spores/m^3
+        ρₛ = inverse_mL_to_cubic_um(ρₛ) # Convert from spores/mL to spores/m^3
+
+        # Distributions
+        dist_ξ = truncated(Normal(μ_ξ, σ_ξ), 0.0, Inf)
         
         function integrand(ξ)
-            dist_ξ = truncated(Normal(μ_ξ, σ_ξ), 0.0, Inf)
             V = 4/3 * π .* ξ^3
             A = 4 * π .* ξ^2
             τ = V ./ (Pₛ * A)
-            ϕ = ρ .* V
+            ϕ = ρₛ .* V
             β = ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ)))
             z = (β .- μ_γ) ./ σ_γ
             Φ = 0.5 .* (1 .+ erf.(z ./ √2))
@@ -576,28 +587,30 @@ module Conversions
     end
 
 
-    function germination_response_equilibrium(ρ, μ_γ, σ_γ, μ_ξ, σ_ξ)
+    function germ_response_equilibrium(ρₛ, μ_γ, σ_γ, μ_ξ, σ_ξ)
         """
         Compute the equilibrium germination response for a purely
         inhibition-driven germination for a given set of parameters,
         without considering an external initial concentration.
         inputs:
-            ρ - spore density in spores/mL
+            ρₛ - spore density in spores/mL
             μ_γ - mean inhibition threshold
             σ_γ - standard deviation of inhibition threshold
             μ_ξ - mean spore radius in um
             σ_ξ - standard deviation of spore radius in um
         output:
-            germination_response - the germination response for the given parameters
+            germ_response - the germination response for the given parameters
         """
 
         # Convert units
-        ρ = inverse_mL_to_cubic_um(ρ) # Convert from spores/mL to spores/m^3
+        ρₛ = inverse_mL_to_cubic_um(ρₛ) # Convert from spores/mL to spores/m^3
+        
+        # Distributions
+        dist_ξ = truncated(Normal(μ_ξ, σ_ξ), 0.0, Inf)
         
         function integrand(ξ)
-            dist_ξ = truncated(Normal(μ_ξ, σ_ξ), 0.0, Inf)
             V = 4/3 * π .* ξ^3
-            ϕ = ρ .* V
+            ϕ = ρₛ .* V
             z = (ϕ .- μ_γ) ./ σ_γ
             Φ = 0.5 .* (1 .+ erf.(z ./ √2))
             return (1 .- Φ) .* pdf(dist_ξ, ξ)
@@ -607,7 +620,7 @@ module Conversions
     end
 
 
-    function germination_response_combined_independent(s, μ_ω, σ_ω, ρ, Pₛ, μ_γ, σ_γ, μ_ξ, σ_ξ, t; c_ex=nothing, μ_ψ=nothing, σ_ψ=nothing)
+    function germ_response_combined_independent(s, μ_ω, σ_ω, ρₛ, Pₛ, μ_γ, σ_γ, μ_ξ, σ_ξ, t; c_ex=nothing, μ_ψ=nothing, σ_ψ=nothing)
         """
         Compute the germination response for independent
         inhibition and induction for a given set of parameters.
@@ -615,7 +628,7 @@ module Conversions
             s - inducer signal strength
             μ_ω - mean induction threshold
             σ_ω - standard deviation of induction threshold
-            ρ - spore density in spores/mL
+            ρₛ - spore density in spores/mL
             Pₛ - permeation constant in um/s
             μ_γ - mean inhibition threshold
             σ_γ - standard deviation of inhibition threshold
@@ -626,24 +639,24 @@ module Conversions
             μ_ψ - mean initial concentration
             σ_ψ - standard deviation of initial concentration
         output:
-            germination_response - the germination response for the given parameters
+            germ_response - the germination response for the given parameters
         """
 
         # Convert units
-        ρ = inverse_mL_to_cubic_um(ρ) # Convert from spores/mL to spores/m^3
+        ρₛ = inverse_mL_to_cubic_um(ρₛ) # Convert from spores/mL to spores/m^3
         
         z = (s .- μ_ω) ./ σ_ω
         induction_factor = 0.5 .* (1 .+ erf.(z ./ √2))
         
         if isnothing(c_ex) || isnothing(μ_ψ) || isnothing(σ_ψ)
-            return induction_factor .* germination_response_simple(ρ, Pₛ, μ_γ, σ_γ, μ_ξ, σ_ξ, t)
+            return induction_factor .* germ_response_simple(ρₛ, Pₛ, μ_γ, σ_γ, μ_ξ, σ_ξ, t)
         else
-            return induction_factor .* germination_response(ρ, c_ex, Pₛ, μ_ψ, σ_ψ, μ_γ, σ_γ, μ_ξ, σ_ξ, t)
+            return induction_factor .* germ_response(ρₛ, c_ex, Pₛ, μ_ψ, σ_ψ, μ_γ, σ_γ, μ_ξ, σ_ξ, t)
         end
     end
 
 
-    function germination_response_combined_independent_eq(s, μ_ω, σ_ω, ρ, μ_γ, σ_γ, μ_ξ, σ_ξ)
+    function germ_response_combined_independent_eq(s, μ_ω, σ_ω, ρₛ, μ_γ, σ_γ, μ_ξ, σ_ξ)
         """
         Compute the germination response for independent
         inhibition and induction for a given set of parameters.
@@ -651,26 +664,26 @@ module Conversions
             s - inducer signal strength
             μ_ω - mean induction threshold
             σ_ω - standard deviation of induction threshold
-            ρ - spore density in spores/mL
+            ρₛ - spore density in spores/mL
             μ_γ - mean inhibition threshold
             σ_γ - standard deviation of inhibition threshold
             μ_ξ - mean spore radius in um
             σ_ξ - standard deviation of spore radius in um
         output:
-            germination_response - the germination response for the given parameters
+            germ_response - the germination response for the given parameters
         """
 
         # Convert units
-        ρ = inverse_mL_to_cubic_um(ρ) # Convert from spores/mL to spores/m^3
+        ρₛ = inverse_mL_to_cubic_um(ρₛ) # Convert from spores/mL to spores/m^3
         
         z = (s .- μ_ω) ./ σ_ω
         induction_factor = 0.5 .* (1 .+ erf.(z ./ √2))
         
-        return induction_factor .* germination_response_equilibrium(ρ, μ_γ, σ_γ, μ_ξ, σ_ξ)
+        return induction_factor .* germ_response_equilibrium(ρₛ, μ_γ, σ_γ, μ_ξ, σ_ξ)
     end
 
 
-    function germination_response_inhibitor_dependent_inducer_thresh(s, k, μ_ω, σ_ω, ρ, Pₛ, μ_ψ, σ_ψ, μ_ξ, σ_ξ, t)
+    function germ_response_inhibitor_dependent_inducer_thresh(s, k, μ_ω, σ_ω, ρₛ, Pₛ, μ_ψ, σ_ψ, μ_ξ, σ_ξ, t)
         """
         Compute the germination response for an inhibitor-dependent
         induction threshold for a given set of parameters.
@@ -679,7 +692,7 @@ module Conversions
             k - inhibition strength over induction signal
             μ_ω - mean induction threshold
             σ_ω - standard deviation of induction threshold
-            ρ - spore density in spores/mL
+            ρₛ - spore density in spores/mL
             Pₛ - permeation constant in um/s
             μ_ψ - mean initial concentration
             σ_ψ - standard deviation of initial concentration
@@ -687,30 +700,418 @@ module Conversions
             σ_ξ - standard deviation of spore radius in um
             t - time in seconds
         output:
-            germination_response - the germination response for the given parameters
+            germ_response - the germination response for the given parameters
         """
 
         # Convert units
-        ρ = inverse_mL_to_cubic_um(ρ) # Convert from spores/mL to spores/m^3
+        ρₛ = inverse_mL_to_cubic_um(ρₛ) # Convert from spores/mL to spores/m^3
+        
+        # Distributions
+        dist_ξ = truncated(Normal(μ_ξ, σ_ξ), 0.0, Inf)
+        dist_ψ = truncated(Normal(μ_ψ, σ_ψ), 0.0, Inf)
+        
+        ξ_lo = max(0.0, μ_ξ - 6σ_ξ)
+        ξ_hi = μ_ξ + 6σ_ξ
+        ψ_lo = max(0.0, μ_ψ - 6σ_ψ)
+        ψ_hi = μ_ψ + 6σ_ψ
 
-        function integrand_xi(ξ)
-    
-            dist_ξ = truncated(Normal(μ_ξ, σ_ξ), 0.0, Inf)
-    
-            function integrand_psi(ψ)
-                dist_ψ = truncated(Normal(μ_ψ, σ_ψ), 0.0, Inf)
-                c_in = concentration_at_spore_ambient_sources(t, ψ, 0.0, ρ, ξ, Pₛ)
-                z = (s .- k .* c_in .- μ_ω) ./ σ_ω
-                Φ = 0.5 .* (1 .+ erf.(z ./ √2))
-                return Φ .* pdf(dist_ψ, ψ)
-            end
-    
-            ψ_lo = max(0.0, μ_ψ - 6σ_ψ)
-            ψ_hi = μ_ψ + 6σ_ψ
+        function integrand(input::AbstractVector)
+
+            ξ, ψ = input
+
+            A, V = compute_spore_area_and_volume_from_dia(2ξ)
+            τ = V / (A * Pₛ)
+            ϕ = ρₛ .* V # volume fraction
             
-            return quadgk(x -> integrand_psi(x), ψ_lo, ψ_hi, rtol=1e-8)[1] .* pdf(dist_ξ, ξ)
+            c_in = ψ .* (ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ))))
+            z = (s .- k .* c_in .- μ_ω) ./ σ_ω
+            Φ = 0.5 .* (1 .+ erf.(z ./ sqrt(2)))
+            
+            return Φ .* pdf(dist_ψ, ψ) .* pdf(dist_ξ, ξ)
         end
-    
-        return quadgk(x -> integrand_xi(x), 0.0, Inf, rtol=1e-8)[1]
+
+        return hcubature(integrand, [ξ_lo, ψ_lo], [ξ_hi, ψ_hi], reltol=1e-4)[1]
+    end
+
+
+    function germ_response_inhibitor_dependent_inducer_signal(s, K, n, μ_ω, σ_ω, ρₛ, Pₛ, μ_ψ, σ_ψ, μ_ξ, σ_ξ, t)
+        """
+        Compute the germination response for an inhibitor-dependent
+        induction threshold for a given set of parameters.
+        inputs:
+            s - inducer signal strength
+            K - half-saturation constant for the inhibitor
+            n - Hill coefficient for the inhibitor
+            μ_ω - mean induction threshold
+            σ_ω - standard deviation of induction threshold
+            ρₛ - spore density in spores/mL
+            Pₛ - permeation constant in um/s
+            μ_ψ - mean initial concentration
+            σ_ψ - standard deviation of initial concentration
+            μ_ξ - mean spore radius in um
+            σ_ξ - standard deviation of spore radius in um
+            t - time in seconds
+        output:
+            germ_response - the germination response for the given parameters
+        """
+
+        # Convert units
+        ρₛ = inverse_mL_to_cubic_um(ρₛ) # Convert from spores/mL to spores/m^3
+        
+        # Distributions
+        dist_ξ = truncated(Normal(μ_ξ, σ_ξ), 0.0, Inf)
+        dist_ψ = truncated(Normal(μ_ψ, σ_ψ), 0.0, Inf)
+        
+        ξ_lo = max(0.0, μ_ξ - 6σ_ξ)
+        ξ_hi = μ_ξ + 6σ_ξ
+        ψ_lo = max(0.0, μ_ψ - 6σ_ψ)
+        ψ_hi = μ_ψ + 6σ_ψ
+
+        function integrand(input::AbstractVector)
+
+            ξ, ψ = input
+
+            A, V = compute_spore_area_and_volume_from_dia(2ξ)
+            τ = V / (A * Pₛ)
+            ϕ = ρₛ .* V # volume fraction
+            
+            c_in = ψ .* (ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ))))
+            s_mod = s ./ (1 .+ (c_in ./ K).^n)
+            z = (s_mod .- μ_ω) ./ σ_ω
+            Φ = 0.5 .* (1 .+ erf.(z ./ sqrt(2)))
+            
+            return Φ .* pdf(dist_ψ, ψ) .* pdf(dist_ξ, ξ)
+        end
+
+        return hcubature(integrand, [ξ_lo, ψ_lo], [ξ_hi, ψ_hi], reltol=1e-4)[1]
+    end
+
+
+    function germ_response_inhibitor_dependent_inducer_combined(s, k, K, n, μ_ω, σ_ω, ρₛ, Pₛ, μ_ψ, σ_ψ, μ_ξ, σ_ξ, t)
+        """
+        Compute the germination response for an inhibitor-dependent
+        induction threshold for a given set of parameters.
+        inputs:
+            s - inducer signal strength
+            k - inhibition strength over induction signal
+            K - half-saturation constant for the inhibitor
+            n - Hill coefficient for the inhibitor
+            μ_ω - mean induction threshold
+            σ_ω - standard deviation of induction threshold
+            ρₛ - spore density in spores/mL
+            Pₛ - permeation constant in um/s
+            μ_ψ - mean initial concentration
+            σ_ψ - standard deviation of initial concentration
+            μ_ξ - mean spore radius in um
+            σ_ξ - standard deviation of spore radius in um
+            t - time in seconds
+        output:
+            germ_response - the germination response for the given parameters
+        """
+
+        # Convert units
+        ρₛ = inverse_mL_to_cubic_um(ρₛ) # Convert from spores/mL to spores/m^3
+        
+        # Distributions
+        dist_ξ = truncated(Normal(μ_ξ, σ_ξ), 0.0, Inf)
+        dist_ψ = truncated(Normal(μ_ψ, σ_ψ), 0.0, Inf)
+        
+        ξ_lo = max(0.0, μ_ξ - 6σ_ξ)
+        ξ_hi = μ_ξ + 6σ_ξ
+        ψ_lo = max(0.0, μ_ψ - 6σ_ψ)
+        ψ_hi = μ_ψ + 6σ_ψ
+
+        function integrand(input::AbstractVector)
+
+            ξ, ψ = input
+
+            A, V = compute_spore_area_and_volume_from_dia(2ξ)
+            τ = V / (A * Pₛ)
+            ϕ = ρₛ .* V # volume fraction
+            
+            c_in = ψ .* (ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ))))
+            s_mod = s ./ (1 .+ (c_in ./ K).^n)
+            z = (s_mod .- k .* c_in .- μ_ω) ./ σ_ω
+            Φ = 0.5 .* (1 .+ erf.(z ./ sqrt(2)))
+            
+            return Φ .* pdf(dist_ψ, ψ) .* pdf(dist_ξ, ξ)
+        end
+
+        return hcubature(integrand, [ξ_lo, ψ_lo], [ξ_hi, ψ_hi], reltol=1e-4)[1]
+    end
+
+
+    function germ_response_combined_independent_st(s_max, K_cs, c₀_cs, Pₛ_cs, μ_κ, σ_κ, d_hp, μ_ω, σ_ω, ρₛ, Pₛ_inh, μ_γ, σ_γ, μ_ξ, σ_ξ, t)
+        """
+        Compute the germination response for independent
+        inhibition and induction for a given set of parameters.
+        The inducer signal is time-dependent.
+        inputs:
+            s_max - maximum inducer signal strength
+            K_cs - half-saturation constant for the carbon source
+            c₀_cs - initial concentration of carbon source in M
+            Pₛ_cs - permeation constant for the carbon source in um/s
+            μ_κ - mean cell wall thickness in um
+            σ_κ - standard deviation of cell wall thickness in um
+            d_hp - thickness of the hydrophobin layer in um
+            μ_ω - mean induction threshold
+            σ_ω - standard deviation of induction threshold
+            ρₛ - spore density in spores/mL
+            Pₛ_inh - permeation constant in um/s
+            μ_γ - mean inhibition threshold
+            σ_γ - standard deviation of inhibition threshold
+            μ_ξ - mean spore radius in um
+            σ_ξ - standard deviation of spore radius in um
+            t - time in seconds
+        output:
+            germ_response - the germination response for the given parameters
+        """
+
+        # Convert units
+        ρₛ = inverse_mL_to_cubic_um(ρₛ) # Convert from spores/mL to spores/m^3
+
+        # Distributions
+        dist_ξ = truncated(Normal(μ_ξ, σ_ξ), 0.0, Inf)
+        dist_κ = truncated(Normal(μ_κ, σ_κ), 0.0, Inf)
+
+        ξ_lo = max(0.0, μ_ξ - 6σ_ξ)
+        ξ_hi = μ_ξ + 6σ_ξ
+        κ_lo = max(0.0, μ_κ - 6σ_κ)
+        κ_hi = μ_κ + 6σ_κ
+        
+        function integrand(input::AbstractVector)
+
+            ξ, κ = input
+
+            # Inhibitor
+            V = 4/3 * π .* ξ^3
+            A = 4 * π .* ξ^2
+            τ = V ./ (Pₛ_inh * A)
+            ϕ = ρₛ .* V
+            β = ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ)))
+
+            z₁ = (β .- μ_γ) ./ σ_γ
+            Φ₁ = 0.5 .* (1 .+ erf.(z₁ ./ √2))
+
+            # Inducer
+            V_cw = 0.32 * π * ((ξ - d_hp)^3 - (ξ - d_hp - κ)^3)
+            c_cs = inducer_concentration(c₀_cs, t, Pₛ_cs, A, V_cw)
+            s = s_max .* c_cs ./ (K_cs .+ c_cs)
+
+            z₂ = (s .- μ_ω) ./ σ_ω
+            Φ₂ = 0.5 .* (1 .+ erf.(z₂ ./ √2))
+
+            return (1 .- Φ₁) .* Φ₂ .* pdf(dist_ξ, ξ) .* pdf(dist_κ, κ)
+        end
+
+        return hcubature(integrand, [ξ_lo, κ_lo], [ξ_hi, κ_hi], reltol=1e-4)[1]
+    end
+
+
+    function germ_response_inducer_dependent_inhibitor_thresh_st(s_max, K_cs, c₀_cs, Pₛ_cs, μ_κ, σ_κ, d_hp, ρₛ, Pₛ, μ_γ, σ_γ, μ_ξ, σ_ξ, t)
+        """
+        Compute the germination response for purely
+        inhibition-dependent germination for a given set of parameters,
+        without considering an external initial concentration.
+        inputs:
+            s_max - maximum inducer signal strength
+            K_cs - half-saturation constant for the carbon source
+            c₀_cs - initial concentration of carbon source in M
+            Pₛ_cs - permeation constant for the carbon source in um/s
+            μ_κ - mean cell wall thickness in um
+            σ_κ - standard deviation of cell wall thickness in um
+            d_hp - thickness of the hydrophobin layer in um
+            ρₛ - spore density in spores/mL
+            Pₛ - permeation constant in um/s
+            μ_γ - mean inhibition threshold
+            σ_γ - standard deviation of inhibition threshold
+            μ_ξ - mean spore radius in um
+            σ_ξ - standard deviation of spore radius in um
+            t - time in seconds
+        output:
+            germ_response - the germination response for the given parameters
+        """
+
+        # Convert units
+        ρₛ = inverse_mL_to_cubic_um(ρₛ) # Convert from spores/mL to spores/m^3
+
+        # Distributions
+        dist_ξ = truncated(Normal(μ_ξ, σ_ξ), 0.0, Inf)
+        dist_κ = truncated(Normal(μ_κ, σ_κ), 0.0, Inf)
+
+        ξ_lo = max(0.0, μ_ξ - 6σ_ξ)
+        ξ_hi = μ_ξ + 6σ_ξ
+        κ_lo = max(0.0, μ_κ - 6σ_κ)
+        κ_hi = μ_κ + 6σ_κ
+        
+        function integrand(input::AbstractVector)
+
+            ξ, κ = input
+
+            # Inhibitor
+            V = 4/3 * π .* ξ^3
+            A = 4 * π .* ξ^2
+            τ = V ./ (Pₛ * A)
+            ϕ = ρₛ .* V
+            β = ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ)))
+
+            # Inducer
+            V_cw = 0.32 * π * ((ξ - d_hp)^3 - (ξ - d_hp - κ)^3)
+            c_cs = inducer_concentration(c₀_cs, t, Pₛ_cs, A, V_cw)
+            s = s_max .* c_cs ./ (K_cs .+ c_cs)
+
+            z = (β .- s .- μ_γ) ./ σ_γ
+            Φ = 0.5 .* (1 .+ erf.(z ./ √2))
+
+            # Inducer
+            return (1 .- Φ) .* pdf(dist_ξ, ξ)
+        end
+
+        return hcubature(integrand, [ξ_lo, κ_lo], [ξ_hi, κ_hi], reltol=1e-4)[1]
+    end
+
+
+    function germ_response_inducer_dependent_inhibitor_perm_st(s_max, K_cs, c₀_cs, Pₛ_cs, μ_κ, σ_κ, d_hp, ρₛ, Pₛ, μ_γ, σ_γ, μ_ξ, σ_ξ, t)
+        """
+        Compute the germination response for purely
+        inhibition-dependent germination for a given set of parameters,
+        without considering an external initial concentration.
+        inputs:
+            s_max - maximum inducer signal strength
+            K_cs - half-saturation constant for the carbon source
+            c₀_cs - initial concentration of carbon source in M
+            Pₛ_cs - permeation constant for the carbon source in um/s
+            μ_κ - mean cell wall thickness in um
+            σ_κ - standard deviation of cell wall thickness in um
+            d_hp - thickness of the hydrophobin layer in um
+            ρₛ - spore density in spores/mL
+            Pₛ - permeation constant in um/s
+            μ_γ - mean inhibition threshold
+            σ_γ - standard deviation of inhibition threshold
+            μ_ξ - mean spore radius in um
+            σ_ξ - standard deviation of spore radius in um
+            t - time in seconds
+        output:
+            germ_response - the germination response for the given parameters
+        """
+
+        # Convert units
+        ρₛ = inverse_mL_to_cubic_um(ρₛ) # Convert from spores/mL to spores/m^3
+
+        # Distributions
+        dist_ξ = truncated(Normal(μ_ξ, σ_ξ), 0.0, Inf)
+        dist_κ = truncated(Normal(μ_κ, σ_κ), 0.0, Inf)
+
+        ξ_lo = max(0.0, μ_ξ - 6σ_ξ)
+        ξ_hi = μ_ξ + 6σ_ξ
+        κ_lo = max(0.0, μ_κ - 6σ_κ)
+        κ_hi = μ_κ + 6σ_κ
+        
+        function integrand(input::AbstractVector)
+
+            ξ, κ = input
+
+            V = 4/3 * π .* ξ^3
+            A = 4 * π .* ξ^2
+
+            # Inducer
+            V_cw = 0.32 * π * ((ξ - d_hp)^3 - (ξ - d_hp - κ)^3)
+            c_cs = inducer_concentration(c₀_cs, t, Pₛ_cs, A, V_cw)
+            s = s_max .* c_cs ./ (K_cs .+ c_cs)
+
+            # Inhibitor
+            τ = V ./ (s .*Pₛ .* A)
+            ϕ = ρₛ .* V
+            β = ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ)))
+
+            z = (β .- μ_γ) ./ σ_γ
+            Φ = 0.5 .* (1 .+ erf.(z ./ √2))
+
+            # Inducer
+            return (1 .- Φ) .* pdf(dist_ξ, ξ)
+        end
+
+        return hcubature(integrand, [ξ_lo, κ_lo], [ξ_hi, κ_hi], reltol=1e-4)[1]
+    end
+
+
+    function germ_response_inducer_dependent_inhibitor_combined_st(s_max, k, K_cs, c₀_cs, Pₛ_cs, μ_κ, σ_κ, d_hp, ρₛ, Pₛ, μ_γ, σ_γ, μ_ξ, σ_ξ, t)
+        """
+        Compute the germination response for purely
+        inhibition-dependent germination for a given set of parameters,
+        without considering an external initial concentration.
+        inputs:
+            s_max - maximum inducer signal strength
+            k - proportionality constant for threshold modulation vs permeability modulation
+            K_cs - half-saturation constant for the carbon source
+            c₀_cs - initial concentration of carbon source in M
+            Pₛ_cs - permeation constant for the carbon source in um/s
+            μ_κ - mean cell wall thickness in um
+            σ_κ - standard deviation of cell wall thickness in um
+            d_hp - thickness of the hydrophobin layer in um
+            ρₛ - spore density in spores/mL
+            Pₛ - permeation constant in um/s
+            μ_γ - mean inhibition threshold
+            σ_γ - standard deviation of inhibition threshold
+            μ_ξ - mean spore radius in um
+            σ_ξ - standard deviation of spore radius in um
+            t - time in seconds
+        output:
+            germ_response - the germination response for the given parameters
+        """
+
+        # Convert units
+        ρₛ = inverse_mL_to_cubic_um(ρₛ) # Convert from spores/mL to spores/m^3
+
+        # Distributions
+        dist_ξ = truncated(Normal(μ_ξ, σ_ξ), 0.0, Inf)
+        dist_κ = truncated(Normal(μ_κ, σ_κ), 0.0, Inf)
+
+        ξ_lo = max(0.0, μ_ξ - 6σ_ξ)
+        ξ_hi = μ_ξ + 6σ_ξ
+        κ_lo = max(0.0, μ_κ - 6σ_κ)
+        κ_hi = μ_κ + 6σ_κ
+        
+        function integrand(input::AbstractVector)
+
+            ξ, κ = input
+
+            V = 4/3 * π .* ξ^3
+            A = 4 * π .* ξ^2
+
+            # Inducer
+            V_cw = 0.32 * π * ((ξ - d_hp)^3 - (ξ - d_hp - κ)^3)
+            c_cs = inducer_concentration(c₀_cs, t, Pₛ_cs, A, V_cw)
+            s = s_max .* c_cs ./ (K_cs .+ c_cs)
+
+            # Inhibitor
+            τ = V ./ (s .*Pₛ .* A)
+            ϕ = ρₛ .* V
+            β = ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ)))
+
+            z = (β .- k .* s .- μ_γ) ./ σ_γ
+            Φ = 0.5 .* (1 .+ erf.(z ./ √2))
+
+            # Inducer
+            return (1 .- Φ) .* pdf(dist_ξ, ξ)
+        end
+
+        return hcubature(integrand, [ξ_lo, κ_lo], [ξ_hi, κ_hi], reltol=1e-4)[1]
+    end
+
+    function inducer_concentration(c_out, t, Pₛ, A, V_cw)
+        """
+        Compute the concentration of carbon source in the cell wall.
+        inputs:
+            c_in (float) - the initial concentration at the spore
+            c_out (float) - the initial external concentration
+            t (float) - time
+            Pₛ (float) - the hydrophobin layer permeation constant
+            A (float) - the surface area of the spore
+            V_cw (float) - the volume of the polysaccharide layer pores
+        """
+        τ = V_cw / (A * Pₛ)
+        c = c_out .* (1 .- exp.(-t / τ))
+        return c
     end
 end

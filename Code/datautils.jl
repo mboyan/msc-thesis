@@ -3,19 +3,26 @@ module DataUtils
     Contains utility functions.
     """
 
+    # using Distributed
+    # addprocs(4)
+
     using DataFrames
     using CSV
     using BlackBoxOptim
+    using Optim
+    using NLopt
     using ArgCheck
+    using Revise
     
     include("./conversions.jl")
+    Revise.includet("./conversions.jl")
     using .Conversions
 
     export parse_ijadpanahsaravi_data
     export dantigny
     export generate_dantigny_dataset
     export fit_model_to_data
-
+    
 
     function parse_ijadpanahsaravi_data()
         """
@@ -152,7 +159,7 @@ module DataUtils
     end
 
 
-    function fit_model_to_data(model_type, def_params, dantigny_data, times, sources, densities, bounds_dict, p_maxs; max_steps=10000)
+    function fit_model_to_data(model_type, def_params, dantigny_data, times, sources, densities, bounds_dict, p_maxs; st=false, max_steps=10000)
         """
         Fit a selected germination model to the data.
         inputs:
@@ -165,11 +172,14 @@ module DataUtils
             densities (Vector): spore densities
             bounds_dict (Dict): bounds for the free parameters
             p_maxs (Matrix): saturation fractions for the Dantigny model
+            st (Bool): whether to use a time-dependent inducer
             max_steps (int): maximum number of steps for the optimization
         outputs:
             params_out (Dict): optimized parameters
         """
         @argcheck model_type in ["independent", "inhibitor", "inhibitor_thresh", "inhibitor_perm", "inducer", "inducer_thresh", "inducer_signal"]
+
+        println("Running ", model_type, " model fitting with ", st ? "time-dependent inducer" : "static inducer")
 
         # Reshape input
         densities_tile = repeat(densities, outer=[1, length(sources), length(times)])
@@ -181,140 +191,307 @@ module DataUtils
         
         if model_type == "independent"
             # Independent inducer/inhibitor
-            wrapper = (inputs, params) -> Main.germination_response_combined_independent.(
-                params[1], # s
-                params[2], # μ_ω
-                params[3], # σ_ω	
-                inputs[1], # ρₛ,
-                params[4], # Pₛ
-                params[5], # μ_γ
-                params[6], # σ_γ
-                def_params[:μ_ξ],
-                def_params[:σ_ξ],
-                inputs[2], # t
-            )
-            
-            wrapper_eq = (ρₛ, params) -> Main.germination_response_combined_independent_eq.(
-                params[1], # s
-                params[2], # μ_ω
-                params[3], # σ_ω
-                ρₛ,
-                params[5], # μ_γ
-                params[6], # σ_γ
-                def_params[:μ_ξ],
-                def_params[:σ_ξ]
-            )
-
-            param_keys = [:s, :μ_ω, :σ_ω, :Pₛ, :μ_γ, :σ_γ]
-            bounds = [bounds_dict[key] for key in param_keys]
-
-            obj = params -> begin
-                ŷ = [wrapper(inputs, params) for inputs in tuple.(densities_tile, times_tile)]
-                ŷ = reshape(ŷ, size(densities_tile))
-                ŷ_eq = [wrapper_eq(ρₛ, params) for ρₛ in densities_tile]
-                return sum(abs2, ŷ .- dantigny_data) + sum(abs2, ŷ_eq .- p_maxs) * length(times)
+            if st
+                wrapper = (inputs, params) -> Main.germ_response_combined_independent_st(
+                    params[1], # s_max -> carbon source-specific
+                    params[2], # K_cs -> carbon source-specific
+                    def_params[:c₀_cs], # c₀_cs
+                    params[3], # Pₛ_cs -> carbon source-specific
+                    def_params[:μ_κ], # μ_κ
+                    def_params[:σ_κ], # σ_κ
+                    def_params[:d_hp], # d_hp
+                    params[4], # μ_ω
+                    params[5], # σ_ω	
+                    inputs[1], # ρₛ,
+                    params[6], # Pₛ_inh
+                    params[7], # μ_γ
+                    params[8], # σ_γ
+                    def_params[:μ_ξ],
+                    def_params[:σ_ξ],
+                    inputs[2], # t
+                )
+                
+                # Duplicate bounds/parameters for each source
+                param_keys = [:s_max, :K_cs, :Pₛ_cs, :μ_ω, :σ_ω, :Pₛ, :μ_γ, :σ_γ]
+                param_occurrences = [length(sources), length(sources), length(sources), 1, 1, 1, 1, 1]
+            else
+                wrapper = (inputs, params) -> Main.germ_response_combined_independent(
+                    params[1], # s -> carbon source-specific
+                    params[2], # μ_ω
+                    params[3], # σ_ω	
+                    inputs[1], # ρₛ,
+                    params[4], # Pₛ
+                    params[5], # μ_γ
+                    params[6], # σ_γ
+                    def_params[:μ_ξ],
+                    def_params[:σ_ξ],
+                    inputs[2], # t
+                )
+                
+                # wrapper_eq = (ρₛ, params) -> Main.germination_response_combined_independent_eq.(
+                #     params[1], # s
+                #     params[2], # μ_ω
+                #     params[3], # σ_ω
+                #     ρₛ,
+                #     params[5], # μ_γ
+                #     params[6], # σ_γ
+                #     def_params[:μ_ξ],
+                #     def_params[:σ_ξ]
+                # )
+                
+                # Duplicate bounds/parameters for each source
+                param_keys = [:s, :μ_ω, :σ_ω, :Pₛ, :μ_γ, :σ_γ]
+                param_occurrences = [length(sources), 1, 1, 1, 1, 1]
             end
 
         elseif model_type_split[1] == "inhibitor"
-            
-            wrapper = (inputs, params) -> Main.germination_response_simple.(	
-                inputs[1], # ρₛ,
-                params[1], # Pₛ
-                params[2], # μ_γ,
-                params[3], # σ_γ,
-                def_params[:μ_ξ],
-                def_params[:σ_ξ],
-                inputs[2], # t
-            )
-            
-            wrapper_eq = (ρₛ, params) -> Main.germination_response_equilibrium.(
-                ρₛ,
-                params[2], # μ_γ
-                params[3], # σ_γ
-                def_params[:μ_ξ],
-                def_params[:σ_ξ]
-            )
 
             if model_type == "inhibitor" # Inducer shifts inhibition threshold and modulates inhibitor permeability
-                
-                # Duplicate bounds for each source
-                param_keys = [Symbol(:Pₛ, Symbol(i)) for i in eachindex(sources)]
-                param_keys = vcat(param_keys, [Symbol(:μ_γ, Symbol(i)) for i in eachindex(sources)])
-                param_keys = vcat(param_keys, [Symbol(:σ_γ, Symbol(i)) for i in eachindex(sources)])
-                bounds = [bounds_dict[:Pₛ] for _ in eachindex(sources)]
-                bounds = vcat(bounds, [bounds_dict[:μ_γ] for _ in eachindex(sources)])
-                bounds = vcat(bounds, [bounds_dict[:σ_γ] for _ in eachindex(sources)])
+                if st # Time-dependent inducer
+                    wrapper = (inputs, params) -> Main.germ_response_inducer_dependent_inhibitor_combined_st(	
+                        params[1], # s_max -> carbon source-specific
+                        params[2], # k
+                        params[3], # K_cs -> carbon source-specific
+                        def_params[:c₀_cs], # c₀_cs
+                        params[4], # Pₛ_cs -> carbon source-specific
+                        def_params[:μ_κ], # μ_κ
+                        def_params[:σ_κ], # σ_κ
+                        def_params[:d_hp], # d_hp
+                        inputs[1], # ρₛ,
+                        params[5], # Pₛ
+                        params[6], # μ_γ,
+                        params[7], # σ_γ,
+                        def_params[:μ_ξ],
+                        def_params[:σ_ξ],
+                        inputs[2], # t
+                    )
+                    param_keys = [:s_max, :k, :K_cs, :Pₛ_cs, :Pₛ, :μ_γ, :σ_γ]
+                    param_occurrences = [length(sources), 1, length(sources), length(sources), 1, 1, 1]
+                else
+                    wrapper = (inputs, params) -> Main.germination_response_simple(	
+                        inputs[1], # ρₛ,
+                        params[1], # Pₛ
+                        params[2], # μ_γ,
+                        params[3], # σ_γ,
+                        def_params[:μ_ξ],
+                        def_params[:σ_ξ],
+                        inputs[2], # t
+                    )
+                    param_keys = [:Pₛ, :μ_γ, :σ_γ]
+                    param_occurrences = [length(sources), length(sources), length(sources)]
+                end
 
             elseif model_type_split[2] == "thresh" # Inducer shifts inhibition threshold
-                param_keys = [:Pₛ]
-                bounds = [bounds_dict[:Pₛ]]
-                
-                # Duplicate bounds for each source
-                param_keys = vcat(param_keys, [Symbol(:μ_γ, Symbol(i)) for i in eachindex(sources)])
-                param_keys = vcat(param_keys, [Symbol(:σ_γ, Symbol(i)) for i in eachindex(sources)])
-                bounds = vcat(bounds, [bounds_dict[:μ_γ] for _ in eachindex(sources)])
-                bounds = vcat(bounds, [bounds_dict[:σ_γ] for _ in eachindex(sources)])
-
-            elseif model_type_split[2] == "perm" # Inducer modulates inhibitor permeability
-                param_keys = [:μ_γ, :σ_γ]
-                bounds = [bounds_dict[key] for key in param_keys]
-                
-                # Duplicate bounds for each source
-                param_keys = vcat([Symbol(:Pₛ, Symbol(i)) for i in eachindex(sources)], param_keys)
-                bounds = vcat([bounds_dict[:Pₛ] for _ in eachindex(sources)], bounds)
-            end
-
-            obj = params -> begin
-                err = 0
-                for i in eachindex(sources)
-                    params_select = [params_temp[mod1(i, length(params_temp))] for params_temp in params]
-                    ŷ = [wrapper(inputs, params_select) for inputs in tuple.(densities_tile[i, :, :], times_tile[i, :, :])]
-                    ŷ = reshape(ŷ, size(densities_tile[i, :, :]))
-                    ŷ_eq = [wrapper_eq(ρₛ, params) for ρₛ in densities_tile]
-                    err += sum(abs2, ŷ .- dantigny_data[i, :, :]) + sum(abs2, ŷ_eq .- p_maxs) * length(times)
+                if st # Time-dependent inducer
+                    wrapper = (inputs, params) -> Main.germ_response_inducer_dependent_inhibitor_thresh_st(	
+                        params[1], # s_max -> carbon source-specific
+                        params[2], # K_cs -> carbon source-specific
+                        def_params[:c₀_cs], # c₀_cs
+                        params[3], # Pₛ_cs -> carbon source-specific
+                        def_params[:μ_κ], # μ_κ
+                        def_params[:σ_κ], # σ_κ
+                        def_params[:d_hp], # d_hp
+                        inputs[1], # ρₛ,
+                        params[4], # Pₛ
+                        params[5], # μ_γ,
+                        params[6], # σ_γ,
+                        def_params[:μ_ξ],
+                        def_params[:σ_ξ],
+                        inputs[2], # t
+                    )
+                    param_keys = [:s_max, :K_cs, :Pₛ_cs, :Pₛ, :μ_γ, :σ_γ]
+                    param_occurrences = [length(sources), length(sources), length(sources), 1, 1, 1]
+                else
+                    wrapper = (inputs, params) -> Main.germ_response_simple(	
+                        inputs[1], # ρₛ,
+                        params[1], # Pₛ
+                        params[2], # μ_γ,
+                        params[3], # σ_γ,
+                        def_params[:μ_ξ],
+                        def_params[:σ_ξ],
+                        inputs[2], # t
+                    )
+                    param_keys = [:Pₛ, :μ_γ, :σ_γ]
+                    param_occurrences = [1, length(sources), length(sources)]
                 end
-                return err
+            elseif model_type_split[2] == "perm" # Inducer modulates inhibitor permeability
+                if st # Time-dependent inducer
+                    wrapper = (inputs, params) -> Main.germ_response_inducer_dependent_inhibitor_perm_st(	
+                        params[1], # s_max -> carbon source-specific
+                        params[2], # K_cs -> carbon source-specific
+                        def_params[:c₀_cs], # c₀_cs
+                        params[3], # Pₛ_cs -> carbon source-specific
+                        def_params[:μ_κ], # μ_κ
+                        def_params[:σ_κ], # σ_κ
+                        def_params[:d_hp], # d_hp
+                        inputs[1], # ρₛ,
+                        params[4], # Pₛ
+                        params[5], # μ_γ,
+                        params[6], # σ_γ,
+                        def_params[:μ_ξ],
+                        def_params[:σ_ξ],
+                        inputs[2], # t
+                    )
+                    param_keys = [:s_max, :K_cs, :Pₛ_cs, :Pₛ, :μ_γ, :σ_γ]
+                    param_occurrences = [length(sources), length(sources), length(sources), 1, 1, 1]
+                else
+                    wrapper = (inputs, params) -> Main.germination_response_simple(	
+                        inputs[1], # ρₛ,
+                        params[1], # Pₛ
+                        params[2], # μ_γ,
+                        params[3], # σ_γ,
+                        def_params[:μ_ξ],
+                        def_params[:σ_ξ],
+                        inputs[2], # t
+                    )
+                    param_keys = [:Pₛ, :μ_γ, :σ_γ]
+                    param_occurrences = [length(sources), 1, 1]
+                end            
             end
 
         elseif model_type_split[1] == "inducer"
 
-            # if model_type_split[2] == "thresh" # Inhibitor shifts induction threshold
-            #     wrapper = (inputs, params) -> Main.germination_response_simple.(	
-            #         params[1], # s
-            #         params[2], # K
-            #         params[3], # μ_ω
-            #         params[4], # σ_ω
-            #         inputs[1], # ρₛ,
-            #         params[5], # Pₛ
-            #         params[6], # μ_ψ,
-            #         params[7], # σ_ψ,
-            #         def_params[:μ_ξ],
-            #         def_params[:σ_ξ],
-            #         inputs[2], # t
-            #     )
-            # end
+            if model_type == "inducer" # Inhibitor shifts induction threshold and modulates inducer signal strength
+                wrapper = (inputs, params) -> Main.germ_response_inhibitor_dependent_inducer_combined(	
+                    params[1], # s -> carbon source-specific
+                    params[2], # k -> carbon source-specific
+                    params[3], # K -> carbon source-specific
+                    params[4], # n -> carbon source-specific
+                    params[5], # μ_ω
+                    params[6], # σ_ω
+                    inputs[1], # ρₛ,
+                    params[7], # Pₛ
+                    params[8], # μ_ψ,
+                    params[9], # σ_ψ,
+                    def_params[:μ_ξ],
+                    def_params[:σ_ξ],
+                    inputs[2], # t
+                )
+
+                param_keys = [:s, :k, :K, :n, :μ_ω, :σ_ω, :Pₛ, :μ_ψ, :σ_ψ]
+
+                param_occurrences = [length(sources), length(sources), length(sources), length(sources), 1, 1, 1, 1, 1]
+
+            elseif model_type_split[2] == "thresh" # Inhibitor shifts induction threshold
+                wrapper = (inputs, params) -> Main.germ_response_inhibitor_dependent_inducer_thresh(	
+                    params[1], # s -> carbon source-specific
+                    params[2], # k -> carbon source-specific
+                    params[3], # μ_ω
+                    params[4], # σ_ω
+                    inputs[1], # ρₛ,
+                    params[5], # Pₛ
+                    params[6], # μ_ψ,
+                    params[7], # σ_ψ,
+                    def_params[:μ_ξ],
+                    def_params[:σ_ξ],
+                    inputs[2], # t
+                )
+
+                param_keys = [:s, :k, :μ_ω, :σ_ω, :Pₛ, :μ_ψ, :σ_ψ]
+
+                param_occurrences = [length(sources), length(sources), 1, 1, 1, 1, 1]
+
+            elseif model_type_split[2] == "signal" # Inhibitor shifts induction threshold
+                wrapper = (inputs, params) -> Main.germ_response_inhibitor_dependent_inducer_signal(	
+                    params[1], # s -> carbon source-specific
+                    params[2], # K -> carbon source-specific
+                    params[3], # n -> carbon source-specific
+                    params[4], # μ_ω
+                    params[5], # σ_ω
+                    inputs[1], # ρₛ,
+                    params[6], # Pₛ
+                    params[7], # μ_ψ,
+                    params[8], # σ_ψ,
+                    def_params[:μ_ξ],
+                    def_params[:σ_ξ],
+                    inputs[2], # t
+                )
+
+                param_keys = [:s, :K, :n, :μ_ω, :σ_ω, :Pₛ, :μ_ψ, :σ_ψ]
+
+                param_occurrences = [length(sources), length(sources), length(sources), 1, 1, 1, 1, 1]
+            end
+
+        else
+            error("Model type not recognized.")
+        end
+
+        # Duplicate bounds/parameters for each source
+        param_starts = cumsum(param_occurrences) .- param_occurrences .+ 1
+        param_keys_dup = vcat([key for key in param_keys for _ in 1:param_occurrences[param_keys .== key][1]]...)
+        param_starts = cumsum(param_occurrences) .- param_occurrences .+ 1
+        bounds = [bounds_dict[key] for key in param_keys_dup]
+
+        # Objective function
+        input_tuples =  [tuple.(densities_tile[i, :, :], times_tile[i, :, :]) for i in 1:length(sources)]
+        param_indices_per_src = [param_starts .+ ((i - 1) .% param_occurrences) for i in 1:length(sources)]
+        dantigny_data_flat = [collect(dantigny_data[i, :, :]) for i in 1:length(sources)]
+        obj = params -> begin
+            err = 0
+            @inbounds for i in eachindex(sources)
+                params_select = view(params, param_indices_per_src[i])
+                ŷ = [wrapper(inputs, params_select) for inputs in input_tuples[i]]
+                err += sum(abs2, ŷ .- dantigny_data_flat[i])
+            end
+            return err
+        end
+        objgrad = (params,_) -> begin
+            err = 0
+            @inbounds for i in eachindex(sources)
+                params_select = view(params, param_indices_per_src[i])
+                ŷ = [wrapper(inputs, params_select) for inputs in input_tuples[i]]
+                err += sum(abs2, ŷ .- dantigny_data_flat[i])
+            end
+            return err
         end
         
+        
         # Fit model
-        res = bboptimize(params -> obj(params);
-                    SearchRange = bounds,
-                    MaxSteps = max_steps)
-        p_opt = best_candidate(res)
-        rmse = sqrt(best_fitness(res) / length(dantigny_data))
+        if model_type_split[1] == "inducer"
+            res = bboptimize(params -> obj(params);
+                        SearchRange = bounds,
+                        MaxSteps = max_steps,
+                        PopulationSize = 10)
+        else
+            println("Running first optimisation stage")
+            res = bboptimize(params -> obj(params);
+                        SearchRange = bounds,
+                        MaxSteps = max_steps,
+                        Method = :adaptive_de_rand_1_bin_radiuslimited)
+                        # Method = :adaptive_de_rand_1_bin)
+            p_opt_temp = best_candidate(res)
+
+            println("Running second optimisation stage")
+            # lower_bounds = [bnd[1] for bnd in bounds]
+            # upper_bounds = [bnd[2] for bnd in bounds]
+            opt = Opt(:LN_COBYLA, length(bounds))
+            println(length(bounds))
+            lower_bounds!(opt, [bnd[1] for bnd in bounds])
+            upper_bounds!(opt, [bnd[2] for bnd in bounds])
+            xtol_rel!(opt, 1e-4)
+            maxeval!(opt, 1000)
+            min_objective!(opt, objgrad)
+
+            (best_fit, res, code) = NLopt.optimize(opt, p_opt_temp)
+            println("Final fitness: ", best_fit)
+            # res = bboptimize(params -> obj(params), p_opt_temp;
+            #             SearchRange = bounds,
+            #             MaxSteps = max_steps)
+        end
+
+        # p_opt = best_candidate(res)
+        p_opt = res
+
+        # Compute rmse
+        # best_fit = best_fitness(res)
+        rmse = sqrt(best_fit / length(dantigny_data))
 
         # Create a dictionary for the optimized parameters
         params_out = Dict()
         for (i, key) in enumerate(param_keys)
-            if !(key in keys(bounds_dict))
-                # Create arrays for multiple-case parameters
-                sym_chopped = Symbol(chop(string(key)))
-                if sym_chopped in keys(params_out)
-                    params_out[sym_chopped] = vcat(params_out[sym_chopped], p_opt[i])
-                else
-                    params_out[sym_chopped] = [p_opt[i]]
-                end
-            else
-                params_out[key] = p_opt[i]
+            params_out[key] = []
+            for j in 1:param_occurrences[i]
+                push!(params_out[key], p_opt[param_starts[i] + j - 1])
             end
         end
 
