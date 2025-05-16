@@ -8,6 +8,7 @@ module DataUtils
 
     using DataFrames
     using CSV
+    using FastGaussQuadrature
     using BlackBoxOptim
     using Optim
     using NLopt
@@ -15,8 +16,11 @@ module DataUtils
     using Revise
     
     include("./conversions.jl")
+    include("./germstats.jl")
     Revise.includet("./conversions.jl")
+    Revise.includet("./germstats.jl")
     using .Conversions
+    using .GermStats
 
     export parse_ijadpanahsaravi_data
     export dantigny
@@ -179,7 +183,7 @@ module DataUtils
         """
         @argcheck model_type in ["independent", "inhibitor", "inhibitor_thresh", "inhibitor_perm", "inducer", "inducer_thresh", "inducer_signal"]
 
-        println("Running ", model_type, " model fitting with ", st ? "time-dependent inducer" : "static inducer")
+        # println("Running ", model_type, " model fitting with ", st ? "time-dependent inducer" : "static inducer")
 
         # Reshape input
         densities_tile = repeat(densities, outer=[1, length(sources), length(times)])
@@ -188,228 +192,316 @@ module DataUtils
         times_tile = permutedims(times_tile, (2, 3, 1))
 
         model_type_split = split(model_type, "_")
+
+        # Gauss-Hermite nodes
+        n_nodes = 100
+        ghnodes, ghweights = gausshermite(n_nodes)
+
+        n_src = length(sources)
         
         if model_type == "independent"
             # Independent inducer/inhibitor
             if st
-                wrapper = (inputs, params) -> Main.germ_response_combined_independent_st(
-                    params[1], # s_max -> carbon source-specific
-                    params[2], # K_cs -> carbon source-specific
-                    def_params[:c₀_cs], # c₀_cs
-                    params[3], # Pₛ_cs -> carbon source-specific
-                    def_params[:μ_κ], # μ_κ
-                    def_params[:σ_κ], # σ_κ
-                    def_params[:d_hp], # d_hp
-                    params[4], # μ_ω
-                    params[5], # σ_ω	
-                    inputs[1], # ρₛ,
-                    params[6], # Pₛ_inh
-                    params[7], # μ_γ
-                    params[8], # σ_γ
+                println("Model: independent factors with time-dependent inducer")
+                wrapper = (inputs, params) -> germ_response_independent_factors_st_gh(
+                    inputs[1], #t
+                    inputs[2], #ρₛ
+                    def_params[:c₀_cs],
+                    def_params[:d_hp],
                     def_params[:μ_ξ],
                     def_params[:σ_ξ],
-                    inputs[2], # t
+                    def_params[:μ_κ],
+                    def_params[:σ_κ],
+                    params[1], #Pₛ
+                    params[2], #Pₛ_cs
+                    params[3], #s_max
+                    params[4], #K_cs
+                    params[5], #μ_γ
+                    params[6], #σ_γ
+                    params[7], #μ_ω
+                    params[8], #σ_ω
+                    ghnodes, ghweights
                 )
-                
-                # Duplicate bounds/parameters for each source
-                param_keys = [:s_max, :K_cs, :Pₛ_cs, :μ_ω, :σ_ω, :Pₛ, :μ_γ, :σ_γ]
-                param_occurrences = [length(sources), length(sources), length(sources), 1, 1, 1, 1, 1]
+                param_keys = [:Pₛ, :Pₛ_cs, :s_max, :K_cs, :μ_γ, :σ_γ, :μ_ω, :σ_ω]
+                param_occurrences = [1, n_src, n_src, n_src, 1, 1, 1, 1]
             else
-                wrapper = (inputs, params) -> Main.germ_response_combined_independent(
-                    params[1], # s -> carbon source-specific
-                    params[2], # μ_ω
-                    params[3], # σ_ω	
-                    inputs[1], # ρₛ,
-                    params[4], # Pₛ
-                    params[5], # μ_γ
-                    params[6], # σ_γ
+                println("Model: independent factors with static inducer")
+                wrapper = (inputs, params) -> Main.germ_response_independent_factors_gh(
+                    inputs[1], #t
+                    inputs[2], #ρₛ
                     def_params[:μ_ξ],
                     def_params[:σ_ξ],
-                    inputs[2], # t
+                    params[1], #Pₛ
+                    params[2], #s
+                    params[3], #μ_γ
+                    params[4], #σ_γ
+                    params[5], #μ_ω
+                    params[6], #σ_ω
+                    ghnodes, ghweights
                 )
-                
-                # wrapper_eq = (ρₛ, params) -> Main.germination_response_combined_independent_eq.(
-                #     params[1], # s
-                #     params[2], # μ_ω
-                #     params[3], # σ_ω
-                #     ρₛ,
-                #     params[5], # μ_γ
-                #     params[6], # σ_γ
-                #     def_params[:μ_ξ],
-                #     def_params[:σ_ξ]
-                # )
-                
-                # Duplicate bounds/parameters for each source
-                param_keys = [:s, :μ_ω, :σ_ω, :Pₛ, :μ_γ, :σ_γ]
-                param_occurrences = [length(sources), 1, 1, 1, 1, 1]
+                param_keys = [:Pₛ, :s, :μ_γ, :σ_γ, :μ_ω, :σ_ω]
+                param_occurrences = [1, n_src, 1, 1, 1, 1]
             end
 
         elseif model_type_split[1] == "inhibitor"
 
             if model_type == "inhibitor" # Inducer shifts inhibition threshold and modulates inhibitor permeability
                 if st # Time-dependent inducer
-                    wrapper = (inputs, params) -> Main.germ_response_inducer_dependent_inhibitor_combined_st(	
-                        params[1], # s_max -> carbon source-specific
-                        params[2], # k
-                        params[3], # K_cs -> carbon source-specific
-                        def_params[:c₀_cs], # c₀_cs
-                        params[4], # Pₛ_cs -> carbon source-specific
-                        def_params[:μ_κ], # μ_κ
-                        def_params[:σ_κ], # σ_κ
-                        def_params[:d_hp], # d_hp
-                        inputs[1], # ρₛ,
-                        params[5], # Pₛ
-                        params[6], # μ_γ,
-                        params[7], # σ_γ,
+                    println("Model: inducer-modulated inhibitor (combined) with time-dependent inducer")
+                    wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_combined_st_gh(
+                        inputs[1], #t
+                        inputs[2], #ρₛ
+                        def_params[:c₀_cs],
+                        def_params[:d_hp],
                         def_params[:μ_ξ],
                         def_params[:σ_ξ],
-                        inputs[2], # t
+                        def_params[:μ_κ],
+                        def_params[:σ_κ],
+                        params[1], #Pₛ,
+                        params[2], #Pₛ_cs,
+                        params[3], #s_max,
+                        params[4], #K_cs,
+                        params[5], #k,
+                        params[6], #μ_γ,
+                        params[7], #σ_γ
+                        ghnodes, ghweights
                     )
-                    param_keys = [:s_max, :k, :K_cs, :Pₛ_cs, :Pₛ, :μ_γ, :σ_γ]
-                    param_occurrences = [length(sources), 1, length(sources), length(sources), 1, 1, 1]
+                    param_keys = [:Pₛ, :Pₛ_cs, :s_max, :K_cs, :k, :μ_γ, :σ_γ]
+                    param_occurrences = [1, n_src, n_src, n_src, n_src, 1, 1]
                 else
-                    wrapper = (inputs, params) -> Main.germination_response_simple(	
-                        inputs[1], # ρₛ,
-                        params[1], # Pₛ
-                        params[2], # μ_γ,
-                        params[3], # σ_γ,
+                    println("Model: inducer-modulated inhibitor (combined) with static inducer")
+                    wrapper = (inputs, params) -> Main.germ_response_inhibitor_gh(
+                        inputs[1], #t
+                        inputs[2], #ρₛ
                         def_params[:μ_ξ],
                         def_params[:σ_ξ],
-                        inputs[2], # t
+                        params[1], #Pₛ
+                        params[2], #μ_γ
+                        params[3], #σ_γ
+                        ghnodes, ghweights
                     )
                     param_keys = [:Pₛ, :μ_γ, :σ_γ]
-                    param_occurrences = [length(sources), length(sources), length(sources)]
+                    param_occurrences = [n_src, n_src, n_src]
                 end
 
             elseif model_type_split[2] == "thresh" # Inducer shifts inhibition threshold
                 if st # Time-dependent inducer
-                    wrapper = (inputs, params) -> Main.germ_response_inducer_dependent_inhibitor_thresh_st(	
-                        params[1], # s_max -> carbon source-specific
-                        params[2], # K_cs -> carbon source-specific
-                        def_params[:c₀_cs], # c₀_cs
-                        params[3], # Pₛ_cs -> carbon source-specific
-                        def_params[:μ_κ], # μ_κ
-                        def_params[:σ_κ], # σ_κ
-                        def_params[:d_hp], # d_hp
-                        inputs[1], # ρₛ,
-                        params[4], # Pₛ
-                        params[5], # μ_γ,
-                        params[6], # σ_γ,
+                    println("Model: inducer-modulated inhibitor (threshold) with time-dependent inducer")
+                    wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_thresh_st_gh(
+                        inputs[1], #t
+                        inputs[2], #ρₛ
+                        def_params[:c₀_cs],
+                        def_params[:d_hp],
                         def_params[:μ_ξ],
                         def_params[:σ_ξ],
-                        inputs[2], # t
+                        def_params[:μ_κ],
+                        def_params[:σ_κ],
+                        params[1], #Pₛ
+                        params[2], #Pₛ_cs
+                        params[3], #s_max
+                        params[4], #K_cs
+                        params[5], #μ_γ
+                        params[6], #σ_γ
+                        ghnodes, ghweights
                     )
-                    param_keys = [:s_max, :K_cs, :Pₛ_cs, :Pₛ, :μ_γ, :σ_γ]
-                    param_occurrences = [length(sources), length(sources), length(sources), 1, 1, 1]
+                    param_keys = [:Pₛ, :Pₛ_cs, :s_max, :K_cs, :μ_γ, :σ_γ]
+                    param_occurrences = [1, n_src, n_src, n_src, n_src, n_src]
                 else
-                    wrapper = (inputs, params) -> Main.germ_response_simple(	
-                        inputs[1], # ρₛ,
-                        params[1], # Pₛ
-                        params[2], # μ_γ,
-                        params[3], # σ_γ,
+                    println("Model: inducer-modulated inhibitor (threshold) with static inducer")
+                    wrapper = (inputs, params) -> Main.germ_response_inhibitor_gh(
+                        inputs[1], #t
+                        inputs[2], #ρₛ
                         def_params[:μ_ξ],
                         def_params[:σ_ξ],
-                        inputs[2], # t
+                        params[1], #Pₛ
+                        params[2], #μ_γ
+                        params[3], #σ_γ
+                        ghnodes, ghweights
                     )
                     param_keys = [:Pₛ, :μ_γ, :σ_γ]
-                    param_occurrences = [1, length(sources), length(sources)]
+                    param_occurrences = [1, n_src, n_src]
                 end
             elseif model_type_split[2] == "perm" # Inducer modulates inhibitor permeability
                 if st # Time-dependent inducer
-                    wrapper = (inputs, params) -> Main.germ_response_inducer_dependent_inhibitor_perm_st(	
-                        params[1], # s_max -> carbon source-specific
-                        params[2], # K_cs -> carbon source-specific
-                        def_params[:c₀_cs], # c₀_cs
-                        params[3], # Pₛ_cs -> carbon source-specific
-                        def_params[:μ_κ], # μ_κ
-                        def_params[:σ_κ], # σ_κ
-                        def_params[:d_hp], # d_hp
-                        inputs[1], # ρₛ,
-                        params[4], # Pₛ
-                        params[5], # μ_γ,
-                        params[6], # σ_γ,
+                    println("Model: inducer-modulated inhibitor (permeability) with time-dependent inducer")
+                    wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_perm_st_gh(
+                        inputs[1], #t
+                        inputs[2], #ρₛ
+                        def_params[:c₀_cs],
+                        def_params[:d_hp],
                         def_params[:μ_ξ],
                         def_params[:σ_ξ],
-                        inputs[2], # t
+                        def_params[:μ_κ],
+                        def_params[:σ_κ],
+                        params[1], #Pₛ
+                        params[2], #Pₛ_cs
+                        params[3], #s_max
+                        params[4], #K_cs
+                        params[5], #μ_γ
+                        params[6], #σ_γ
+                        ghnodes, ghweights
                     )
-                    param_keys = [:s_max, :K_cs, :Pₛ_cs, :Pₛ, :μ_γ, :σ_γ]
-                    param_occurrences = [length(sources), length(sources), length(sources), 1, 1, 1]
+                    param_keys = [:Pₛ, :Pₛ_cs, :s_max, :K_cs, :μ_γ, :σ_γ]
+                    param_occurrences = [1, n_src, n_src, n_src, 1, 1]
                 else
-                    wrapper = (inputs, params) -> Main.germination_response_simple(	
-                        inputs[1], # ρₛ,
-                        params[1], # Pₛ
-                        params[2], # μ_γ,
-                        params[3], # σ_γ,
+                    println("Model: inducer-modulated inhibitor (permeability) with static inducer")
+                    wrapper = (inputs, params) -> Main.germ_response_inhibitor_gh(
+                        inputs[1], #t
+                        inputs[2], #ρₛ
                         def_params[:μ_ξ],
                         def_params[:σ_ξ],
-                        inputs[2], # t
+                        params[1], #Pₛ
+                        params[2], #μ_γ
+                        params[3], #σ_γ
+                        ghnodes, ghweights
                     )
                     param_keys = [:Pₛ, :μ_γ, :σ_γ]
-                    param_occurrences = [length(sources), 1, 1]
+                    param_occurrences = [n_src, 1, 1]
                 end            
             end
 
         elseif model_type_split[1] == "inducer"
 
             if model_type == "inducer" # Inhibitor shifts induction threshold and modulates inducer signal strength
-                wrapper = (inputs, params) -> Main.germ_response_inhibitor_dependent_inducer_combined(	
-                    params[1], # s -> carbon source-specific
-                    params[2], # k -> carbon source-specific
-                    params[3], # K -> carbon source-specific
-                    params[4], # n -> carbon source-specific
-                    params[5], # μ_ω
-                    params[6], # σ_ω
-                    inputs[1], # ρₛ,
-                    params[7], # Pₛ
-                    params[8], # μ_ψ,
-                    params[9], # σ_ψ,
-                    def_params[:μ_ξ],
-                    def_params[:σ_ξ],
-                    inputs[2], # t
-                )
-
-                param_keys = [:s, :k, :K, :n, :μ_ω, :σ_ω, :Pₛ, :μ_ψ, :σ_ψ]
-
-                param_occurrences = [length(sources), length(sources), length(sources), length(sources), 1, 1, 1, 1, 1]
+                if st
+                    println("Model: inhibitor-modulated inducer (combined) with time-dependent inducer")
+                    wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_combined_st_gh(
+                        inputs[1], #t
+                        inputs[2], #ρₛ
+                        def_params[:c₀_cs],
+                        def_params[:d_hp],
+                        def_params[:μ_ξ],
+                        def_params[:σ_ξ],
+                        def_params[:μ_κ],
+                        def_params[:σ_κ],
+                        params[1], #Pₛ
+                        params[2], #Pₛ_cs
+                        params[3], #s_max
+                        params[4], #k
+                        params[5], #K_cs
+                        params[6], #K_I
+                        params[7], #n
+                        params[8], #μ_ω
+                        params[9], #σ_ω
+                        params[10], #μ_ψ
+                        params[11], #σ_ψ
+                        ghnodes, ghweights
+                    )
+                    param_keys = [:Pₛ, :Pₛ_cs, :s_max, :k, :K_cs, :K_I, :n, :μ_ω, :σ_ω, :μ_ψ, :σ_ψ]
+                    param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, n_src, 1, 1, 1, 1]
+                else
+                    println("Model: inhibitor-modulated inducer (combined) with static inducer")
+                    wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_combined_gh(
+                        inputs[1], #t
+                        inputs[2], #ρₛ
+                        def_params[:μ_ξ],
+                        def_params[:σ_ξ],
+                        params[1], #Pₛ
+                        params[2], #s
+                        params[3], #k
+                        params[4], #K_I
+                        params[5], #n
+                        params[6], #μ_ω
+                        params[7], #σ_ω
+                        params[8], #μ_ψ
+                        params[9], #σ_ψ
+                        ghnodes, ghweights
+                    )
+                    param_keys = [:Pₛ, :s, :k, :K_I, :n, :μ_ω, :σ_ω, :μ_ψ, :σ_ψ]
+                    param_occurrences = [1, n_src, n_src, n_src, n_src, 1, 1, 1, 1]
+                end
 
             elseif model_type_split[2] == "thresh" # Inhibitor shifts induction threshold
-                wrapper = (inputs, params) -> Main.germ_response_inhibitor_dependent_inducer_thresh(	
-                    params[1], # s -> carbon source-specific
-                    params[2], # k -> carbon source-specific
-                    params[3], # μ_ω
-                    params[4], # σ_ω
-                    inputs[1], # ρₛ,
-                    params[5], # Pₛ
-                    params[6], # μ_ψ,
-                    params[7], # σ_ψ,
-                    def_params[:μ_ξ],
-                    def_params[:σ_ξ],
-                    inputs[2], # t
-                )
-
-                param_keys = [:s, :k, :μ_ω, :σ_ω, :Pₛ, :μ_ψ, :σ_ψ]
-
-                param_occurrences = [length(sources), length(sources), 1, 1, 1, 1, 1]
+                if st
+                    println("Model: inhibitor-modulated inducer (threshold) with time-dependent inducer")
+                    wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_thresh_st_gh(
+                        inputs[1], #t
+                        inputs[2], #ρₛ
+                        def_params[:c₀_cs],
+                        def_params[:d_hp],
+                        def_params[:μ_ξ],
+                        def_params[:σ_ξ],
+                        def_params[:μ_κ],
+                        def_params[:σ_κ],
+                        params[1], #Pₛ
+                        params[2], #Pₛ_cs
+                        params[3], #s_max
+                        params[4], #K_cs
+                        params[5], #k
+                        params[6], #μ_ω
+                        params[7], #σ_ω
+                        params[8], #μ_ψ
+                        params[9], #σ_ψ
+                        ghnodes, ghweights
+                    )
+                    param_keys = [:Pₛ, :Pₛ_cs, :s_max, :K_cs, :k, :μ_ω, :σ_ω, :μ_ψ, :σ_ψ]
+                    param_occurrences = [1, n_src, n_src, n_src, n_src, 1, 1, 1, 1]
+                else
+                    println("Model: inhibitor-modulated inducer (threshold) with static inducer")
+                    wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_thresh_gh(
+                        inputs[1], #t
+                        inputs[2], #ρₛ
+                        def_params[:μ_ξ],
+                        def_params[:σ_ξ],
+                        params[1], #Pₛ
+                        params[2], #s
+                        params[3], #k
+                        params[4], #μ_ω
+                        params[5], #σ_ω
+                        params[6], #μ_ψ
+                        params[7], #σ_ψ
+                        ghnodes, ghweights
+                    )
+                    param_keys = [:Pₛ, :s, :k, :μ_ω, :σ_ω, :μ_ψ, :σ_ψ]
+                    param_occurrences = [1, n_src, n_src, 1, 1, 1, 1]
+                end
 
             elseif model_type_split[2] == "signal" # Inhibitor shifts induction threshold
-                wrapper = (inputs, params) -> Main.germ_response_inhibitor_dependent_inducer_signal(	
-                    params[1], # s -> carbon source-specific
-                    params[2], # K -> carbon source-specific
-                    params[3], # n -> carbon source-specific
-                    params[4], # μ_ω
-                    params[5], # σ_ω
-                    inputs[1], # ρₛ,
-                    params[6], # Pₛ
-                    params[7], # μ_ψ,
-                    params[8], # σ_ψ,
-                    def_params[:μ_ξ],
-                    def_params[:σ_ξ],
-                    inputs[2], # t
-                )
-
-                param_keys = [:s, :K, :n, :μ_ω, :σ_ω, :Pₛ, :μ_ψ, :σ_ψ]
-
-                param_occurrences = [length(sources), length(sources), length(sources), 1, 1, 1, 1, 1]
+                if st
+                    println("Model: inhibitor-modulated inducer (signal) with time-dependent inducer")
+                    wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_signal_st_gh(
+                        inputs[1], #t
+                        inputs[2], #ρₛ
+                        def_params[:c₀_cs],
+                        def_params[:d_hp],
+                        def_params[:μ_ξ],
+                        def_params[:σ_ξ],
+                        def_params[:μ_κ],
+                        def_params[:σ_κ],
+                        params[1], #Pₛ
+                        params[2], #Pₛ_cs
+                        params[3], #s_max
+                        params[4], #K_cs
+                        params[5], #K_I
+                        params[6], #n
+                        params[7], #μ_ω
+                        params[8], #σ_ω
+                        params[9], #μ_ψ
+                        params[10], #σ_ψ
+                        ghnodes, ghweights
+                    )
+                    param_keys = [:Pₛ, :Pₛ_cs, :s_max, :K_cs, :K_I, :n, :μ_ω, :σ_ω, :μ_ψ, :σ_ψ]
+                    param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, 1, 1, 1, 1]
+                else
+                    println("Model: inhibitor-modulated inducer (signal) with static inducer")
+                    wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_signal_gh(
+                        inputs[1], #t
+                        inputs[2], #ρₛ
+                        def_params[:μ_ξ],
+                        def_params[:σ_ξ],
+                        params[1], #Pₛ
+                        params[2], #s
+                        params[3], #K_I
+                        params[4], #n
+                        params[5], #μ_ω
+                        params[6], #σ_ω
+                        params[7], #μ_ψ
+                        params[8], #σ_ψ
+                        ghnodes, ghweights
+                    )
+                    param_keys = [:Pₛ, :s, :K_I, :n, :μ_ω, :σ_ω, :μ_ψ, :σ_ψ]
+                    param_occurrences = [1, n_src, n_src, n_src, 1, 1, 1, 1]
+                end
             end
 
         else
@@ -423,7 +515,8 @@ module DataUtils
         bounds = [bounds_dict[key] for key in param_keys_dup]
 
         # Objective function
-        input_tuples =  [tuple.(densities_tile[i, :, :], times_tile[i, :, :]) for i in 1:length(sources)]
+        # input_tuples =  [tuple.(inverse_mL_to_cubic_um.(densities_tile[i, :, :]), times_tile[i, :, :]) for i in 1:length(sources)]
+        input_tuples =  [tuple.(times_tile[i, :, :], inverse_mL_to_cubic_um.(densities_tile[i, :, :])) for i in 1:length(sources)]
         param_indices_per_src = [param_starts .+ ((i - 1) .% param_occurrences) for i in 1:length(sources)]
         dantigny_data_flat = [collect(dantigny_data[i, :, :]) for i in 1:length(sources)]
         obj = params -> begin
