@@ -1,6 +1,12 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## To do for final model fitting:
+- Double-check parameter bounds:
+   - $P_s$ can vary more in combination with the inducer
+   - $\mu_\gamma$ should be from $10^{-5}$ to $10^{-10}$ M
+- How come glucose was released super slow as an inhibitor, but permeates inwards at a considerable rate? Look deeper into this.
+
 ## Remarks on Dantigny model
 - It has been mentioned that the design parameter represents the heterogeneity of the spore culture. It also controls the steepness of the germination onset. This makes sense, since more heterogeneous spores will have a larger spread of germination times, thus stretching the approach to saturation.
 - Optimisation algorithm should fit _time-dependent_ model realisations to pre-computed Dantigny curves with the corresponding $P_{\textrm{max}}$ and $\tau_g$.
