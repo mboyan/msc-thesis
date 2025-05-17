@@ -12,6 +12,7 @@ module DataUtils
     using BlackBoxOptim
     using Optim
     using NLopt
+    using MeshGrid
     using ArgCheck
     using Revise
     
@@ -196,6 +197,25 @@ module DataUtils
         # Gauss-Hermite nodes
         n_nodes = 100
         ghnodes, ghweights = gausshermite(n_nodes)
+        u = √2 .* ghnodes
+        hw = ghweights ./ √π
+
+        # Unpack means and stds and weight samples
+        μ_ξ = def_params[:μ_ξ]
+        σ_ξ = def_params[:σ_ξ]
+        μ_ξ_log = log(μ_ξ^2 / sqrt(σ_ξ^2 + μ_ξ^2))
+        σ_ξ_log = sqrt(log(σ_ξ^2 / μ_ξ^2 + 1))
+        ξ = exp.(μ_ξ_log .+ σ_ξ_log .* u)
+
+        if haskey(def_params, :μ_κ)
+            μ_κ = def_params[:μ_κ]
+            σ_κ = def_params[:σ_κ]
+            μ_κ_log = log(μ_κ^2 / sqrt(σ_κ^2 + μ_κ^2))
+            σ_κ_log = sqrt(log(σ_κ^2 / μ_κ^2 + 1))
+            κ = exp.(μ_κ_log .+ σ_κ_log .* u)
+
+            ξ2, κ2 = meshgrid(ξ, κ)
+        end
 
         n_src = length(sources)
         
@@ -203,15 +223,14 @@ module DataUtils
             # Independent inducer/inhibitor
             if st
                 println("Model: independent factors with time-dependent inducer")
+                W = hw * hw'
                 wrapper = (inputs, params) -> germ_response_independent_factors_st_gh(
                     inputs[1], #t
                     inputs[2], #ρₛ
                     def_params[:c₀_cs],
                     def_params[:d_hp],
-                    def_params[:μ_ξ],
-                    def_params[:σ_ξ],
-                    def_params[:μ_κ],
-                    def_params[:σ_κ],
+                    ξ2,
+                    κ2,
                     params[1], #Pₛ
                     params[2], #Pₛ_cs
                     params[3], #s_max
@@ -220,7 +239,7 @@ module DataUtils
                     params[6], #σ_γ
                     params[7], #μ_ω
                     params[8], #σ_ω
-                    ghnodes, ghweights
+                    u, W
                 )
                 param_keys = [:Pₛ, :Pₛ_cs, :s_max, :K_cs, :μ_γ, :σ_γ, :μ_ω, :σ_ω]
                 param_occurrences = [1, n_src, n_src, n_src, 1, 1, 1, 1]
@@ -229,15 +248,14 @@ module DataUtils
                 wrapper = (inputs, params) -> Main.germ_response_independent_factors_gh(
                     inputs[1], #t
                     inputs[2], #ρₛ
-                    def_params[:μ_ξ],
-                    def_params[:σ_ξ],
+                    ξ,
                     params[1], #Pₛ
                     params[2], #s
                     params[3], #μ_γ
                     params[4], #σ_γ
                     params[5], #μ_ω
                     params[6], #σ_ω
-                    ghnodes, ghweights
+                    u, hw
                 )
                 param_keys = [:Pₛ, :s, :μ_γ, :σ_γ, :μ_ω, :σ_ω]
                 param_occurrences = [1, n_src, 1, 1, 1, 1]
@@ -248,15 +266,14 @@ module DataUtils
             if model_type == "inhibitor" # Inducer shifts inhibition threshold and modulates inhibitor permeability
                 if st # Time-dependent inducer
                     println("Model: inducer-modulated inhibitor (combined) with time-dependent inducer")
+                    W = hw * hw'
                     wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_combined_st_gh(
                         inputs[1], #t
                         inputs[2], #ρₛ
                         def_params[:c₀_cs],
                         def_params[:d_hp],
-                        def_params[:μ_ξ],
-                        def_params[:σ_ξ],
-                        def_params[:μ_κ],
-                        def_params[:σ_κ],
+                        ξ2,
+                        κ2,
                         params[1], #Pₛ,
                         params[2], #Pₛ_cs,
                         params[3], #s_max,
@@ -264,21 +281,20 @@ module DataUtils
                         params[5], #k,
                         params[6], #μ_γ,
                         params[7], #σ_γ
-                        ghnodes, ghweights
+                        u, W
                     )
                     param_keys = [:Pₛ, :Pₛ_cs, :s_max, :K_cs, :k, :μ_γ, :σ_γ]
-                    param_occurrences = [1, n_src, n_src, n_src, n_src, 1, 1]
+                    param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, n_src]
                 else
                     println("Model: inducer-modulated inhibitor (combined) with static inducer")
                     wrapper = (inputs, params) -> Main.germ_response_inhibitor_gh(
                         inputs[1], #t
                         inputs[2], #ρₛ
-                        def_params[:μ_ξ],
-                        def_params[:σ_ξ],
+                        ξ,
                         params[1], #Pₛ
                         params[2], #μ_γ
                         params[3], #σ_γ
-                        ghnodes, ghweights
+                        u, hw
                     )
                     param_keys = [:Pₛ, :μ_γ, :σ_γ]
                     param_occurrences = [n_src, n_src, n_src]
@@ -287,22 +303,21 @@ module DataUtils
             elseif model_type_split[2] == "thresh" # Inducer shifts inhibition threshold
                 if st # Time-dependent inducer
                     println("Model: inducer-modulated inhibitor (threshold) with time-dependent inducer")
+                    W = hw * hw'
                     wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_thresh_st_gh(
                         inputs[1], #t
                         inputs[2], #ρₛ
                         def_params[:c₀_cs],
                         def_params[:d_hp],
-                        def_params[:μ_ξ],
-                        def_params[:σ_ξ],
-                        def_params[:μ_κ],
-                        def_params[:σ_κ],
+                        ξ2,
+                        κ2,
                         params[1], #Pₛ
                         params[2], #Pₛ_cs
                         params[3], #s_max
                         params[4], #K_cs
                         params[5], #μ_γ
                         params[6], #σ_γ
-                        ghnodes, ghweights
+                        u, W
                     )
                     param_keys = [:Pₛ, :Pₛ_cs, :s_max, :K_cs, :μ_γ, :σ_γ]
                     param_occurrences = [1, n_src, n_src, n_src, n_src, n_src]
@@ -311,12 +326,11 @@ module DataUtils
                     wrapper = (inputs, params) -> Main.germ_response_inhibitor_gh(
                         inputs[1], #t
                         inputs[2], #ρₛ
-                        def_params[:μ_ξ],
-                        def_params[:σ_ξ],
+                        ξ,
                         params[1], #Pₛ
                         params[2], #μ_γ
                         params[3], #σ_γ
-                        ghnodes, ghweights
+                        u, hw
                     )
                     param_keys = [:Pₛ, :μ_γ, :σ_γ]
                     param_occurrences = [1, n_src, n_src]
@@ -324,22 +338,21 @@ module DataUtils
             elseif model_type_split[2] == "perm" # Inducer modulates inhibitor permeability
                 if st # Time-dependent inducer
                     println("Model: inducer-modulated inhibitor (permeability) with time-dependent inducer")
+                    W = hw * hw'
                     wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_perm_st_gh(
                         inputs[1], #t
                         inputs[2], #ρₛ
                         def_params[:c₀_cs],
                         def_params[:d_hp],
-                        def_params[:μ_ξ],
-                        def_params[:σ_ξ],
-                        def_params[:μ_κ],
-                        def_params[:σ_κ],
+                        ξ2,
+                        κ2,
                         params[1], #Pₛ
                         params[2], #Pₛ_cs
                         params[3], #s_max
                         params[4], #K_cs
                         params[5], #μ_γ
                         params[6], #σ_γ
-                        ghnodes, ghweights
+                        u, W
                     )
                     param_keys = [:Pₛ, :Pₛ_cs, :s_max, :K_cs, :μ_γ, :σ_γ]
                     param_occurrences = [1, n_src, n_src, n_src, 1, 1]
@@ -348,12 +361,11 @@ module DataUtils
                     wrapper = (inputs, params) -> Main.germ_response_inhibitor_gh(
                         inputs[1], #t
                         inputs[2], #ρₛ
-                        def_params[:μ_ξ],
-                        def_params[:σ_ξ],
+                        ξ,
                         params[1], #Pₛ
                         params[2], #μ_γ
                         params[3], #σ_γ
-                        ghnodes, ghweights
+                        u, hw
                     )
                     param_keys = [:Pₛ, :μ_γ, :σ_γ]
                     param_occurrences = [n_src, 1, 1]
@@ -365,15 +377,15 @@ module DataUtils
             if model_type == "inducer" # Inhibitor shifts induction threshold and modulates inducer signal strength
                 if st
                     println("Model: inhibitor-modulated inducer (combined) with time-dependent inducer")
+                    N = length(u)
+                    W = reshape(hw, N,1,1) .* reshape(hw, 1,N,1) .* reshape(hw, 1,1,N)
                     wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_combined_st_gh(
                         inputs[1], #t
                         inputs[2], #ρₛ
                         def_params[:c₀_cs],
                         def_params[:d_hp],
-                        def_params[:μ_ξ],
-                        def_params[:σ_ξ],
-                        def_params[:μ_κ],
-                        def_params[:σ_κ],
+                        ξ,
+                        κ,
                         params[1], #Pₛ
                         params[2], #Pₛ_cs
                         params[3], #s_max
@@ -385,17 +397,17 @@ module DataUtils
                         params[9], #σ_ω
                         params[10], #μ_ψ
                         params[11], #σ_ψ
-                        ghnodes, ghweights
+                        u, W
                     )
                     param_keys = [:Pₛ, :Pₛ_cs, :s_max, :k, :K_cs, :K_I, :n, :μ_ω, :σ_ω, :μ_ψ, :σ_ψ]
                     param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, n_src, 1, 1, 1, 1]
                 else
                     println("Model: inhibitor-modulated inducer (combined) with static inducer")
+                    W = hw * hw'
                     wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_combined_gh(
                         inputs[1], #t
                         inputs[2], #ρₛ
-                        def_params[:μ_ξ],
-                        def_params[:σ_ξ],
+                        ξ,
                         params[1], #Pₛ
                         params[2], #s
                         params[3], #k
@@ -405,7 +417,7 @@ module DataUtils
                         params[7], #σ_ω
                         params[8], #μ_ψ
                         params[9], #σ_ψ
-                        ghnodes, ghweights
+                        u, W
                     )
                     param_keys = [:Pₛ, :s, :k, :K_I, :n, :μ_ω, :σ_ω, :μ_ψ, :σ_ψ]
                     param_occurrences = [1, n_src, n_src, n_src, n_src, 1, 1, 1, 1]
@@ -414,15 +426,15 @@ module DataUtils
             elseif model_type_split[2] == "thresh" # Inhibitor shifts induction threshold
                 if st
                     println("Model: inhibitor-modulated inducer (threshold) with time-dependent inducer")
+                    N = length(u)
+                    W = reshape(hw, N,1,1) .* reshape(hw, 1,N,1) .* reshape(hw, 1,1,N)
                     wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_thresh_st_gh(
                         inputs[1], #t
                         inputs[2], #ρₛ
                         def_params[:c₀_cs],
                         def_params[:d_hp],
-                        def_params[:μ_ξ],
-                        def_params[:σ_ξ],
-                        def_params[:μ_κ],
-                        def_params[:σ_κ],
+                        ξ,
+                        κ,
                         params[1], #Pₛ
                         params[2], #Pₛ_cs
                         params[3], #s_max
@@ -432,17 +444,17 @@ module DataUtils
                         params[7], #σ_ω
                         params[8], #μ_ψ
                         params[9], #σ_ψ
-                        ghnodes, ghweights
+                        u, W
                     )
                     param_keys = [:Pₛ, :Pₛ_cs, :s_max, :K_cs, :k, :μ_ω, :σ_ω, :μ_ψ, :σ_ψ]
                     param_occurrences = [1, n_src, n_src, n_src, n_src, 1, 1, 1, 1]
                 else
                     println("Model: inhibitor-modulated inducer (threshold) with static inducer")
+                    W = hw * hw'
                     wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_thresh_gh(
                         inputs[1], #t
                         inputs[2], #ρₛ
-                        def_params[:μ_ξ],
-                        def_params[:σ_ξ],
+                        ξ,
                         params[1], #Pₛ
                         params[2], #s
                         params[3], #k
@@ -450,7 +462,7 @@ module DataUtils
                         params[5], #σ_ω
                         params[6], #μ_ψ
                         params[7], #σ_ψ
-                        ghnodes, ghweights
+                        u, W
                     )
                     param_keys = [:Pₛ, :s, :k, :μ_ω, :σ_ω, :μ_ψ, :σ_ψ]
                     param_occurrences = [1, n_src, n_src, 1, 1, 1, 1]
@@ -459,15 +471,15 @@ module DataUtils
             elseif model_type_split[2] == "signal" # Inhibitor shifts induction threshold
                 if st
                     println("Model: inhibitor-modulated inducer (signal) with time-dependent inducer")
+                    N = length(u)
+                    W = reshape(hw, N,1,1) .* reshape(hw, 1,N,1) .* reshape(hw, 1,1,N)
                     wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_signal_st_gh(
                         inputs[1], #t
                         inputs[2], #ρₛ
                         def_params[:c₀_cs],
                         def_params[:d_hp],
-                        def_params[:μ_ξ],
-                        def_params[:σ_ξ],
-                        def_params[:μ_κ],
-                        def_params[:σ_κ],
+                        ξ,
+                        κ,
                         params[1], #Pₛ
                         params[2], #Pₛ_cs
                         params[3], #s_max
@@ -478,17 +490,17 @@ module DataUtils
                         params[8], #σ_ω
                         params[9], #μ_ψ
                         params[10], #σ_ψ
-                        ghnodes, ghweights
+                        u, W
                     )
                     param_keys = [:Pₛ, :Pₛ_cs, :s_max, :K_cs, :K_I, :n, :μ_ω, :σ_ω, :μ_ψ, :σ_ψ]
                     param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, 1, 1, 1, 1]
                 else
                     println("Model: inhibitor-modulated inducer (signal) with static inducer")
+                    W = hw * hw'
                     wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_signal_gh(
                         inputs[1], #t
                         inputs[2], #ρₛ
-                        def_params[:μ_ξ],
-                        def_params[:σ_ξ],
+                        ξ,
                         params[1], #Pₛ
                         params[2], #s
                         params[3], #K_I
@@ -497,7 +509,7 @@ module DataUtils
                         params[6], #σ_ω
                         params[7], #μ_ψ
                         params[8], #σ_ψ
-                        ghnodes, ghweights
+                        u, W
                     )
                     param_keys = [:Pₛ, :s, :K_I, :n, :μ_ω, :σ_ω, :μ_ψ, :σ_ψ]
                     param_occurrences = [1, n_src, n_src, n_src, 1, 1, 1, 1]
@@ -513,9 +525,8 @@ module DataUtils
         param_keys_dup = vcat([key for key in param_keys for _ in 1:param_occurrences[param_keys .== key][1]]...)
         param_starts = cumsum(param_occurrences) .- param_occurrences .+ 1
         bounds = [bounds_dict[key] for key in param_keys_dup]
-
+        
         # Objective function
-        # input_tuples =  [tuple.(inverse_mL_to_cubic_um.(densities_tile[i, :, :]), times_tile[i, :, :]) for i in 1:length(sources)]
         input_tuples =  [tuple.(times_tile[i, :, :], inverse_mL_to_cubic_um.(densities_tile[i, :, :])) for i in 1:length(sources)]
         param_indices_per_src = [param_starts .+ ((i - 1) .% param_occurrences) for i in 1:length(sources)]
         dantigny_data_flat = [collect(dantigny_data[i, :, :]) for i in 1:length(sources)]
@@ -537,26 +548,31 @@ module DataUtils
             end
             return err
         end
-        
+
+        # Pre-warm
+        # dummy_params = [ bnd[1] for bnd in bounds ]
+        # for _ in 1:10
+        #     obj(dummy_params)
+        # end
         
         # Fit model
-        if model_type_split[1] == "inducer"
-            res = bboptimize(params -> obj(params);
-                        SearchRange = bounds,
-                        MaxSteps = max_steps,
-                        PopulationSize = 10)
-        else
-            println("Running first optimisation stage")
-            res = bboptimize(params -> obj(params);
-                        SearchRange = bounds,
-                        MaxSteps = max_steps,
-                        Method = :adaptive_de_rand_1_bin_radiuslimited)
-                        # Method = :adaptive_de_rand_1_bin)
-            p_opt_temp = best_candidate(res)
+        # if model_type_split[1] == "inducer"
+        #     res = bboptimize(params -> obj(params);
+        #                 SearchRange = bounds,
+        #                 MaxSteps = max_steps,
+        #                 PopulationSize = 10)
+        # else
+        println("Running first optimisation stage")
+        res = bboptimize(params -> obj(params);
+                    SearchRange = bounds,
+                    MaxSteps = max_steps,
+                    Method = :adaptive_de_rand_1_bin_radiuslimited)
+                    # Method = :adaptive_de_rand_1_bin)
+        p_opt = best_candidate(res)
+        best_fit = best_fitness(res)
 
+        if model_type in ["independent", "inhibitor", "inhibitor_thresh", "inhibitor_perm"]
             println("Running second optimisation stage")
-            # lower_bounds = [bnd[1] for bnd in bounds]
-            # upper_bounds = [bnd[2] for bnd in bounds]
             opt = Opt(:LN_COBYLA, length(bounds))
             println(length(bounds))
             lower_bounds!(opt, [bnd[1] for bnd in bounds])
@@ -565,18 +581,19 @@ module DataUtils
             maxeval!(opt, 1000)
             min_objective!(opt, objgrad)
 
-            (best_fit, res, code) = NLopt.optimize(opt, p_opt_temp)
-            println("Final fitness: ", best_fit)
-            # res = bboptimize(params -> obj(params), p_opt_temp;
-            #             SearchRange = bounds,
-            #             MaxSteps = max_steps)
+            (best_fit, res, code) = NLopt.optimize(opt, p_opt)
+            p_opt = res
         end
+        println("Final fitness: ", best_fit)
+        # res = bboptimize(params -> obj(params), p_opt_temp;
+        #             SearchRange = bounds,
+        #             MaxSteps = max_steps)
+        # end
 
         # p_opt = best_candidate(res)
-        p_opt = res
+        
 
         # Compute rmse
-        # best_fit = best_fitness(res)
         rmse = sqrt(best_fit / length(dantigny_data))
 
         # Create a dictionary for the optimized parameters
