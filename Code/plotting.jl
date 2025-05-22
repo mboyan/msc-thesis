@@ -11,16 +11,20 @@ __precompile__(false)
     using GeometryBasics
     using Revise
     using CurveFit
+    using Printf
 
     include("./setup.jl")
     include("./conversions.jl")
     include("./datautils.jl")
+    include("./germstats.jl")
     Revise.includet("./conversions.jl")
     Revise.includet("./setup.jl")
     Revise.includet("./datautils.jl")
+    Revise.includet("./germstats.jl")
     using .Conversions
     using .Setup
     using .DataUtils
+    using .GermStats
 
     export generate_ax_grid_pyplot
     export generate_grid_layout_glmakie
@@ -39,7 +43,8 @@ __precompile__(false)
     export plot_spore_arrangements
     export plot_dantigny_time_course
     export compare_time_course_to_dantigny
-    export plot_germination_data_fit
+    export plot_germination_data_fit_densities
+    export plot_germination_data_fit_all
 
 
     function generate_ax_grid_pyplot(n_rows, n_cols, figsize=(8, 4))
@@ -803,6 +808,8 @@ __precompile__(false)
             times (Array{Float64}): time labels in seconds
             ax (Axis): axis to plot on
             title (str): title of the plot
+        outputs:
+            germination_responses (Array{Float64}): germination responses according to the Dantigny model
         """
         if isnothing(ax)
             fig, ax = subplots(1, 1, figsize=(6, 4))
@@ -819,7 +826,7 @@ __precompile__(false)
             germination_responses = dantigny.(times ./3600, p_max, τ_g, ν) * 0.01
         end
 
-        ax.plot(times ./ 3600, germination_responses .* 100, label="Germination response")
+        ax.plot(times ./ 3600, germination_responses .* 100, label="Dantigny model")
         ax.axhline(p_max, color="red", linestyle="--", label=L"p_{\text{max}}")
         ax.axvline(τ_g, color="green", linestyle="--", label=L"\tau_g")
         ax.set_xlabel("Time [h]")
@@ -834,6 +841,8 @@ __precompile__(false)
             ax.legend(fontsize="small")
             gcf()
         end
+
+        return germination_responses
     end
 
 
@@ -848,6 +857,8 @@ __precompile__(false)
             ν (float): design parameter
             ax (Axis): axis to plot on
             title (str): title of the plot
+        outputs:
+            dantigny_responses (Array{Float64}): germination responses according to the Dantigny model
         """
         if isnothing(ax)
             fig, ax = subplots(1, 1, figsize=(6, 4))
@@ -856,7 +867,7 @@ __precompile__(false)
             plotself = false
         end
 
-        plot_dantigny_time_course(p_max, τ_g, ν, ax=ax, times=times)
+        dantigny_responses = plot_dantigny_time_course(p_max, τ_g, ν, ax=ax, times=times)
         ax.plot(times ./ 3600, germination_responses .* 100, label="Volume-based model")
         ax.legend(fontsize="small")
 
@@ -867,12 +878,15 @@ __precompile__(false)
         if plotself
             gcf()
         end
+
+        return dantigny_responses
     end
 
 
-    function plot_germination_data_fit(data_densities, data_responses, model_densities, model_responses, sources; yerr=nothing, ax=nothing, title=nothing)
+    function plot_germination_data_fit_densities(data_densities, data_responses, model_densities, model_responses, sources; yerr=nothing, ax=nothing, title=nothing)
         """
-        Plots the germination data and the fitted model.
+        Plots the germination data and the fitted model
+        as functions of the spore senisity.
         inputs:
             data_densities (Array{Float64}): germination data spore densities in spores/mL
             data_responses (Array{Float64}): germination data response fractions
@@ -891,7 +905,7 @@ __precompile__(false)
         end
 
         for (i, src) in enumerate(sources)
-            ax.plot(model_densities, model_responses[i], label=src)
+            ax.plot(model_densities, model_responses[i, :], label=src)
             ax.errorbar(data_densities, data_responses[i, :], yerr=yerr[i, :, :]', fmt="o", markersize=5, label="Data ($(src))")
         end
 
@@ -909,5 +923,93 @@ __precompile__(false)
         if plotself
             gcf()
         end
+    end
+
+
+    function plot_germination_data_fit_all(model_type, st, params_opt, times, sources_data, densities_data, p_maxs_data, taus_data, nus_data, p_max_errs, dens_exp_limits=(4, 6); n_nodes=nothing)
+        """
+        Creates a combined plot with density-dependent
+        and time-dependent germination data and model fits.
+        inputs:
+            model_type (str): type of model to use
+            st (Bool): whether to use a time-dependent inducer
+            params_opt (Array{Float64}): optimal parameters
+            times (Array{Float64}): time labels in hours
+            sources_data (Array{String}): carbon sources
+            densities_data (Array{Float64}): germination data spore densities in spores/mL
+            p_maxs_data (Array{Float64}): germination data asymptotic response fractions
+            taus_data (Array{Float64}): germination data half-saturation times in hours
+            nus_data (Array{Float64}): germination data design parameters
+            p_max_errs (Array{Float64}): error in the data responses
+            dens_exp_limits (Tuple): limits of density exponents to plot
+            n_nodes (int): number of Gauss-Hermite nodes for computing the visualised germination response
+        """
+
+        @argcheck model_type in ["independent",
+                                "inhibitor", "inhibitor_thresh", "inhibitor_perm",
+                                "inducer", "inducer_thresh", "inducer_signal",
+                                "combined", "combined_thresh", "combined_signal",
+                                "special_inhibitor", "special_independent"]
+
+        # Create figure and subfigures
+        fig = figure(figsize=(8, 2 + 2*length(densities_data)))
+        topfig, bottomfig = fig.subfigures(2, 1, height_ratios=(0.75, length(densities_data)/2), hspace=0.2)
+        top_axs = topfig.subplots(1, 1)
+        bottom_axs = bottomfig.subplots(length(densities_data), length(sources_data), sharex=true, sharey=true)
+
+        # Compute germination responses using the fitted parameters
+        density_exp_range = LinRange(dens_exp_limits[1], dens_exp_limits[2], 1000)
+        density_range = 10 .^ density_exp_range
+        germ_resp_final = zeros(length(sources_data), length(density_range))
+        error_total = 0
+
+        for (i, src) in enumerate(sources_data)
+            # Smooth curve of density-dependent germination response
+            for (j, density) in enumerate(density_range)
+                germ_resp_final[i, j] = compute_germination_response(model_type, st, times[end], inverse_mL_to_cubic_um(density), get_params_for_idx(params_opt, i), n_nodes=n_nodes)[1]
+            end
+            # Time-dependent germination responses
+            for (j, density) in enumerate(densities_data)
+                germ_resp_sample = compute_germination_response(model_type, st, times, inverse_mL_to_cubic_um(density), get_params_for_idx(params_opt, i), n_nodes=n_nodes)
+                
+                dantigny_responses = compare_time_course_to_dantigny(germ_resp_sample, times, p_maxs_data[i, j], taus_data[i, j], nus_data[i, j],
+                                                                        ax=bottom_axs[j, i], title="$(sources_data[i]), " * @sprintf("%.3e", round(Int, densities_data[j])) * " spores/mL")
+                
+                error_total += sum(abs2, germ_resp_sample .- dantigny_responses)
+                
+                if i > 0
+                    bottom_axs[j, i].set_ylabel("")
+                end
+                if j < length(densities_data)
+                    bottom_axs[j, i].set_xlabel("")
+                end
+            end
+        end
+
+        # Compute RMSE
+        rmse = sqrt(error_total / (length(sources_data) * length(densities_data) * length(times)))
+
+        # Model labels
+        model_labels = Dict(
+            "independent" => "Independent inducer/inhibitor model",
+            "inhibitor" => "Inducer-dependent inhibitor threshold and release",
+            "inhibitor_thresh" => "Inducer-dependent inhibition threshold",
+            "inhibitor_perm" => "Inducer-dependent inhibitor release",
+            "inducer" => "Inhibitor-dependent induction threshold and release",
+            "inducer_thresh" => "Inhibitor-dependent induction threshold",
+            "inducer_signal" => "Inhibitor-dependent induction signal",
+            "combined" => "Combined model with inhibitor-dependent induction threshold and signal",
+            "combined_thresh" => "Combined model with inhibitor-dependent induction threshold",
+            "combined_signal" => "Combined model with inhibitor-dependent induction signal",
+            "special_inhibitor" => "Inducer-dependent inhibitor threshold and release (varying permeability)",
+            "special_independent" => "Independent inducer/inhibitor model (varying permeability)"
+        )
+
+        plot_germination_data_fit_densities(densities_data, p_maxs_data, density_range, germ_resp_final .* 100, sources_data, yerr=p_max_errs,
+                                    ax=top_axs, title=model_labels[model_type] * ", RMSE: $(round(rmse, sigdigits=3))")
+
+        tight_layout()
+        gcf()
+
     end
 end
