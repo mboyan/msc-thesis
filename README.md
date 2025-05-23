@@ -1,6 +1,16 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## To fix for model fitting:
+- `inhibitor_thresh_st` and `inhibitor_st` - what's up?
+- See if you can omit constant-inducer scenario (for final results) but reconstruct it with time-dependent scenario.
+- Replace $\sigma$-parameters by $\delta=\log{\frac{\sigma}{\mu}}$, constrain $\delta$ to $(-10, 0)$.
+- Visualise (log-normal, normal) parameter distributions of parameters in final analysis.
+- Increase number of steps for second optimisation step to 2000?
+- For _A. nidulans_ data:
+  - prepare fitting procedure for *equilibrium probabilities*;
+  - prepare fitting procedure for *exogenously-driven inhibitor*.
+
 ## To do for final model fitting:
 - Double-check parameter bounds:
    - $P_s$ can vary more in combination with the inducer
