@@ -5,6 +5,7 @@ __precompile__(false)
     """
 
     using JLD2
+    using LaTeXTabulars, LaTeXStrings
     using Revise
 
     include("./conversions.jl")
@@ -219,5 +220,73 @@ __precompile__(false)
         end
 
         return result_dict
+    end
+
+
+    function summarise_fitted_parameters(exp_ID)
+        """
+        Summarise fitted parameters into a LaTeX table.
+        inputs:
+            exp_ID (string): experiment ID
+        """
+
+        path = @__DIR__
+        path = joinpath(path, "Data", exp_ID)
+
+        model_labels = Dict(
+            "independent" => "Independent",
+            "inhibitor" => "Inducer " * L"\rightarrow" * " inhibitor threshold and release",
+            "inhibitor_thresh" => "Inducer " * L"\rightarrow" * " inhibition threshold",
+            "inhibitor_perm" => "Inducer " * L"\rightarrow" * " inhibition threshold and release",
+            "inducer" => "Inhibitor " * L"\rightarrow" * " induction threshold and signal",
+            "inducer_thresh" => "Inhibitor " * L"\rightarrow" * " induction threshold",
+            "inducer_signal" => "Inhibitor " * L"\rightarrow" * " induction signal",
+            "combined" => "2 factors, inhibitor " * L"\rightarrow" * " induction threshold and signal",
+            "combined_thresh" => "2 factors, inhibitor " * L"\rightarrow" * " induction threshold",
+            "combined_signal" => "2 factors, inhibitor " * L"\rightarrow" * " induction signal",
+            "special_inhibitor" => "Inducer " * L"\rightarrow" * " inhibitor threshold and release (var. permeability)",
+            "special_independent" => "Independent (var. permeability)"
+        )
+
+        units = Dict(
+            :Pₛ => L"\si{\micro\meter\per\second}",
+            :Pₛ_cs => L"\si{\micro\meter\per\second}",
+            :μ_γ => L"-",
+            :σ_γ => L"-",
+            :k => L"-",
+            :K_I => L"\si{M}",
+            :K_cs => L"\si{M}",
+            :n => L"-",
+            :s => L"-",
+            :μ_ω => L"-",
+            :σ_ω => L"-",
+            :μ_ψ => L"\si{M}",	
+            :σ_ψ => L"\si{M}",
+            :μ_π => L"\si{\micro\meter\per\second}",
+            :σ_π => L"\si{\micro\meter\per\second}",
+            :μ_α => L"-",
+            :σ_α => L"-"
+        )
+
+        n_params = length(keys(units))
+        tabular = Tabular("|l"^(n_params+1) * "|")
+        header = [L"\textbf{Model}"] ++ [L"\textbf{$(string(key))}" for key in keys(units)] ++ [L"\textbf{Units}"]
+
+        # Find all result files
+        rows = []
+        for file in readdir(path)
+            if beginswith(file, "fit")
+                model_type = join(split(file, '_')[2:(end-1)], '_')
+                params_opt = jldopen("Data/fit_inducer_thresh.jld2", "r") do file
+                    return file["params_opt"]
+                end
+                row = [model_labels[model_type]] ++ [haskey(params_opt, key) ? params_opt[key] : " " for key in keys(units)]
+                push!(rows, row)
+            end
+        end
+
+        # Create LaTeX table
+        return latex_tabular(String, tabular, [Rule(:top), header, Rule(:midrule)], rows, [Rule(:bottom)]...)
+        
     end
 end
