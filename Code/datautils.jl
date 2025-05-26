@@ -255,11 +255,11 @@ module DataUtils
                     params[2], #Pₛ_cs
                     params[3], #K_cs
                     params[4], #μ_γ
-                    params[5], #σ_γ
+                    params[4] * exp(params[5]), # σ_γ = μ_γ * exp(δ_γ)
                     params[6], #μ_ω
-                    params[7] #σ_ω
+                    params[6] * exp(params[7]) # σ_ω = μ_ω * exp(δ_ω)
                 )
-                param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :μ_γ, :σ_γ, :μ_ω, :σ_ω]
+                param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
                 param_occurrences = [1, n_src, n_src, 1, 1, n_src, n_src]
             else
                 println("Model: independent factors with static inducer")
@@ -270,11 +270,11 @@ module DataUtils
                     ξ,
                     params[1], #Pₛ
                     params[2], #μ_γ
-                    params[3], #σ_γ
+                    params[2] * exp(params[3]), # σ_γ = μ_γ * exp(δ_γ)
                     params[4], #μ_ω
-                    params[5], #σ_ω
+                    params[4] * exp(params[5]) # σ_ω = μ_ω * exp(δ_ω)
                 )
-                param_keys = [:Pₛ, :μ_γ, :σ_γ, :μ_ω, :σ_ω]
+                param_keys = [:Pₛ, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
                 param_occurrences = [1, 1, 1, n_src, n_src]
             end
 
@@ -294,11 +294,11 @@ module DataUtils
                         params[1], #Pₛ,
                         params[2], #Pₛ_cs,
                         params[3], #K_cs,
-                        params[4], #k,
+                        exp(params[4]), #k,
                         params[5], #μ_γ,
-                        params[6], #σ_γ
+                        params[5] * exp(params[6]), # σ_γ = μ_γ * exp(δ_γ)
                     )
-                    param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :k, :μ_γ, :σ_γ]
+                    param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :k, :μ_γ, :δ_γ]
                     param_occurrences = [1, n_src, n_src, n_src, 1, 1]
                 else
                     println("Model: inducer-modulated inhibitor (combined) with static inducer")
@@ -309,9 +309,9 @@ module DataUtils
                         ξ,
                         params[1], #Pₛ
                         params[2], #μ_γ
-                        params[3], #σ_γ
+                        params[2] * exp(params[3]) # σ_γ = μ_γ * exp(δ_γ)
                     )
-                    param_keys = [:Pₛ, :μ_γ, :σ_γ]
+                    param_keys = [:Pₛ, :μ_γ, :δ_γ]
                     param_occurrences = [n_src, n_src, n_src]
                 end
 
@@ -328,12 +328,13 @@ module DataUtils
                         κ2,
                         params[1], #Pₛ
                         params[2], #Pₛ_cs
-                        params[3], #K_cs
-                        params[4], #μ_γ
-                        params[5], #σ_γ
+                        exp(params[3]), #k
+                        params[4], #K_cs
+                        params[5], #μ_γ
+                        params[5] * exp(params[6]) # σ_γ = μ_γ * exp(δ_γ)
                     )
-                    param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :μ_γ, :σ_γ]
-                    param_occurrences = [1, n_src, n_src, 1, 1]
+                    param_keys = [:Pₛ, :Pₛ_cs, :k, :K_cs, :μ_γ, :δ_γ]
+                    param_occurrences = [1, n_src, n_src, n_src, 1, 1]
                 else
                     println("Model: inducer-modulated inhibitor (threshold) with static inducer")
                     wrapper = (inputs, params) -> Main.germ_response_inhibitor_gh(
@@ -343,9 +344,9 @@ module DataUtils
                         ξ,
                         params[1], #Pₛ
                         params[2], #μ_γ
-                        params[3], #σ_γ
+                        params[2] * exp(params[3]) # σ_γ = μ_γ * exp(δ_γ)
                     )
-                    param_keys = [:Pₛ, :μ_γ, :σ_γ]
+                    param_keys = [:Pₛ, :μ_γ, :δ_γ]
                     param_occurrences = [1, n_src, n_src]
                 end
             elseif model_type_split[2] == "perm" # Inducer modulates inhibitor permeability
@@ -363,9 +364,9 @@ module DataUtils
                         params[2], #Pₛ_cs
                         params[3], #K_cs
                         params[4], #μ_γ
-                        params[5], #σ_γ
+                        params[4] * exp(params[5]) # σ_γ = μ_γ * exp(δ_γ)
                     )
-                    param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :μ_γ, :σ_γ]
+                    param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :μ_γ, :δ_γ]
                     param_occurrences = [1, n_src, n_src, 1, 1]
                 else
                     println("Model: inducer-modulated inhibitor (permeability) with static inducer")
@@ -376,9 +377,9 @@ module DataUtils
                         ξ,
                         params[1], #Pₛ
                         params[2], #μ_γ
-                        params[3], #σ_γ
+                        params[2] * exp(params[3]) # σ_γ = μ_γ * exp(δ_γ)
                     )
-                    param_keys = [:Pₛ, :μ_γ, :σ_γ]
+                    param_keys = [:Pₛ, :μ_γ, :δ_γ]
                     param_occurrences = [n_src, 1, 1]
                 end            
             end
@@ -398,34 +399,35 @@ module DataUtils
                         κ2,
                         params[1], #Pₛ
                         params[2], #Pₛ_cs
-                        params[3], #k
+                        exp(params[3]), #k
                         params[4], #K_cs
                         params[5], #K_I
                         params[6], #n
                         params[7], #μ_ω
-                        params[8], #σ_ω
+                        params[7] * exp(params[8]), # σ_ω = μ_ω * exp(δ_ω)
                         params[9], #μ_ψ
-                        params[10], #σ_ψ
+                        params[9] * exp(params[10]) # σ_ψ = μ_ψ * exp(δ_ψ)
                     )
-                    param_keys = [:Pₛ, :Pₛ_cs, :k, :K_cs, :K_I, :n, :μ_ω, :σ_ω, :μ_ψ, :σ_ψ]
+                    param_keys = [:Pₛ, :Pₛ_cs, :k, :K_cs, :K_I, :n, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
                     param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, n_src, n_src, 1, 1]
                 else
                     println("Model: inhibitor-modulated inducer (combined) with static inducer")
+                    # Reconstruct standard deviation
                     wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_combined_gh(
                         u, W,
                         inputs[1], #t
                         inputs[2], #ρₛ
                         ξ,
                         params[1], #Pₛ
-                        params[2], #k
+                        exp(params[2]), #k
                         params[3], #K_I
                         params[4], #n
                         params[5], #μ_ω
-                        params[6], #σ_ω
+                        params[5] * exp(params[6]), # σ_ω = μ_ω * exp(δ_ω)
                         params[7], #μ_ψ
-                        params[8], #σ_ψ
+                        params[7] * exp(params[8]) # σ_ψ = μ_ψ * exp(δ_ψ)
                     )
-                    param_keys = [:Pₛ, :k, :K_I, :n, :μ_ω, :σ_ω, :μ_ψ, :σ_ψ]
+                    param_keys = [:Pₛ, :k, :K_I, :n, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
                     param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, 1, 1]
                 end
 
@@ -443,13 +445,13 @@ module DataUtils
                         params[1], #Pₛ
                         params[2], #Pₛ_cs
                         params[3], #K_cs
-                        params[4], #k
+                        exp(params[4]), #k
                         params[5], #μ_ω
-                        params[6], #σ_ω
+                        params[5] * exp(params[6]), # σ_ω = μ_ω * exp(δ_ω)
                         params[7], #μ_ψ
-                        params[8], #σ_ψ
+                        params[7] * exp(params[8]) # σ_ψ = μ_ψ * exp(δ_ψ)
                     )
-                    param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :k, :μ_ω, :σ_ω, :μ_ψ, :σ_ψ]
+                    param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :k, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
                     param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, 1, 1]
                 else
                     println("Model: inhibitor-modulated inducer (threshold) with static inducer")
@@ -459,13 +461,13 @@ module DataUtils
                         inputs[2], #ρₛ
                         ξ,
                         params[1], #Pₛ
-                        params[2], #k
+                        exp(params[2]), #k
                         params[3], #μ_ω
-                        params[4], #σ_ω
+                        params[3] * exp(params[4]), # σ_ω = μ_ω * exp(δ_ω)
                         params[5], #μ_ψ
-                        params[6], #σ_ψ
+                        params[5] * exp(params[6]) # σ_ψ = μ_ψ * exp(δ_ψ)
                     )
-                    param_keys = [:Pₛ, :k, :μ_ω, :σ_ω, :μ_ψ, :σ_ψ]
+                    param_keys = [:Pₛ, :k, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
                     param_occurrences = [1, n_src, n_src, n_src, 1, 1]
                 end
 
@@ -486,11 +488,11 @@ module DataUtils
                         params[4], #K_I
                         params[5], #n
                         params[6], #μ_ω
-                        params[7], #σ_ω
+                        params[6] * exp(params[7]), # σ_ω = μ_ω * exp(δ_ω)
                         params[8], #μ_ψ
-                        params[9], #σ_ψ
+                        params[8] * exp(params[9]) # σ_ψ = μ_ψ * exp(δ_ψ)
                     )
-                    param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :K_I, :n, :μ_ω, :σ_ω, :μ_ψ, :σ_ψ]
+                    param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :K_I, :n, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
                     param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, n_src, 1, 1]
                 else
                     println("Model: inhibitor-modulated inducer (signal) with static inducer")
@@ -503,11 +505,11 @@ module DataUtils
                         params[2], #K_I
                         params[3], #n
                         params[4], #μ_ω
-                        params[5], #σ_ω
+                        params[4] * exp(params[5]), # σ_ω = μ_ω * exp(δ_ω)
                         params[6], #μ_ψ
-                        params[7], #σ_ψ
+                        params[6] * exp(params[7]) # σ_ψ = μ_ψ * exp(δ_ψ)
                     )
-                    param_keys = [:Pₛ, :K_I, :n, :μ_ω, :σ_ω, :μ_ψ, :σ_ψ]
+                    param_keys = [:Pₛ, :K_I, :n, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
                     param_occurrences = [1, n_src, n_src, n_src, n_src, 1, 1]
                 end
             end
@@ -529,15 +531,15 @@ module DataUtils
                     params[3], #K_cs
                     params[4], #K_I
                     params[5], #n
-                    params[6], #k
+                    exp(params[6]), #k
                     params[7], #μ_γ
-                    params[8], #σ_γ
+                    params[7] * exp(params[8]), # σ_γ = μ_γ * exp(δ_γ)
                     params[9], #μ_ω
-                    params[10], #σ_ω
+                    params[9] * exp(params[10]), # σ_ω = μ_ω * exp(δ_ω)
                     params[11], #μ_ψ
-                    params[12] #σ_ψ
+                    params[11] * exp(params[12]) # σ_ψ = μ_ψ * exp(δ_ψ)
                 )
-                param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :K_I, :n, :k, :μ_γ, :σ_γ, :μ_ω, :σ_ω, :μ_ψ, :σ_ψ]
+                param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :K_I, :n, :k, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
                 param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1]
             elseif model_type_split[2] == "thresh"
                 println("Model: inhibitor-modulated inducer (threshold) with time-dependent inducer")
@@ -552,15 +554,15 @@ module DataUtils
                     params[1], #Pₛ
                     params[2], #Pₛ_cs
                     params[3], #K_cs
-                    params[4], #k
+                    exp(params[4]), #k
                     params[5], #μ_γ
-                    params[6], #σ_γ
+                    params[5] * exp(params[6]), # σ_γ = μ_γ * exp(δ_γ)
                     params[7], #μ_ω
-                    params[8], #σ_ω
+                    params[7] * exp(params[8]), # σ_ω = μ_ω * exp(δ_ω)
                     params[9], #μ_ψ
-                    params[10], #σ_ψ
+                    params[9] * exp(params[10]) # σ_ψ = μ_ψ * exp(δ_ψ)
                 )
-                param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :k, :μ_γ, :σ_γ, :μ_ω, :σ_ω, :μ_ψ, :σ_ψ]
+                param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :k, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
                 param_occurrences = [1, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1]
             elseif model_type_split[2] == "signal"
                 println("Model: inhibitor-modulated inducer (signal) with time-dependent inducer")
@@ -578,13 +580,13 @@ module DataUtils
                     params[4], #K_I
                     params[5], #n
                     params[6], #μ_γ
-                    params[7], #σ_γ
+                    params[6] * exp(params[7]), # σ_γ = μ_γ * exp(δ_γ)
                     params[8], #μ_ω
-                    params[9], #σ_ω
+                    params[8] * exp(params[9]), # σ_ω = μ_ω * exp(δ_ω)
                     params[10], #μ_ψ
-                    params[11] #σ_ψ
+                    params[10] * exp(params[11]) # σ_ψ = μ_ψ * exp(δ_ψ)
                 )
-                param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :K_I, :n, :μ_γ, :σ_γ, :μ_ω, :σ_ω, :μ_ψ, :σ_ψ]
+                param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :K_I, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
                 param_occurrences = [1, n_src, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1]
             end
         elseif model_type_split[1] == "special" 
@@ -596,11 +598,11 @@ module DataUtils
                     inputs[2], #ρₛ
                     ξ,
                     params[1], #μ_π
-                    params[2], #σ_π
+                    params[1] * exp(params[2]), # σ_π = μ_π * exp(δ_π)
                     params[3], #μ_γ
-                    params[4], #σ_γ
+                    params[3] * exp(params[4]) # σ_γ = μ_γ * exp(δ_γ)
                 )
-                param_keys = [:μ_π, :σ_π, :μ_γ, :σ_γ]
+                param_keys = [:μ_π, :δ_π, :μ_γ, :δ_γ]
                 param_occurrences = [1, 1, n_src, n_src]
             elseif model_type_split[2] == "independent"
                 println("Model: independent factors with static inducer and varying permeability")
@@ -616,13 +618,13 @@ module DataUtils
                     params[2], #Pₛ_cs
                     params[3], #K_cs
                     params[4], #μ_γ
-                    params[5], #σ_γ
+                    params[4] * exp(params[5]), # σ_γ = μ_γ * exp(δ_γ)
                     params[6], #μ_ω
-                    params[7], #σ_ω
+                    params[6] * exp(params[7]), # σ_ω = μ_ω * exp(δ_ω)
                     params[8], #μ_α
-                    params[9] #σ_α
+                    params[8] * exp(params[9]) # σ_α = μ_α * exp(δ_α)
                 )
-                param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :μ_γ, :σ_γ, :μ_ω, :σ_ω, :μ_α, :σ_α]
+                param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_α, :δ_α]
                 param_occurrences = [1, n_src, n_src, 1, 1, n_src, n_src, 1, 1]
             end
         else
@@ -685,25 +687,17 @@ module DataUtils
         p_opt = best_candidate(res)
         best_fit = best_fitness(res)
 
-        # if model_type in ["independent", "inhibitor", "inhibitor_thresh", "inhibitor_perm"]
         println("Running second optimisation stage")
         opt = Opt(:LN_COBYLA, length(bounds))
         lower_bounds!(opt, [bnd[1] for bnd in bounds])
         upper_bounds!(opt, [bnd[2] for bnd in bounds])
         xtol_rel!(opt, 1e-4)
-        maxeval!(opt, 1000)
+        maxeval!(opt, 2000)
         min_objective!(opt, objgrad)
 
         (best_fit, res, code) = NLopt.optimize(opt, p_opt)
         p_opt = res
-        # end
         println("Final fitness: ", best_fit)
-        # res = bboptimize(params -> obj(params), p_opt_temp;
-        #             SearchRange = bounds,
-        #             MaxSteps = max_steps)
-        # end
-
-        # p_opt = best_candidate(res)
         
 
         # Compute rmse
@@ -712,9 +706,25 @@ module DataUtils
         # Create a dictionary for the optimized parameters
         params_out = Dict()
         for (i, key) in enumerate(param_keys)
-            params_out[key] = []
             for j in 1:param_occurrences[i]
-                push!(params_out[key], p_opt[param_starts[i] + j - 1])
+                # Transform parameters back to original scale
+                key_split = split(string(key), "_")
+                if key_split[1] == "δ"
+                    key_new = Symbol(:σ_, key_split[2])
+                    val = p_opt[param_starts[i] + j - 1 - param_occurrences[i]] * exp(p_opt[param_starts[i] + j - 1])
+                elseif key == :k
+                    println("Converting k to original scale")
+                    key_new = key
+                    val = exp(p_opt[param_starts[i] + j - 1])
+                else
+                    key_new = key
+                    val = p_opt[param_starts[i] + j - 1]
+                end
+                if haskey(params_out, key_new)
+                    push!(params_out[key_new], val)
+                else
+                    params_out[key_new] = [val]
+                end
             end
         end
 

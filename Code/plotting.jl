@@ -995,7 +995,7 @@ __precompile__(false)
             "inhibitor" => "Inducer-dependent inhibitor threshold and release",
             "inhibitor_thresh" => "Inducer-dependent inhibition threshold",
             "inhibitor_perm" => "Inducer-dependent inhibitor release",
-            "inducer" => "Inhibitor-dependent induction threshold and release",
+            "inducer" => "Inhibitor-dependent induction threshold and signal",
             "inducer_thresh" => "Inhibitor-dependent induction threshold",
             "inducer_signal" => "Inhibitor-dependent induction signal",
             "combined" => "Combined model with inhibitor-dependent induction threshold and signal",
