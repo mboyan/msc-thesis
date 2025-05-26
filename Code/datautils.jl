@@ -13,6 +13,7 @@ module DataUtils
     using Optim
     using NLopt
     using MeshGrid
+    using Distributions
     using ArgCheck
     using Revise
     
@@ -28,6 +29,7 @@ module DataUtils
     export generate_dantigny_dataset
     export fit_model_to_data
     export get_params_for_idx
+    export fit_model_to_data_equilibrium
     
 
     function parse_ijadpanahsaravi_data()
@@ -664,12 +666,6 @@ module DataUtils
             end
             return err
         end
-
-        # Pre-warm
-        # dummy_params = [ bnd[1] for bnd in bounds ]
-        # for _ in 1:10
-        #     obj(dummy_params)
-        # end
         
         # Fit model
         # if model_type_split[1] == "inducer"
@@ -749,5 +745,136 @@ module DataUtils
         end
 
         return params_out
+    end
+
+
+    function fit_model_to_data_equilibrium(model_type, def_params, germ_data, densities, bounds_dict; max_steps=10000)
+        """
+        Fit a selected equilibrium germination model to the data.
+        inputs:
+            model_type (String): model type to fit
+                ("inhibitor", "combined_inducer, "independent")
+            def_params (Dict): default parameter values
+            germ_data (Array): germination data
+            densities (Vector): spore densities
+            bounds_dict (Dict): bounds for the free parameters
+            max_steps (int): maximum number of steps for the optimization
+        outputs:
+            params_out (Dict): optimized parameters
+        """
+
+        @argcheck model_type in ["inhibitor", "combined_inducer", "independent"]
+
+        # Unpack radius distribution
+        μ_ξ = def_params[:μ_ξ]
+        σ_ξ = def_params[:σ_ξ]
+        μ_ξ_log = log(μ_ξ^2 / sqrt(σ_ξ^2 + μ_ξ^2))
+        σ_ξ_log = sqrt(log(σ_ξ^2 / μ_ξ^2 + 1))
+        dist_ξ = LogNormal(μ_ξ_log, σ_ξ_log)
+
+        if model_type == "inhibitor"
+            # Inducer-dependent inhibitor threshold and release
+            wrapper = (ρₛ, params) -> Main.germ_response_inducer_dep_inhibitor_combined_eq(
+                ρₛ,
+                dist_ξ,
+                params[1], #μ_γ
+                params[1] * exp(params[2]) # σ_γ = μ_γ * exp(δ_γ)
+            )
+            param_keys = [:μ_γ, :δ_γ]
+        elseif model_type == "combined_inducer"
+            # Two-factor germination with inhibitor-dependent induction threshold
+            wrapper = (ρₛ, params) -> Main.germ_response_inhibitor_dep_inducer_thresh_2_factors_eq(
+                ρₛ,
+                dist_ξ,
+                def_params[:c₀_cs],
+                params[1], #K_cs
+                params[2], #k
+                params[3], #μ_γ
+                params[3] * exp(params[4]), # σ_γ = μ_γ * exp(δ_γ)
+                params[5], #μ_ω
+                params[5] * exp(params[6]), # σ_ω = μ_ω * exp(δ_ω)
+                params[7], #μ_ψ
+                params[7] * exp(params[8]) # σ_ψ = μ_ψ * exp(δ_ψ)
+            )
+            param_keys = [:K_cs, :k, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
+        elseif model_type == "independent"
+            # Independent factors
+            wrapper = (ρₛ, params) -> Main.germ_response_independent_eq(
+                ρₛ,
+                dist_ξ,
+                def_params[:c₀_cs],
+                params[1], #K_cs
+                params[2], #μ_γ
+                params[2] * exp(params[3]), # σ_γ = μ_γ * exp(δ_γ)
+                params[4], #μ_ω
+                params[4] * exp(params[5]) # σ_ω = μ_ω * exp(δ_ω)
+            )
+            param_keys = [:K_cs, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
+        end
+
+        bounds = [bounds_dict[key] for key in param_keys]
+        densities_input = inverse_mL_to_cubic_um.(densities)
+
+        # Objective function
+        obj = params -> begin
+            ŷ = [wrapper(ρₛ, params) for ρₛ in densities_input]
+            err = sum(abs2, ŷ .- germ_data) 
+            return err
+        end
+        objgrad = (params, _) -> begin
+            ŷ = [wrapper(ρₛ, params) for ρₛ in densities_input]
+            err = sum(abs2, ŷ .- germ_data) 
+            return err
+        end
+
+        # Fit model
+        println("Running first optimisation stage")
+        res = bboptimize(params -> obj(params);
+                    SearchRange = bounds,
+                    MaxSteps = max_steps,
+                    Method = :adaptive_de_rand_1_bin_radiuslimited)
+        p_opt = best_candidate(res)
+        best_fit = best_fitness(res)
+
+        println("Running second optimisation stage")
+        opt = Opt(:LN_COBYLA, length(bounds))
+        lower_bounds!(opt, [bnd[1] for bnd in bounds])
+        upper_bounds!(opt, [bnd[2] for bnd in bounds])
+        xtol_rel!(opt, 1e-4)
+        maxeval!(opt, 2000)
+        min_objective!(opt, objgrad)
+
+        (best_fit, res, code) = NLopt.optimize(opt, p_opt)
+        p_opt = res
+        println("Final fitness: ", best_fit)
+
+        # Compute rmse
+        rmse = sqrt(best_fit / length(densities))
+
+        # Create a dictionary for the optimized parameters
+        params_out = Dict()
+        for (i, key) in enumerate(param_keys)
+            # Transform parameters back to original scale
+            key_split = split(string(key), "_")
+            if key_split[1] == "δ"
+                println("Converting δ = $(p_opt[i]) to σ scale")
+                key_new = Symbol(:σ_, key_split[2])
+                val = p_opt[i - 1] * exp(p_opt[i])
+            elseif key == :k
+                println("Converting k to original scale")
+                key_new = key
+                val = exp(p_opt[i])
+            else
+                key_new = key
+                val = p_opt[i]
+            end
+            if haskey(params_out, key_new)
+                push!(params_out[key_new], val)
+            else
+                params_out[key_new] = [val]
+            end
+        end
+
+        return params_out, rmse
     end
 end

@@ -35,6 +35,9 @@ module GermStats
     export germ_response_inhibitor_dep_inducer_combined_2_factor_st_gh
     export germ_response_inhibitor_var_perm_gh
     export germ_response_independent_factors_var_perm_st_gh
+    export germ_response_inducer_dep_inhibitor_combined_eq
+    export germ_response_inhibitor_dep_inducer_thresh_2_factors_eq
+    export germ_response_independent_eq
 
 
     function inducer_concentration(c_out, t, Pₛ, A, V_cw)
@@ -195,7 +198,10 @@ module GermStats
         """
 
         # Distributions
-        dist_γ = Normal(μ_γ, σ_γ)
+        μ_γ_log = log(μ_γ^2 / sqrt(σ_γ^2 + μ_γ^2))
+        σ_γ_log = sqrt(log(σ_γ^2 / μ_γ^2 + 1))
+        dist_γ = LogNormal(μ_γ_log, σ_γ_log)
+        # dist_γ = Normal(μ_γ, σ_γ)
 
         # Inhibitor
         V = 4/3 * π .* ξ.^3
@@ -231,7 +237,10 @@ module GermStats
         """
 
         # Distributions
-        dist_ω = Normal(μ_ω, σ_ω)
+        # dist_ω = Normal(μ_ω, σ_ω)
+        μ_ω_log = log(μ_ω^2 / sqrt(σ_ω^2 + μ_ω^2))
+        σ_ω_log = sqrt(log(σ_ω^2 / μ_ω^2 + 1))
+        dist_ω = LogNormal(μ_ω_log, σ_ω_log)
         
         induction_factor = cdf.(dist_ω, 1)
         
@@ -266,8 +275,14 @@ module GermStats
         """
 
         # Distributions
-        dist_γ = Normal(μ_γ, σ_γ)
-        dist_ω = Normal(μ_ω, σ_ω)
+        μ_γ_log = log(μ_γ^2 / sqrt(σ_γ^2 + μ_γ^2))
+        σ_γ_log = sqrt(log(σ_γ^2 / μ_γ^2 + 1))
+        dist_γ = LogNormal(μ_γ_log, σ_γ_log)
+        μ_ω_log = log(μ_ω^2 / sqrt(σ_ω^2 + μ_ω^2))
+        σ_ω_log = sqrt(log(σ_ω^2 / μ_ω^2 + 1))
+        dist_ω = LogNormal(μ_ω_log, σ_ω_log)
+        # dist_γ = Normal(μ_γ, σ_γ)
+        # dist_ω = Normal(μ_ω, σ_ω)
 
         # Inhibitor
         V = 4/3 * π .* ξ.^3
@@ -314,7 +329,10 @@ module GermStats
         """
 
         # Distributions
-        dist_γ = Normal(μ_γ, σ_γ)
+        # dist_γ = Normal(μ_γ, σ_γ)
+        μ_γ_log = log(μ_γ^2 / sqrt(σ_γ^2 + μ_γ^2))
+        σ_γ_log = sqrt(log(σ_γ^2 / μ_γ^2 + 1))
+        dist_γ = LogNormal(μ_γ_log, σ_γ_log)
 
         # Inhibitor
         V = 4/3 * π .* ξ.^3
@@ -360,7 +378,10 @@ module GermStats
         """
 
         # Distributions
-        dist_γ = Normal(μ_γ, σ_γ)
+        # dist_γ = Normal(μ_γ, σ_γ)
+        μ_γ_log = log(μ_γ^2 / sqrt(σ_γ^2 + μ_γ^2))
+        σ_γ_log = sqrt(log(σ_γ^2 / μ_γ^2 + 1))
+        dist_γ = LogNormal(μ_γ_log, σ_γ_log)
 
         # Inducer
         A = 4 * π .* ξ.^2
@@ -407,7 +428,10 @@ module GermStats
         """
 
         # Distributions
-        dist_γ = Normal(μ_γ, σ_γ)
+        # dist_γ = Normal(μ_γ, σ_γ)
+        μ_γ_log = log(μ_γ^2 / sqrt(σ_γ^2 + μ_γ^2))
+        σ_γ_log = sqrt(log(σ_γ^2 / μ_γ^2 + 1))
+        dist_γ = LogNormal(μ_γ_log, σ_γ_log)
 
         # Inducer
         A = 4 * π .* ξ.^2
@@ -454,7 +478,10 @@ module GermStats
         ψ = exp.(μ_ψ_log .+ σ_ψ_log .* u)
 
         # Distributions
-        dist_ω = Normal(μ_ω, σ_ω)
+        # dist_ω = Normal(μ_ω, σ_ω)
+        μ_ω_log = log(μ_ω^2 / sqrt(σ_ω^2 + μ_ω^2))
+        σ_ω_log = sqrt(log(σ_ω^2 / μ_ω^2 + 1))
+        dist_ω = LogNormal(μ_ω_log, σ_ω_log)
 
         # Inhibitor
         V = 4/3 * π .* ξ.^3
@@ -507,7 +534,10 @@ module GermStats
         ψ = exp.(μ_ψ_log .+ σ_ψ_log .* u)
 
         # Distributions
-        dist_ω = Normal(μ_ω, σ_ω)
+        # dist_ω = Normal(μ_ω, σ_ω)
+        μ_ω_log = log(μ_ω^2 / sqrt(σ_ω^2 + μ_ω^2))
+        σ_ω_log = sqrt(log(σ_ω^2 / μ_ω^2 + 1))
+        dist_ω = LogNormal(μ_ω_log, σ_ω_log)
 
         # Inducer
         A = 4 * π .* ξ.^2
@@ -564,7 +594,10 @@ module GermStats
         ψ = exp.(μ_ψ_log .+ σ_ψ_log .* u)
 
         # Distributions
-        dist_ω = Normal(μ_ω, σ_ω)
+        # dist_ω = Normal(μ_ω, σ_ω)
+        μ_ω_log = log(μ_ω^2 / sqrt(σ_ω^2 + μ_ω^2))
+        σ_ω_log = sqrt(log(σ_ω^2 / μ_ω^2 + 1))
+        dist_ω = LogNormal(μ_ω_log, σ_ω_log)
 
         # Inhibitor
         V = 4/3 * π .* ξ.^3
@@ -620,7 +653,10 @@ module GermStats
         ψ = exp.(μ_ψ_log .+ σ_ψ_log .* u)
 
         # Distributions
-        dist_ω = Normal(μ_ω, σ_ω)
+        # dist_ω = Normal(μ_ω, σ_ω)
+        μ_ω_log = log(μ_ω^2 / sqrt(σ_ω^2 + μ_ω^2))
+        σ_ω_log = sqrt(log(σ_ω^2 / μ_ω^2 + 1))
+        dist_ω = LogNormal(μ_ω_log, σ_ω_log)
 
         # Inducer
         A = 4 * π .* ξ.^2
@@ -679,7 +715,10 @@ module GermStats
         ψ = exp.(μ_ψ_log .+ σ_ψ_log .* u)
 
         # Distributions
-        dist_ω = Normal(μ_ω, σ_ω)
+        # dist_ω = Normal(μ_ω, σ_ω)
+        μ_ω_log = log(μ_ω^2 / sqrt(σ_ω^2 + μ_ω^2))
+        σ_ω_log = sqrt(log(σ_ω^2 / μ_ω^2 + 1))
+        dist_ω = LogNormal(μ_ω_log, σ_ω_log)
 
         # Inhibitor
         V = 4/3 * π .* ξ.^3
@@ -736,7 +775,10 @@ module GermStats
         ψ = exp.(μ_ψ_log .+ σ_ψ_log .* u)
 
         # Distributions
-        dist_ω = Normal(μ_ω, σ_ω)
+        # dist_ω = Normal(μ_ω, σ_ω)
+        μ_ω_log = log(μ_ω^2 / sqrt(σ_ω^2 + μ_ω^2))
+        σ_ω_log = sqrt(log(σ_ω^2 / μ_ω^2 + 1))
+        dist_ω = LogNormal(μ_ω_log, σ_ω_log)
 
         # Inducer
         A = 4 * π .* ξ.^2
@@ -802,8 +844,14 @@ module GermStats
         ψ = exp.(μ_ψ_log .+ σ_ψ_log .* u)
 
         # Distributions
-        dist_γ = Normal(μ_γ, σ_γ)
-        dist_ω = Normal(μ_ω, σ_ω)
+        # dist_γ = Normal(μ_γ, σ_γ)
+        # dist_ω = Normal(μ_ω, σ_ω)
+        μ_γ_log = log(μ_γ^2 / sqrt(σ_γ^2 + μ_γ^2))
+        σ_γ_log = sqrt(log(σ_γ^2 / μ_γ^2 + 1))
+        dist_γ = LogNormal(μ_γ_log, σ_γ_log)
+        μ_ω_log = log(μ_ω^2 / sqrt(σ_ω^2 + μ_ω^2))
+        σ_ω_log = sqrt(log(σ_ω^2 / μ_ω^2 + 1))
+        dist_ω = LogNormal(μ_ω_log, σ_ω_log)
 
         # Inducer
         A = 4 * π .* ξ.^2
@@ -872,8 +920,14 @@ module GermStats
         ψ = exp.(μ_ψ_log .+ σ_ψ_log .* u)
 
         # Distributions
-        dist_γ = Normal(μ_γ, σ_γ)
-        dist_ω = Normal(μ_ω, σ_ω)
+        # dist_γ = Normal(μ_γ, σ_γ)
+        # dist_ω = Normal(μ_ω, σ_ω)
+        μ_γ_log = log(μ_γ^2 / sqrt(σ_γ^2 + μ_γ^2))
+        σ_γ_log = sqrt(log(σ_γ^2 / μ_γ^2 + 1))
+        dist_γ = LogNormal(μ_γ_log, σ_γ_log)
+        μ_ω_log = log(μ_ω^2 / sqrt(σ_ω^2 + μ_ω^2))
+        σ_ω_log = sqrt(log(σ_ω^2 / μ_ω^2 + 1))
+        dist_ω = LogNormal(μ_ω_log, σ_ω_log)
 
         # Inducer
         A = 4 * π .* ξ.^2
@@ -944,8 +998,14 @@ module GermStats
         ψ = exp.(μ_ψ_log .+ σ_ψ_log .* u)
 
         # Distributions
-        dist_γ = Normal(μ_γ, σ_γ)
-        dist_ω = Normal(μ_ω, σ_ω)
+        # dist_γ = Normal(μ_γ, σ_γ)
+        # dist_ω = Normal(μ_ω, σ_ω)
+        μ_γ_log = log(μ_γ^2 / sqrt(σ_γ^2 + μ_γ^2))
+        σ_γ_log = sqrt(log(σ_γ^2 / μ_γ^2 + 1))
+        dist_γ = LogNormal(μ_γ_log, σ_γ_log)
+        μ_ω_log = log(μ_ω^2 / sqrt(σ_ω^2 + μ_ω^2))
+        σ_ω_log = sqrt(log(σ_ω^2 / μ_ω^2 + 1))
+        dist_ω = LogNormal(μ_ω_log, σ_ω_log)
 
         # Inducer
         A = 4 * π .* ξ.^2
@@ -1005,7 +1065,10 @@ module GermStats
         πₛ = exp.(μ_π_log .+ σ_π_log .* u)
 
         # Distributions
-        dist_γ = Normal(μ_γ, σ_γ)
+        # dist_γ = Normal(μ_γ, σ_γ)
+        μ_γ_log = log(μ_γ^2 / sqrt(σ_γ^2 + μ_γ^2))
+        σ_γ_log = sqrt(log(σ_γ^2 / μ_γ^2 + 1))
+        dist_γ = LogNormal(μ_γ_log, σ_γ_log)
 
         # Inhibitor
         V = 4/3 * π .* ξ.^3
@@ -1060,8 +1123,14 @@ module GermStats
         α = exp.(μ_α_log .+ σ_α_log .* u)
 
         # Distributions
-        dist_γ = Normal(μ_γ, σ_γ)
-        dist_ω = Normal(μ_ω, σ_ω)
+        # dist_γ = Normal(μ_γ, σ_γ)
+        # dist_ω = Normal(μ_ω, σ_ω)
+        μ_γ_log = log(μ_γ^2 / sqrt(σ_γ^2 + μ_γ^2))
+        σ_γ_log = sqrt(log(σ_γ^2 / μ_γ^2 + 1))
+        dist_γ = LogNormal(μ_γ_log, σ_γ_log)
+        μ_ω_log = log(μ_ω^2 / sqrt(σ_ω^2 + μ_ω^2))
+        σ_ω_log = sqrt(log(σ_ω^2 / μ_ω^2 + 1))
+        dist_ω = LogNormal(μ_ω_log, σ_ω_log)
 
         # Spore volume and surface area
         V = 4/3 * π .* ξ.^3
@@ -1094,5 +1163,129 @@ module GermStats
         tail = cdf.(dist_ω, s) .* (1 .- cdf.(dist_γ, β))
         
         return sum(W3 .* tail)
+    end
+
+
+    function germ_response_inducer_dep_inhibitor_combined_eq(ρₛ, dist_ξ, μ_γ, σ_γ)
+        """
+        Compute the equilibrium germination response
+        for an inducer-dependent inhibitor threshold and release.
+        inputs:
+            ρₛ - spore density in spores/um^3
+            dist_ξ - distribution of spore radii (LogNormal)
+            μ_γ - mean inhibition threshold
+            σ_γ - standard deviation of inhibition threshold
+        output:
+            the equilibrium germination response for the given parameters
+        """
+
+        # Distributions
+        μ_γ_log = log(μ_γ^2 / sqrt(σ_γ^2 + μ_γ^2))
+        σ_γ_log = sqrt(log(σ_γ^2 / μ_γ^2 + 1))
+        dist_γ = LogNormal(μ_γ_log, σ_γ_log)
+
+        function integrand(ξ)
+            V = 4/3 * π .* ξ^3
+            ϕ = ρₛ .* V
+            tail = 1 .- cdf(dist_γ, ϕ)
+            return tail * pdf(dist_ξ, ξ)
+        end
+
+        return quadgk(x -> integrand(x), 0.0, Inf, rtol=1e-8)[1]
+    end
+
+
+    function germ_response_inhibitor_dep_inducer_thresh_2_factors_eq(ρₛ, dist_ξ, c₀_cs, K_cs, k, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ)
+        """
+        Compute the equilibrium germination response
+        for an inhibitor-dependent inducer threshold and
+        an additional inhibitor-dependent germination.
+        inputs:
+            ρₛ - spore density in spores/um^3
+            dist_ξ - distribution of spore radii (LogNormal)
+            c₀_cs - initial concentration of carbon source in M
+            K_cs - half-saturation constant for the carbon source
+            k - inhibition strength over induction threshold
+            μ_γ - mean inhibition threshold
+            σ_γ - standard deviation of inhibition threshold
+            μ_ω - mean induction threshold
+            σ_ω - standard deviation of induction threshold
+            μ_ψ - mean initial concentration
+            σ_ψ - standard deviation of initial concentration
+        output:
+            the equilibrium germination response for the given parameters
+        """
+        
+        # Distributions
+        # dist_γ = Normal(μ_γ, σ_γ)
+        # dist_ω = Normal(μ_ω, σ_ω)
+        # dist_ψ = Normal(μ_ψ, σ_ψ)
+        μ_γ_log = log(μ_γ^2 / sqrt(σ_γ^2 + μ_γ^2))
+        σ_γ_log = sqrt(log(σ_γ^2 / μ_γ^2 + 1))
+        dist_γ = LogNormal(μ_γ_log, σ_γ_log)
+        μ_ω_log = log(μ_ω^2 / sqrt(σ_ω^2 + μ_ω^2))
+        σ_ω_log = sqrt(log(σ_ω^2 / μ_ω^2 + 1))
+        dist_ω = LogNormal(μ_ω_log, σ_ω_log)
+        μ_ψ_log = log(μ_ψ^2 / sqrt(σ_ψ^2 + μ_ψ^2))
+        σ_ψ_log = sqrt(log(σ_ψ^2 / μ_ψ^2 + 1))
+        dist_ψ = LogNormal(μ_ψ_log, σ_ψ_log)
+
+        # Signal
+        s_eq = c₀_cs ./ (K_cs .+ c₀_cs)
+
+        function integrand(ξ)
+            V = 4/3 * π .* ξ^3
+            ϕ = ρₛ .* V
+            tail = 1 .- cdf(dist_γ, ϕ)
+
+            function integrand_ω(ψ)
+                return cdf(dist_ω, s_eq .- k .* ϕ .* ψ) * pdf(dist_ψ, ψ)
+            end
+
+            return tail * pdf(dist_ξ, ξ) * quadgk(integrand_ω, 0.0, quantile(dist_ψ, 1-1e-6), rtol=1e-8)[1]
+        end
+
+        # return hcubature(integrand, [0.0, 0.0], [quantile(dist_ξ, 1-1e-6), quantile(dist_ψ, 1-1e-6)], reltol=1e-4)[1]
+        return quadgk(x -> integrand(x), 0.0, Inf, rtol=1e-8)[1]
+    end
+
+
+    function germ_response_independent_eq(ρₛ, dist_ξ, c₀_cs, K_cs, μ_γ, σ_γ, μ_ω, σ_ω)
+        """
+        Compute the equilibrium germination response
+        for independent inhibition and induction.
+        inputs:
+            ρₛ - spore density in spores/um^3
+            dist_ξ - distribution of spore radii (LogNormal)
+            c₀_cs - initial concentration of carbon source in M
+            K_cs - half-saturation constant for the carbon source
+            μ_γ - mean inhibition threshold
+            σ_γ - standard deviation of inhibition threshold
+            μ_ω - mean induction threshold
+            σ_ω - standard deviation of induction threshold
+        output:
+            the equilibrium germination response for the given parameters
+        """
+
+        # Distributions
+        μ_γ_log = log(μ_γ^2 / sqrt(σ_γ^2 + μ_γ^2))
+        σ_γ_log = sqrt(log(σ_γ^2 / μ_γ^2 + 1))
+        dist_γ = LogNormal(μ_γ_log, σ_γ_log)
+        μ_ω_log = log(μ_ω^2 / sqrt(σ_ω^2 + μ_ω^2))
+        σ_ω_log = sqrt(log(σ_ω^2 / μ_ω^2 + 1))
+        dist_ω = LogNormal(μ_ω_log, σ_ω_log)
+
+        # Signal
+        s_eq = c₀_cs ./ (K_cs .+ c₀_cs)
+        tail2 = cdf(dist_ω, s_eq)
+
+        function integrand(ξ)
+            V = 4/3 * π .* ξ^3
+            ϕ = ρₛ .* V
+            tail1 = 1 .- cdf(dist_γ, ϕ)
+            return tail1 * tail2 * pdf(dist_ξ, ξ)
+        end
+
+        return quadgk(x -> integrand(x), 0.0, Inf, rtol=1e-8)[1]
     end
 end
