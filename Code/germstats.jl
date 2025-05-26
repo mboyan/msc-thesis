@@ -1233,20 +1233,29 @@ module GermStats
         # Signal
         s_eq = c₀_cs ./ (K_cs .+ c₀_cs)
 
-        function integrand(ξ)
+        # function integrand(ξ)
+        #     V = 4/3 * π .* ξ^3
+        #     ϕ = ρₛ .* V
+        #     tail = 1 .- cdf(dist_γ, ϕ)
+
+        #     function integrand_ω(ψ)
+        #         return cdf(dist_ω, s_eq .- k .* ϕ .* ψ) * pdf(dist_ψ, ψ)
+        #     end
+
+        #     return tail * pdf(dist_ξ, ξ) * quadgk(integrand_ω, 0.0, quantile(dist_ψ, 1-1e-6), rtol=1e-8)[1]
+        # end
+
+        function integrand(input)
+            ξ, ψ = input
             V = 4/3 * π .* ξ^3
             ϕ = ρₛ .* V
-            tail = 1 .- cdf(dist_γ, ϕ)
-
-            function integrand_ω(ψ)
-                return cdf(dist_ω, s_eq .- k .* ϕ .* ψ) * pdf(dist_ψ, ψ)
-            end
-
-            return tail * pdf(dist_ξ, ξ) * quadgk(integrand_ω, 0.0, quantile(dist_ψ, 1-1e-6), rtol=1e-8)[1]
+            tail1 = 1 .- cdf(dist_γ, ϕ)
+            tail2 = cdf(dist_ω, s_eq .- k .* ϕ .* ψ)
+            return tail1 * tail2 * pdf(dist_ξ, ξ) * pdf(dist_ψ, ψ)
         end
 
-        # return hcubature(integrand, [0.0, 0.0], [quantile(dist_ξ, 1-1e-6), quantile(dist_ψ, 1-1e-6)], reltol=1e-4)[1]
-        return quadgk(x -> integrand(x), 0.0, Inf, rtol=1e-8)[1]
+        return hcubature(integrand, [0.0, 0.0], [quantile(dist_ξ, 1-1e-6), quantile(dist_ψ, 1-1e-6)], reltol=1e-4)[1]
+        # return quadgk(x -> integrand(x), 0.0, Inf, rtol=1e-8)[1]
     end
 
 
