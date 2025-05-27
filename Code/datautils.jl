@@ -748,7 +748,7 @@ module DataUtils
     end
 
 
-    function fit_model_to_data_equilibrium(model_type, def_params, germ_data, densities, bounds_dict; max_steps=10000)
+    function fit_model_to_data_equilibrium(model_type, def_params, germ_data, densities, bounds_dict; c_ex_vals=nothing, max_steps=10000)
         """
         Fit a selected equilibrium germination model to the data.
         inputs:
@@ -758,12 +758,13 @@ module DataUtils
             germ_data (Array): germination data
             densities (Vector): spore densities
             bounds_dict (Dict): bounds for the free parameters
+            c_ex_vals (Vector): exogenous inhibitor concentrations (optional)
             max_steps (int): maximum number of steps for the optimization
         outputs:
             params_out (Dict): optimized parameters
         """
 
-        @argcheck model_type in ["inhibitor", "combined_inducer", "independent"]
+        @argcheck model_type in ["inhibitor", "combined_inducer", "independent", "inhibitor_ex", "combined_inducer_ex", "independent_ex"]
 
         # Unpack radius distribution
         μ_ξ = def_params[:μ_ξ]
@@ -810,22 +811,86 @@ module DataUtils
                 params[4] * exp(params[5]) # σ_ω = μ_ω * exp(δ_ω)
             )
             param_keys = [:K_cs, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
+        elseif model_type == "inhibitor_ex"
+            # Inducer-dependent inhibitor threshold and release (exogenous inhibitor)
+            wrapper = (ρₛ, c_ex, params) -> Main.germ_response_inducer_dep_inhibitor_combined_eq_c_ex(
+                ρₛ,
+                dist_ξ,
+                c_ex,
+                params[1], #μ_γ
+                params[1] * exp(params[2]), # σ_γ = μ_γ * exp(δ_γ)
+                params[2], #μ_ψ
+                params[2] * exp(params[3]) # σ_ψ = μ_ψ * exp(δ_ψ)
+            )
+            param_keys = [:μ_γ, :δ_γ, :μ_ψ, :δ_ψ]
+        elseif model_type == "combined_inducer_ex"
+            # Two-factor germination with inhibitor-dependent induction threshold (exogenous inhibitor)
+            wrapper = (ρₛ, c_ex, params) -> Main.germ_response_inhibitor_dep_inducer_thresh_2_factors_eq_c_ex(
+                ρₛ,
+                dist_ξ,
+                c_ex,
+                def_params[:c₀_cs],
+                params[1], #K_cs
+                params[2], #k
+                params[3], #μ_γ
+                params[3] * exp(params[4]), # σ_γ = μ_γ * exp(δ_γ)
+                params[5], #μ_ω
+                params[5] * exp(params[6]), # σ_ω = μ_ω * exp(δ_ω)
+                params[7], #μ_ψ
+                params[7] * exp(params[8]) # σ_ψ = μ_ψ * exp(δ_ψ)
+            )
+            param_keys = [:K_cs, :k, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
+        elseif model_type == "independent_ex"
+            # Independent factors
+            wrapper = (ρₛ, c_ex, params) -> Main.germ_response_independent_eq_c_ex(
+                ρₛ,
+                dist_ξ,
+                c_ex,
+                def_params[:c₀_cs],
+                params[1], #K_cs
+                params[2], #μ_γ
+                params[2] * exp(params[3]), # σ_γ = μ_γ * exp(δ_γ)
+                params[4], #μ_ω
+                params[4] * exp(params[5]), # σ_ω = μ_ω * exp(δ_ω)
+                params[6], #μ_ψ
+                params[6] * exp(params[7]) # σ_ψ = μ_ψ * exp(δ_ψ)
+            )
+            param_keys = [:K_cs, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
         end
 
         bounds = [bounds_dict[key] for key in param_keys]
-        densities_input = inverse_mL_to_cubic_um.(densities)
 
-        # Objective function
-        obj = params -> begin
-            ŷ = [wrapper(ρₛ, params) for ρₛ in densities_input]
-            err = sum(abs2, ŷ .- germ_data) 
-            return err
+        if isnothing(c_ex_vals) # No exogenous inhibitor concentrations provided
+            densities_input = inverse_mL_to_cubic_um.(densities)
+            n_inputs = length(densities_input)
+
+            # Objective function
+            obj = params -> begin
+                ŷ = [wrapper(ρₛ, params) for ρₛ in densities_input]
+                err = sum(abs2, ŷ .- germ_data) 
+                return err
+            end
+            objgrad = (params, _) -> begin
+                ŷ = [wrapper(ρₛ, params) for ρₛ in densities_input]
+                err = sum(abs2, ŷ .- germ_data) 
+                return err
+            end
+        elseif length(densities) == 1 # Exogenous inhibitor concentrations provided
+            n_inputs = length(c_ex_vals)
+            test_density = densities[1]
+            # Objective function
+            obj = params -> begin
+                ŷ = [wrapper(test_density, c_ex, params) for c_ex in c_ex_vals]
+                err = sum(abs2, ŷ .- germ_data) 
+                return err
+            end
+            objgrad = (params, _) -> begin
+                ŷ = [wrapper(test_density, c_ex, params) for c_ex in c_ex_vals]
+                err = sum(abs2, ŷ .- germ_data) 
+                return err
+            end
         end
-        objgrad = (params, _) -> begin
-            ŷ = [wrapper(ρₛ, params) for ρₛ in densities_input]
-            err = sum(abs2, ŷ .- germ_data) 
-            return err
-        end
+            
 
         # Fit model
         println("Running first optimisation stage")
@@ -849,7 +914,7 @@ module DataUtils
         println("Final fitness: ", best_fit)
 
         # Compute rmse
-        rmse = sqrt(best_fit / length(densities))
+        rmse = sqrt(best_fit / n_inputs)
 
         # Create a dictionary for the optimized parameters
         params_out = Dict()

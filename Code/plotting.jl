@@ -43,7 +43,7 @@ __precompile__(false)
     export plot_spore_arrangements
     export plot_dantigny_time_course
     export compare_time_course_to_dantigny
-    export plot_germination_data_fit_densities
+    export plot_germination_data_fit
     export plot_germination_data_fit_all
 
 
@@ -883,19 +883,20 @@ __precompile__(false)
     end
 
 
-    function plot_germination_data_fit_densities(data_densities, data_responses, model_densities, model_responses, sources; yerr=nothing, ax=nothing, title=nothing)
+    function plot_germination_data_fit(data_inputs, data_responses, model_inputs, model_responses, sources; yerr=nothing, ax=nothing, title=nothing, c_ex=false)
         """
         Plots the germination data and the fitted model
         as functions of the spore senisity.
         inputs:
-            data_densities (Array{Float64}): germination data spore densities in spores/mL
+            data_inputs (Array{Float64}): germination data inputs
             data_responses (Array{Float64}): germination data response fractions
-            model_densities (Array{Float64}): model sporedensities in spores/mL
+            model_inputs (Array{Float64}): model inputs
             model_responses (Array{Float64}): model response fractions
             sources (Array{String}): carbon sources
             yerr (Array{Float64}): error in the data responses
             ax (Axis): axis to plot on
             title (str): title of the plot
+            c_ex (bool): whether the inputs are exogenous concentrations
         """
         if isnothing(ax)
             fig, ax = subplots(1, 1, figsize=(6, 4))
@@ -905,12 +906,17 @@ __precompile__(false)
         end
 
         for (i, src) in enumerate(sources)
-            ax.plot(model_densities, model_responses[i, :], label=src)
-            ax.errorbar(data_densities, data_responses[i, :], yerr=yerr[i, :, :]', fmt="o", markersize=5, label="Data ($(src))")
+            ax.plot(model_inputs, model_responses[i, :], label=src)
+            ax.errorbar(data_inputs, data_responses[i, :], yerr=yerr[i, :, :]', fmt="o", markersize=5, label="Data ($(src))")
         end
 
-        ax.set_xscale("log")
-        ax.set_xlabel("Spore Density [spores/mL]")
+        if !c_ex
+            ax.set_xscale("log")
+            ax.set_xlabel("Spore Density [spores/mL]")
+        else
+            ax.set_xlabel("Exogenous inhibitor concentration [M]")
+        end
+        
         ax.set_ylabel("Long-term germination Response [%]")
         ax.set_ylim(0, 110)
         ax.grid()
@@ -1005,7 +1011,7 @@ __precompile__(false)
             "special_independent" => "Independent inducer/inhibitor model (varying permeability)"
         )
 
-        plot_germination_data_fit_densities(densities_data, p_maxs_data, density_range, germ_resp_final .* 100, sources_data, yerr=p_max_errs,
+        plot_germination_data_fit(densities_data, p_maxs_data, density_range, germ_resp_final .* 100, sources_data, yerr=p_max_errs,
                                     ax=top_axs, title=model_labels[model_type] * ", RMSE: $(round(rmse, sigdigits=3))")
 
         tight_layout()
