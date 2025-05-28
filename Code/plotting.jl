@@ -954,8 +954,9 @@ __precompile__(false)
         @argcheck model_type in ["independent",
                                 "inhibitor", "inhibitor_thresh", "inhibitor_perm",
                                 "inducer", "inducer_thresh", "inducer_signal",
-                                "combined", "combined_thresh", "combined_signal",
-                                "special_inhibitor", "special_independent"]
+                                "combined_inhibitor", "combined_inhibitor_thresh", "combined_inhibitor_perm",
+                                "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal",
+                                "special_inhibitor", "special_inducer", "special_independent"]
 
         # Create figure and subfigures
         fig = figure(figsize=(8, 2 + 2*length(densities_data)))
@@ -1004,10 +1005,14 @@ __precompile__(false)
             "inducer" => "Inhibitor-dependent induction threshold and signal",
             "inducer_thresh" => "Inhibitor-dependent induction threshold",
             "inducer_signal" => "Inhibitor-dependent induction signal",
-            "combined" => "Combined model with inhibitor-dependent induction threshold and signal",
-            "combined_thresh" => "Combined model with inhibitor-dependent induction threshold",
-            "combined_signal" => "Combined model with inhibitor-dependent induction signal",
+            "combined_inhibitor" => "Combined model with inducer-dependent inhibitor threshold and release",
+            "combined_inhibitor_thresh" => "Combined model with inducer-dependent inhibitor threshold",
+            "combined_inhibitor_perm" => "Combined model with inducer-dependent inhibitor release",
+            "combined_inducer" => "Combined model with inhibitor-dependent induction threshold and signal",
+            "combined_inducer_thresh" => "Combined model with inhibitor-dependent induction threshold",
+            "combined_inducer_signal" => "Combined model with inhibitor-dependent induction signal",
             "special_inhibitor" => "Inducer-dependent inhibitor threshold and release (varying permeability)",
+            "special_inducer" => "Inhibitor-dependent induction threshold (varying permeability)",
             "special_independent" => "Independent inducer/inhibitor model (varying permeability)"
         )
 
