@@ -132,9 +132,9 @@ module GermStats
             W = hw * hw'
         elseif (model_type in ["inducer", "inducer_thresh", "inducer_signal"] && st) ||
             model_type in ["combined_inducer", "combined_inducer_thresh", "combined_inducer_signal", "special_independent"]
-            W3 = reshape(hw, n_nodes,1,1,1) .* reshape(hw, 1,n_nodes,1,1) .* reshape(hw, 1,1,n_nodes,1) .* reshape(hw, 1,1,1,n_nodes)
+            W3 = reshape(hw, n_nodes,1,1) .* reshape(hw, 1,n_nodes,1) .* reshape(hw, 1,1,n_nodes)
         elseif model_type == "special_inducer"
-            W4 = reshape(hw, n_nodes,1,1) .* reshape(hw, 1,n_nodes,1) .* reshape(hw, 1,1,n_nodes)
+            W4 = reshape(hw, n_nodes,1,1,1) .* reshape(hw, 1,n_nodes,1,1) .* reshape(hw, 1,1,n_nodes,1) .* reshape(hw, 1,1,1,n_nodes)
         end
 
         # Compute the germination response
@@ -1361,7 +1361,7 @@ module GermStats
     end
 
 
-    function germ_response_inducer_dep_inhibitor_combined_eq(ρₛ, dist_ξ, μ_γ, σ_γ; reltol=1e-3)
+    function germ_response_inducer_dep_inhibitor_combined_eq(ρₛ, dist_ξ, μ_γ, σ_γ; reltol=1e-4)
         """
         Compute the equilibrium germination response
         for an inducer-dependent inhibitor threshold and release.
@@ -1389,7 +1389,7 @@ module GermStats
     end
 
 
-    function germ_response_inducer_dep_inhibitor_combined_eq_c_ex(ρₛ, dist_ξ, c_ex, μ_γ, σ_γ, μ_ψ, σ_ψ; reltol=1e-3)
+    function germ_response_inducer_dep_inhibitor_combined_eq_c_ex(ρₛ, dist_ξ, c_ex, μ_γ, σ_γ, μ_ψ, σ_ψ; reltol=1e-4)
         """
         Compute the equilibrium germination response
         for an inducer-dependent inhibitor threshold and release.
@@ -1420,11 +1420,11 @@ module GermStats
             return tail * pdf(dist_ξ, ξ) * pdf(dist_ψ, ψ)
         end
 
-        return hcubature(integrand, [0.0, 0.0], [quantile(dist_ξ, 1-1e-8), quantile(dist_ψ, 1-1e-8)], reltol=reltol)[1]
+        return hcubature(integrand, [0.0, 0.0], [quantile(dist_ξ, 1-1e-8), quantile(dist_ψ, 1-1e-8)], reltol=reltol, abstol=1e-6)[1]
     end
 
 
-    function germ_response_inhibitor_dep_inducer_thresh_2_factors_eq(ρₛ, dist_ξ, c₀_cs, K_cs, k, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-3)
+    function germ_response_inhibitor_dep_inducer_thresh_2_factors_eq(ρₛ, dist_ξ, c₀_cs, K_cs, k, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4)
         """
         Compute the equilibrium germination response
         for an inhibitor-dependent inducer threshold and
@@ -1465,11 +1465,11 @@ module GermStats
             return tail1 * tail2 * pdf(dist_ξ, ξ) * pdf(dist_ψ, ψ)
         end
 
-        return hcubature(integrand, [0.0, 0.0], [quantile(dist_ξ, 1-1e-8), quantile(dist_ψ, 1-1e-9)], reltol=reltol)[1]
+        return hcubature(integrand, [0.0, 0.0], [quantile(dist_ξ, 1-1e-8), quantile(dist_ψ, 1-1e-9)], reltol=reltol, abstol=1e-6)[1]
     end
 
 
-    function germ_response_inhibitor_dep_inducer_thresh_2_factors_eq_c_ex(ρₛ, dist_ξ, c_ex, c₀_cs, K_cs, k, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-3)
+    function germ_response_inhibitor_dep_inducer_thresh_2_factors_eq_c_ex(ρₛ, dist_ξ, c_ex, c₀_cs, K_cs, k, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4)
         """
         Compute the equilibrium germination response
         for an inhibitor-dependent inducer threshold and
@@ -1511,11 +1511,11 @@ module GermStats
             return tail1 * tail2 * pdf(dist_ξ, ξ) * pdf(dist_ψ, ψ)
         end
 
-        return hcubature(integrand, [0.0, 0.0], [quantile(dist_ξ, 1-1e-8), quantile(dist_ψ, 1-1e-8)], reltol=reltol)[1]
+        return hcubature(integrand, [0.0, 0.0], [quantile(dist_ξ, 1-1e-8), quantile(dist_ψ, 1-1e-8)], reltol=reltol, abstol=1e-6)[1]
     end
 
 
-    function germ_response_independent_eq(ρₛ, dist_ξ, c₀_cs, K_cs, μ_γ, σ_γ, μ_ω, σ_ω; reltol=1e-3)
+    function germ_response_independent_eq(ρₛ, dist_ξ, c₀_cs, K_cs, μ_γ, σ_γ, μ_ω, σ_ω; reltol=1e-4)
         """
         Compute the equilibrium germination response
         for independent inhibition and induction.
@@ -1552,7 +1552,7 @@ module GermStats
     end
 
 
-    function germ_response_independent_eq_c_ex(ρₛ, dist_ξ, c_ex, c₀_cs, K_cs, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-3)
+    function germ_response_independent_eq_c_ex(ρₛ, dist_ξ, c_ex, c₀_cs, K_cs, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4)
         """
         Compute the equilibrium germination response
         for independent inhibition and induction.
@@ -1592,6 +1592,6 @@ module GermStats
             return tail1 * tail2 * pdf(dist_ξ, ξ) * pdf(dist_ψ, ψ)
         end
 
-        return hcubature(integrand, [0.0, 0.0], [quantile(dist_ξ, 1-1e-8), quantile(dist_ψ, 1-1e-8)], reltol=reltol)[1]
+        return hcubature(integrand, [0.0, 0.0], [quantile(dist_ξ, 1-1e-8), quantile(dist_ψ, 1-1e-8)], reltol=reltol, abstol=1e-6)[1]
     end
 end

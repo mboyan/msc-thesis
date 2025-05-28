@@ -847,8 +847,8 @@ module DataUtils
             model_type (String): model type to fit
                 ("inhibitor", "combined_inducer, "independent")
             def_params (Dict): default parameter values
-            germ_data (Array): germination data
-            densities (Vector): spore densities
+            germ_data (Array): germination data (concatenated datesets if both exogenous and endogenous models are fitted)
+            densities (Vector): spore densities in spores/mL
             bounds_dict (Dict): bounds for the free parameters
             c_ex_vals (Vector): exogenous inhibitor concentrations (optional)
             ref_density (Float): reference density for exogenous inhibitor (optional, only used when fitting both exogenous and endogenous models)

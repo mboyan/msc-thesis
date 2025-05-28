@@ -15,6 +15,7 @@ __precompile__(false)
     export get_concentration_evolution_from_file
     export get_coverage_and_exponent_from_files
     export get_density_and_exponent_from_files
+    export summarise_fitted_parameters
 
     function parse_parameters!(exp_ID, sim_ID, param_dict, extra_params=nothing)
         """
@@ -241,10 +242,14 @@ __precompile__(false)
             "inducer" => "Inhibitor " * L"\rightarrow" * " induction threshold and signal",
             "inducer_thresh" => "Inhibitor " * L"\rightarrow" * " induction threshold",
             "inducer_signal" => "Inhibitor " * L"\rightarrow" * " induction signal",
-            "combined" => "2 factors, inhibitor " * L"\rightarrow" * " induction threshold and signal",
-            "combined_thresh" => "2 factors, inhibitor " * L"\rightarrow" * " induction threshold",
-            "combined_signal" => "2 factors, inhibitor " * L"\rightarrow" * " induction signal",
+            "combined_inhibitor" => "2 factors, inducer " * L"\rightarrow" * " inhibitor threshold and release",
+            "combined_inhibitor_thresh" => "2 factors, inducer " * L"\rightarrow" * " inhibitor threshold",
+            "combined_inhibitor_perm" => "2 factors, inducer " * L"\rightarrow" * " inhibitor release",
+            "combined_inducer" => "2 factors, inhibitor " * L"\rightarrow" * " induction threshold and signal",
+            "combined_inducer_thresh" => "2 factors, inhibitor " * L"\rightarrow" * " induction threshold",
+            "combined_inducer_signal" => "2 factors, inhibitor " * L"\rightarrow" * " induction signal",
             "special_inhibitor" => "Inducer " * L"\rightarrow" * " inhibitor threshold and release (var. permeability)",
+            "special_inducer" => "Inhibitor " * L"\rightarrow" * " inducer threshold (var. permeability)",
             "special_independent" => "Independent (var. permeability)"
         )
 
@@ -270,23 +275,33 @@ __precompile__(false)
 
         n_params = length(keys(units))
         tabular = Tabular("|l"^(n_params+1) * "|")
-        header = [L"\textbf{Model}"] ++ [L"\textbf{$(string(key))}" for key in keys(units)] ++ [L"\textbf{Units}"]
+        header = vcat([L"\textbf{Model}"], [L"\textbf{%$(string(key))}" for key in keys(units)], [L"\textbf{Units}"])
 
         # Find all result files
         rows = []
         for file in readdir(path)
-            if beginswith(file, "fit")
-                model_type = join(split(file, '_')[2:(end-1)], '_')
-                params_opt = jldopen("Data/fit_inducer_thresh.jld2", "r") do file
-                    return file["params_opt"]
+            if startswith(file, "fit")
+                file_name = splitext(file)[1]
+                type_split = split(file_name, '_')
+                if "st" in type_split
+                    deleteat!(type_split, findfirst(x -> x == "st", type_split))
+                    type_add = L" [s{(t)}]"
+                else
+                    type_add = ""
                 end
-                row = [model_labels[model_type]] ++ [haskey(params_opt, key) ? params_opt[key] : " " for key in keys(units)]
+                
+                model_type = join(type_split[2:end], '_')
+                params_opt = jldopen(joinpath(path, file), "r") do f
+                    return f["params_opt"]
+                end
+                println("Processing model: $(model_type)")
+                row = vcat([model_labels[model_type] * type_add], [haskey(params_opt, key) ? params_opt[key] : " " for key in keys(units)])
                 push!(rows, row)
             end
         end
 
         # Create LaTeX table
-        return latex_tabular(String, tabular, [Rule(:top), header, Rule(:midrule)], rows, [Rule(:bottom)]...)
+        return latex_tabular(String, tabular, [Rule(:top), header, Rule(:mid), rows, [Rule(:bottom)]...])
         
     end
 end
