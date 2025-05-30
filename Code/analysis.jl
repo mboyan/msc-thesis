@@ -6,6 +6,8 @@ __precompile__(false)
 
     using JLD2
     using LaTeXTabulars, LaTeXStrings
+    using Printf
+    using ArgCheck
     using Revise
 
     include("./conversions.jl")
@@ -224,84 +226,168 @@ __precompile__(false)
     end
 
 
-    function summarise_fitted_parameters(exp_ID)
+    function summarise_fitted_parameters(exp_ID; model_types=nothing, extra_tags=["st"])
         """
         Summarise fitted parameters into a LaTeX table.
         inputs:
             exp_ID (string): experiment ID
+            model_types (Vector{String}): optional list of model types to include in the table
+            extra_tag (String): optional extra tags of result file
         """
+
+        @argcheck any(in.(extra_tags, Ref([nothing, "st", "ex", "total"])))
 
         path = @__DIR__
         path = joinpath(path, "Data", exp_ID)
 
         model_labels = Dict(
-            "independent" => "Independent",
-            "inhibitor" => "Inducer " * L"\rightarrow" * " inhibitor threshold and release",
-            "inhibitor_thresh" => "Inducer " * L"\rightarrow" * " inhibition threshold",
-            "inhibitor_perm" => "Inducer " * L"\rightarrow" * " inhibition threshold and release",
-            "inducer" => "Inhibitor " * L"\rightarrow" * " induction threshold and signal",
-            "inducer_thresh" => "Inhibitor " * L"\rightarrow" * " induction threshold",
-            "inducer_signal" => "Inhibitor " * L"\rightarrow" * " induction signal",
-            "combined_inhibitor" => "2 factors, inducer " * L"\rightarrow" * " inhibitor threshold and release",
-            "combined_inhibitor_thresh" => "2 factors, inducer " * L"\rightarrow" * " inhibitor threshold",
-            "combined_inhibitor_perm" => "2 factors, inducer " * L"\rightarrow" * " inhibitor release",
-            "combined_inducer" => "2 factors, inhibitor " * L"\rightarrow" * " induction threshold and signal",
-            "combined_inducer_thresh" => "2 factors, inhibitor " * L"\rightarrow" * " induction threshold",
-            "combined_inducer_signal" => "2 factors, inhibitor " * L"\rightarrow" * " induction signal",
-            "special_inhibitor" => "Inducer " * L"\rightarrow" * " inhibitor threshold and release (var. permeability)",
-            "special_inducer" => "Inhibitor " * L"\rightarrow" * " inducer threshold (var. permeability)",
-            "special_independent" => "Independent (var. permeability)"
+            "independent" => "\\textbf{2 factors,}\\newline \\textbf{independent}",
+            "inhibitor" => "\\textbf{Inducer →  }\\newline \\textbf{inhibitor}\\newline \\textbf{thresh. + release}",
+            "inhibitor_thresh" => "\\textbf{Inducer →  }\\newline \\textbf{inhibitor}\\newline \\textbf{thresh.}",
+            "inhibitor_perm" => "\\textbf{Inducer →  }\\newline \\textbf{inhibitor}\\newline \\textbf{release}",
+            "inducer" => "\\textbf{Inhibitor →  }\\newline \\textbf{inducer}\\newline \\textbf{thresh. + signal}",
+            "inducer_thresh" => "\\textbf{Inhibitor →  }\\newline \\textbf{inducer}\\newline \\textbf{threshold}",
+            "inducer_signal" => "\\textbf{Inhibitor →  }\\newline \\textbf{inducer}\\newline \\textbf{signal}",
+            "combined_inhibitor" => "\\textbf{2 factors,}\\newline \\textbf{inducer →  }\\newline \\textbf{inhibitor}\\newline \\textbf{thresh. + release}",
+            "combined_inhibitor_thresh" => "\\textbf{2 factors,}\\newline \\textbf{inducer →  }\\newline \\textbf{inhibitor}\\newline \\textbf{threshold}",
+            "combined_inhibitor_perm" => "\\textbf{2 factors,}\\newline \\textbf{inducer →  }\\newline \\textbf{inhibitor}\\newline \\textbf{release}",
+            "combined_inducer" => "\\textbf{2 factors,}\\newline \\textbf{inhibitor →  }\\newline \\textbf{inducer}\\newline \\textbf{thresh. + signal}",
+            "combined_inducer_thresh" => "\\textbf{2 factors,}\\newline \\textbf{inhibitor →  }\\newline \\textbf{inducer}\\newline \\textbf{threshold}",
+            "combined_inducer_signal" => "\\textbf{2 factors,}\\newline \\textbf{inhibitor →  }\\newline \\textbf{inducer}\\newline \\textbf{signal}",
+            "special_inhibitor" => "\\textbf{Inducer →  }\\newline \\textbf{inhibitor}\\newline \\textbf{thresh. + release}\\newline \\textbf{(var. perm.)}",
+            "special_inducer" => "\\textbf{Inhibitor →  }\\newline \\textbf{inducer}\\newline \\textbf{thresh.}\\newline \\textbf{(var. perm.)}",
+            "special_independent" => "\\textbf{2 factors,}\\newline \\textbf{independent}\\newline \\textbf{(var. perm.)}"
         )
 
-        units = Dict(
-            :Pₛ => L"\si{\micro\meter\per\second}",
-            :Pₛ_cs => L"\si{\micro\meter\per\second}",
-            :μ_γ => L"-",
-            :σ_γ => L"-",
-            :k => L"-",
-            :K_I => L"\si{M}",
-            :K_cs => L"\si{M}",
-            :n => L"-",
-            :s => L"-",
-            :μ_ω => L"-",
-            :σ_ω => L"-",
-            :μ_ψ => L"\si{M}",	
-            :σ_ψ => L"\si{M}",
-            :μ_π => L"\si{\micro\meter\per\second}",
-            :σ_π => L"\si{\micro\meter\per\second}",
-            :μ_α => L"-",
-            :σ_α => L"-"
+        if isnothing(model_types)
+            label_keys_sort = ["independent", "inhibitor", "inhibitor_thresh", "inhibitor_perm", "inducer", "inducer_thresh", "inducer_signal",
+                           "combined_inhibitor", "combined_inhibitor_thresh", "combined_inhibitor_perm",
+                           "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal",
+                           "special_inhibitor", "special_inducer", "special_independent"]
+        else
+            label_keys_sort = model_types
+        end
+
+        params_dict = Dict(
+            :Pₛ => (L"P_s^{\textrm{inh}}", L"\si{\micro\meter\per\second}"),
+            :Pₛ_cs => (L"P_s^{\textrm{cs}}", L"\si{\micro\meter\per\second}"),
+            :μ_γ => (L"\mu_\gamma", L"-"),
+            :σ_γ => (L"\sigma_\gamma", L"-"),
+            :k => (L"k", L"-"),
+            :K_I => (L"K_I", L"\si{M}"),
+            :K_cs => (L"K_{\textrm{cs}}", L"\si{M}"),
+            :n => (L"n", L"-"),
+            :s => (L"s", L"-"),
+            :μ_ω => (L"\mu_\omega", L"-"),
+            :σ_ω => (L"\sigma_\omega", L"-"),
+            :μ_ψ => (L"\mu_\psi", L"\si{M}"),	
+            :σ_ψ => (L"\sigma_\psi", L"\si{M}"),
+            :μ_π => (L"\mu_\pi", L"\si{\micro\meter\per\second}"),
+            :σ_π => (L"\sigma_\pi", L"\si{\micro\meter\per\second}"),
+            :μ_α => (L"\mu_\alpha", L"-"),
+            :σ_α => (L"\sigma_\alpha", L"-")
         )
 
-        n_params = length(keys(units))
-        tabular = Tabular("|l"^(n_params+1) * "|")
-        header = vcat([L"\textbf{Model}"], [L"\textbf{%$(string(key))}" for key in keys(units)], [L"\textbf{Units}"])
+        keys_sort = [:Pₛ, :Pₛ_cs, :k, :K_I, :K_cs, :n, :s, :μ_γ, :σ_γ, :μ_ω, :σ_ω, :μ_ψ, :σ_ψ, :μ_π, :σ_π, :μ_α, :σ_α]
+
+        n_cols = length(label_keys_sort)
+        n_rows = length(keys_sort)
+        # tabular = Tabular("|p{1.5cm}" * "|p{4cm}"^(n_cols) * "|p{1.5cm}|")
+        tabular = Tabular("p{2cm}" * "p{3.5cm}"^(n_cols) * "p{1.5cm}")
 
         # Find all result files
-        rows = []
+        cells = Array{LaTeXString}(undef, n_rows+1, n_cols+2)
+        param_present = zeros(Bool, n_rows)
         for file in readdir(path)
             if startswith(file, "fit")
                 file_name = splitext(file)[1]
                 type_split = split(file_name, '_')
-                if "st" in type_split
-                    deleteat!(type_split, findfirst(x -> x == "st", type_split))
-                    type_add = L" [s{(t)}]"
-                else
-                    type_add = ""
+
+                # println("Processing file: $(file_name)")
+                # println("Type split: $(type_split)")
+
+                # Check if the file matches the extra tag
+                if !isnothing(extra_tags) && !any(in.(extra_tags, Ref(type_split))) && !("combined" in type_split) && !("special" in type_split)
+                    continue
                 end
+
+                # Remove suffixes
+                if !isnothing(extra_tags)
+                    type_split = filter(x -> !(x in extra_tags), type_split)
+                end 
+                # for extra_tag in extra_tags
+                #     if extra_tag in type_split
+                #         deleteat!(type_split, findfirst(x -> x == extra_tag, type_split))
+                #     end
+                # end
                 
                 model_type = join(type_split[2:end], '_')
+                
+                # Skip if model type is not in the specified list
+                if !(model_type in label_keys_sort)
+                    # println(model_type, " not in label_keys_sort, skipping...")
+                    continue
+                end
+
                 params_opt = jldopen(joinpath(path, file), "r") do f
                     return f["params_opt"]
                 end
+
                 println("Processing model: $(model_type)")
-                row = vcat([model_labels[model_type] * type_add], [haskey(params_opt, key) ? params_opt[key] : " " for key in keys(units)])
-                push!(rows, row)
+                # println("Parameters: $(params_opt)")
+
+                mt_idx = findfirst(x -> x == model_type, label_keys_sort)
+                # cells[1, mt_idx+1] = latexstring(model_labels[model_type] * type_add)
+                cells[1, mt_idx+1] = "Model: \\newline"  * latexstring(model_labels[model_type])
+
+                for (i, key) in enumerate(keys_sort)
+                    if haskey(params_opt, key)
+                        value = params_opt[key]#round.(params_opt[key], digits=6)
+                        val_str = [@sprintf("%.4e", val) for val in value]
+                        val_str = ["\\num{$(val)}" for val in val_str]
+                        if length(value) > 1
+                            val_str[1] = val_str[1] * "\\,^*"
+                            val_str[2] = val_str[2] * "\\,^{**}"
+                            val_joint = join(val_str, ", \\newline")
+                            val_joint = latexstring(val_joint)
+                        else
+                            val_joint = latexstring(val_str[1])
+                        end
+                        cells[i+1, mt_idx + 1] = val_joint
+                        param_present[i] = true
+                    else
+                        cells[i+1, mt_idx + 1] = L" "
+                    end
+                end
+            end
+        end
+
+        # Add parameter names to first column and units to the last column
+        for (i, key) in enumerate(keys_sort)
+            if haskey(params_dict, key)
+                param = params_dict[key][1]
+                cells[i+1, 1] = latexstring(param)
+                unit = params_dict[key][2]
+                cells[i+1, end] = latexstring(unit)
+            else
+                cells[i+1, end] = L" "
+            end
+        end
+
+        cells[1, 1] = latexstring("\\textbf{Parameter}")
+        cells[1, end] = latexstring("\\textbf{Units}")
+
+        header = cells[1, :]
+        rows = []
+        for i in 2:(n_rows+1)
+            if param_present[i-1]
+                push!(rows, Rule(:mid))
+                push!(rows, cells[i, :])
             end
         end
 
         # Create LaTeX table
-        return latex_tabular(String, tabular, [Rule(:top), header, Rule(:mid), rows, [Rule(:bottom)]...])
+        return latex_tabular(String, tabular, [Rule(:top), header, rows..., Rule(:bottom)])
         
     end
 end
