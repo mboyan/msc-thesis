@@ -353,7 +353,7 @@ __precompile__(false)
         end
 
         if isnothing(cmap)
-            ax.plot(times, c_vals, label=label)
+            ax.plot(times, c_vals, label=label, linestyle="--", dashes=(rand(1:5), rand(1:5)), alpha=0.9)
         else
             ax.plot(times, c_vals, label=label, color=cmap(cmap_idx), alpha=0.75)#, marker="o")
         end
@@ -510,18 +510,26 @@ __precompile__(false)
     end
 
 
-    function plot_lattice_regions(region_ids; zoom=1.0)
+    function plot_lattice_regions(region_ids; ax=nothing, zoom=1.0)
         """
         Plots the exterior, cell wall and interior lattice regions.
         inputs
             region_ids (Array{Int}): region IDs
+            ax (Axis): axis to plot on
             zoom (float): zoom factor for the plot
         """
 
         N, H = size(region_ids)
-        fig, ax = subplots(1, 1, figsize=(8, 4))
+
+        if isnothing(ax)
+            plotself = true
+            fig, ax = subplots(1, 1, figsize=(8, 4))
+            ax.set_title("Lattice regions")
+        else
+            plotself = false
+        end
+
         img = ax.imshow(region_ids, cmap="rainbow", interpolation="nearest", vmin=0, vmax=2)
-        ax.set_title("Lattice regions")
         ax.set_xlabel(@L_str"i")
         ax.set_ylabel(@L_str"j")
         ax.set_xlim((1-zoom)*0.5*N, (1+zoom)*0.5*N)
@@ -530,11 +538,14 @@ __precompile__(false)
         # Create a discrete color legend
         Patch = pyimport("matplotlib.patches").Patch
         legend_labels = ["Exterior", "Inhibitor space", "Interior"]
+        unique_ids = unique(region_ids)
         cmap = get_cmap("rainbow")
-        patches = [Patch(color=cmap((i-1)/2.0), label=legend_labels[i]) for i in eachindex(legend_labels)]
+        patches = [Patch(color=cmap((i-1)/2.0), label=legend_labels[i]) for i in eachindex(unique_ids)]
         ax.legend(handles=patches, loc="upper right", fontsize="small")
         
-        gcf()
+        if plotself
+            gcf()
+        end
     end
 
 
