@@ -201,7 +201,7 @@ __precompile__(false)
                     H = result_dict[:N][end]
                 end
 
-                spore_density = 1 / (result_dict[:N][end] * H * result_dict[:dx][end]^3)
+                spore_density = 1 / (result_dict[:N][end]^2 * H * result_dict[:dx][end]^3)
                 # spore_spacing = result_dict[:N][1] * result_dict[:dx][1]
                 spore_spacing = 1 / cbrt(spore_density)
 

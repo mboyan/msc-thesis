@@ -741,7 +741,7 @@ __precompile__(false)
             else
                 fig = figure(figsize=(6, 6))
                 ax = fig[:add_subplot](projection="3d")
-                ax.scatter(spore_positions[:, 1], spore_positions[:, 2], spore_positions[:, 3], color="blue", alpha=0.5, s=10)
+                ax.scatter(spore_positions[:, 1], spore_positions[:, 2], spore_positions[:, 3], color="blue", alpha=0.5, s=1)
             end
             plotself = true
         else
@@ -749,9 +749,9 @@ __precompile__(false)
         end
 
         if top_view
-            ax.scatter(spore_positions[:, 1], spore_positions[:, 2], color="blue", alpha=0.5, s=10)
+            ax.scatter(spore_positions[:, 1], spore_positions[:, 2], color="blue", alpha=0.5, s=1)
         else
-            ax.scatter(spore_positions[:, 1], spore_positions[:, 2], spore_positions[:, 3], color="blue", alpha=0.5, s=10)
+            ax.scatter(spore_positions[:, 1], spore_positions[:, 2], spore_positions[:, 3], color="blue", alpha=0.5, s=1)
         end
         
         ax.set_xlim(0, Lx)
@@ -773,7 +773,7 @@ __precompile__(false)
     end
 
 
-    function plot_spore_arrangements(Lx, Lz, spore_arrangements, labels=nothing; title=nothing, top_view=false)
+    function plot_spore_arrangements(Lx, Lz, spore_arrangements, labels=nothing; title=nothing, top_view=false, figsize=6)
         """
         Creates multiple scatter plots for the different spore arrangements.
         inputs:
@@ -783,6 +783,7 @@ __precompile__(false)
             labels (Array{String}): labels for the plots
             title (str): title of the plot
             top_view (bool): whether to plot in top view
+            figsize (float): vertical size of figure
         """
         if isnothing(labels)
             labels = ["Arrangement $i" for i in 1:length(spore_arrangements)]
@@ -792,9 +793,9 @@ __precompile__(false)
         spore_arrangements = to_nested(spore_arrangements)
         
         if top_view 
-            fig, axs = subplots(1, 1, figsize=(6, 6))
+            fig, axs = subplots(1, 1, figsize=(figsize, figsize))
         else
-            fig, axs = subplots(1, length(spore_arrangements), figsize=(6*length(spore_arrangements), 6), subplot_kw=Dict("projection"=>"3d",))
+            fig, axs = subplots(1, length(spore_arrangements), figsize=(figsize*length(spore_arrangements), figsize), subplot_kw=Dict("projection"=>"3d",))
         end
 
         for (i, arrangement) in enumerate(spore_arrangements)
