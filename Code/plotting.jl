@@ -313,7 +313,8 @@ __precompile__(false)
 
 
     function plot_concentration_evolution(c_vals::Array{Float64}, times::Vector{Float64};
-                                            label=nothing, ax=nothing, logx=false, logy=false, fit_lim=nothing, cmap=nothing, cmap_idx=1, time_cutoff=nothing, title=nothing, ylim=nothing)
+                                            label=nothing, ax=nothing, logx=false, logy=false, fit_lim=nothing, cmap=nothing,
+                                            cmap_idx=1, time_cutoff=nothing, title=nothing, ylim=nothing, dashed=true)
         """
         Plots the time-series of a calculated concentration.
         inputs:
@@ -329,6 +330,7 @@ __precompile__(false)
             time_cutoff (float): time cutoff for the plot
             title (str): title of the plot
             ylim (Tuple): y-axis limits
+            dashed (bool): whether to plot with dashed lines
         """
         
         if isnothing(ax)
@@ -353,7 +355,11 @@ __precompile__(false)
         end
 
         if isnothing(cmap)
-            ax.plot(times, c_vals, label=label, linestyle="--", dashes=(rand(1:5), rand(1:5)), alpha=0.9)
+            if dashed
+                ax.plot(times, c_vals, label=label, linestyle="--", dashes=(rand(1:5), rand(1:5)), alpha=0.9)
+            else
+                ax.plot(times, c_vals, label=label, alpha=0.9)
+            end
         else
             ax.plot(times, c_vals, label=label, color=cmap(cmap_idx), alpha=0.75)#, marker="o")
         end
@@ -402,7 +408,8 @@ __precompile__(false)
 
     
     function compare_concentration_evolutions(c_vals_array, times_array, labels=nothing, ax=nothing;
-                                                logx=false, logy=false, fit_lim=nothing, cmap=nothing, cmap_idx_base=0, title=nothing, time_cutoff=nothing, ylim=nothing, legend_loc=nothing)
+                                                logx=false, logy=false, fit_lim=nothing, cmap=nothing, cmap_idx_base=0, title=nothing,
+                                                time_cutoff=nothing, ylim=nothing, legend_loc=nothing, dashed=false)
         """
         Plot multiple concentration evolutions on the same axis.
         inputs:
@@ -419,6 +426,7 @@ __precompile__(false)
             time_cutoff (float): time cutoff for the plot
             ylim (Tuple): y-axis limits
             legend_loc (str): location of the legend
+            dashed (bool): whether to plot with dashed lines
         """
 
         # @argcheck (typeof(c_vals_array) in [Vector{Vector{Float64}}, Matrix{Float64}]) "c_groups must be a vector of matrices or a matrix"
@@ -443,7 +451,8 @@ __precompile__(false)
         end
         
         for i in eachindex(c_vals_array)
-            plot_concentration_evolution(c_vals_array[i], times_array[i]; label=labels[i], ax, logx, logy, fit_lim, cmap, cmap_idx=cmap_idx_base+i-1, time_cutoff, title, ylim)
+            plot_concentration_evolution(c_vals_array[i], times_array[i]; label=labels[i], ax, logx, logy, fit_lim, cmap,
+                                        cmap_idx=cmap_idx_base+i-1, time_cutoff, title, ylim, dashed)
         end
 
         if plotself
@@ -616,7 +625,7 @@ __precompile__(false)
 
         ax.set_xlabel(axlabels[1])
         ax.set_ylabel(axlabels[2])
-        ax.grid(true)
+        ax.grid(true, which="both")
 
         if logx
             ax.set_xscale("log")
