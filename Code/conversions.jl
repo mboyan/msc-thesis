@@ -383,56 +383,27 @@ module Conversions
         region_ids = reshape(region_ids, 1, size(region_ids)...)
         # println("Region ids: ", size(region_ids))
 
-        # Isolate only central spore region
-        if ndims(c_frames) == 3
-            # Extrapolate 3D volume from 2D section
-            center = size(c_frames[1, :, :]) .÷ 2 .* dx
-            indices = CartesianIndices(c_frames[1, :, :])
-            X = [idx[1] * dx for idx in indices]  # Row indices
-            Y = [idx[2] * dx for idx in indices]  # Column indices
-            dist = sqrt.((X .- center[1]).^2 + (Y .- center[2]).^2)
-            central_spore_mask = dist .<= spore_rad
-            central_spore_mask = reshape(central_spore_mask, 1, size(central_spore_mask)...)
-            # println("Central spore nodes: ", sum(central_spore_mask))
+        center = size(c_frames[1, :, :, :]) .÷ 2 .* dx
+        indices = CartesianIndices(c_frames[1, :, :, :])
+        X = [idx[1] * dx for idx in indices]  # Row indices
+        Y = [idx[2] * dx for idx in indices]  # Column indices
+        Z = [idx[3] * dx for idx in indices]  # Depth indices
+        dist = sqrt.((X .- center[1]).^2 + (Y .- center[2]).^2 + (Z .- center[3]).^2)
+        central_spore_mask = dist .<= spore_rad
+        central_spore_mask = reshape(central_spore_mask, 1, size(central_spore_mask)...)
+        # println("Central spore nodes: ", sum(central_spore_mask))
 
-            region_ids = region_ids .* central_spore_mask
+        region_ids = region_ids .* central_spore_mask
+        # println("Cell wall nodes: ", sum(region_ids .== 1))
 
-            # Compute the cell wall moles
-            moles_cw_voxels_sec = c_frames .* (region_ids .== 1) .* dx^3
-            moles_cw_sec = sum(moles_cw_voxels_sec, dims=(2, 3))
-            moles_cw = 2 * moles_cw_sec * spore_rad / cw_thickness
-            # println("Moles CW: ", moles_cw)
+        # Compute the cell wall moles
+        moles_cw_voxels = c_frames .* (region_ids .== 1) .* dx^3
+        moles_cw = sum(moles_cw_voxels, dims=(2, 3, 4))
+        # println("Moles CW: ", moles_cw)
 
-            # Compute the spore volume
-            spore_vol = 4/3 * π * spore_rad^3
-            # println("Spore volume: ", spore_vol)
-
-        elseif ndims(c_frames) == 4
-            # Compute the spore volume accurately
-            center = size(c_frames[1, :, :, :]) .÷ 2 .* dx
-            indices = CartesianIndices(c_frames[1, :, :, :])
-            X = [idx[1] * dx for idx in indices]  # Row indices
-            Y = [idx[2] * dx for idx in indices]  # Column indices
-            Z = [idx[3] * dx for idx in indices]  # Depth indices
-            dist = sqrt.((X .- center[1]).^2 + (Y .- center[2]).^2 + (Z .- center[3]).^2)
-            central_spore_mask = dist .<= spore_rad
-            central_spore_mask = reshape(central_spore_mask, 1, size(central_spore_mask)...)
-            # println("Central spore nodes: ", sum(central_spore_mask))
-
-            region_ids = region_ids .* central_spore_mask
-            # println("Cell wall nodes: ", sum(region_ids .== 1))
-
-            # Compute the cell wall moles
-            moles_cw_voxels = c_frames .* (region_ids .== 1) .* dx^3
-            moles_cw = sum(moles_cw_voxels, dims=(2, 3, 4))
-            # println("Moles CW: ", moles_cw)
-
-            # Compute the spore volume
-            spore_vol = sum(central_spore_mask) * dx^3
-            # println("Spore volume: ", spore_vol)
-        else
-            error("Invalid number of dimensions of c_frames")
-        end
+        # Compute the spore volume
+        spore_vol = sum(central_spore_mask) * dx^3
+        # println("Spore volume: ", spore_vol)
         
         # Compute the inhibitor concentration relative to the spore volume
         c_spore = moles_cw / spore_vol

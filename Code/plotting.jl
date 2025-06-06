@@ -276,14 +276,17 @@ __precompile__(false)
             end
         end
 
-        n_rows = size(c_frames_filtered, 1)
+        # n_rows = size(c_frames_filtered, 1)
+        n_rows = length(c_frames_filtered)
+        n_cols = size(c_frames_filtered[1], 1)
 
-        fig, axs = subplots(n_rows, size(c_frames_filtered[1], 1), figsize=(10, 5*n_rows))
+        # fig, axs = subplots(n_rows, size(c_frames_filtered[1], 1), figsize=(10, 5*n_rows))
+        fig, axs = subplots(n_rows, n_cols, figsize=(8, (8/n_cols)*n_rows), sharey=true)
         if n_rows < 2
             axs = reshape(axs, (1, length(axs)))
         end
         img = nothing
-        for i in 1:size(c_frames_filtered, 1)
+        for i in 1:n_rows
             N = size(c_frames_filtered[i], 2)
             H = size(c_frames_filtered[i], 3)
             vmin = minimum(c_frames_filtered[i])
@@ -291,22 +294,36 @@ __precompile__(false)
             for j in 1:size(c_frames_filtered[i], 1)
                 if !isnothing(times) && !isnothing(frame_indices)
                     time = round(times[frame_indices[j]], digits=4)
-                    ax_title = "Configuration $i, t = $time s"
+                    # ax_title = "Configuration $i, t = $time s"
+                    ax_title = L"t = %$time\ \text{s}"
                 else
                     ax_title = "Frame $j"
                 end
                 img = axs[i, j].imshow(c_frames_filtered[i][j, :, :], cmap="viridis", interpolation="nearest", extent=[0, N*dx_compare[i], 0, H*dx_compare[i]], vmin=vmin, vmax=vmax)
                 axs[i, j].set_title(ax_title)
-                axs[i, j].set_xlabel(@L_str"x [\\mu m]")
-                axs[i, j].set_ylabel(@L_str"y [\\mu m]")
+                if i == n_rows 
+                    axs[i, j].set_xlabel(@L_str"x\\ [\\mu m]")
+                end
+                if j == 1
+                    axs[i, j].set_ylabel(@L_str"y\\ [\\mu m]")
+                end
                 axs[i, j].set_xlim((1-zoom)*0.5*N*dx_compare[i], (1+zoom)*0.5*N*dx_compare[i])
                 axs[i, j].set_ylim((1-zoom)*0.5*H*dx_compare[i], (1+zoom)*0.5*H*dx_compare[i])
-                fig.colorbar(img, ax=axs[i, j], orientation="vertical", shrink=0.8)
             end
+            cax = fig.add_axes([
+                axs[i, end].get_position().x1 + 0.02, 
+                axs[i, end].get_position().y0 + 0.005, 
+                0.02, 
+                axs[i, end].get_position().height - 0.01
+            ])
+            fig.colorbar(img, cax=cax, orientation="vertical", label=L"10^{-5}\ \text{M}")
         end
 
         fig.suptitle(title)
-        fig.subplots_adjust(wspace=0.4)
+        fig.subplots_adjust(wspace=0.2)
+        fig.subplots_adjust(hspace=0.5)
+
+        # fig.tight_layout()
 
         gcf()
     end
@@ -409,7 +426,7 @@ __precompile__(false)
     
     function compare_concentration_evolutions(c_vals_array, times_array, labels=nothing, ax=nothing;
                                                 logx=false, logy=false, fit_lim=nothing, cmap=nothing, cmap_idx_base=0, title=nothing,
-                                                time_cutoff=nothing, ylim=nothing, legend_loc=nothing, dashed=false)
+                                                time_cutoff=nothing, ylim=nothing, legend_loc=nothing, dashed=true)
         """
         Plot multiple concentration evolutions on the same axis.
         inputs:
