@@ -1043,7 +1043,7 @@ __precompile__(false)
                 # println("Spore radius: ", spore_rad)
                 # println("Correction factor: ", corr_factor)
                 c_spore[save_ct] = compute_spore_concentration(reshape(Array(c_gpu), (1, N, N, H)),
-                                                                reshape(Array(region_ids_gpu), (N, N, H)), spore_rad, dx * lengthscale)[1]
+                                                                reshape(Array(region_ids_gpu), (N, N, H)), spore_rad, dx * lengthscale, cw_thickness)[1]
                 times[save_ct] = (t - 1) * dt
                 # println(maximum(c_frames[save_ct, :, :]))
                 println(c_spore[save_ct])
@@ -1070,7 +1070,7 @@ __precompile__(false)
         CUDA.synchronize()
         c_frames[save_ct, :, :] .= reshape(Array(c_gpu), (N, N, H))[:, N ÷ 2, :]
         c_spore[save_ct] = compute_spore_concentration(reshape(Array(c_gpu), (1, N, N, H)),
-                                                        reshape(Array(region_ids_gpu), (N, N, H)), spore_rad, dx * lengthscale)[1]
+                                                        reshape(Array(region_ids_gpu), (N, N, H)), spore_rad, dx * lengthscale, cw_thickness)[1]
         times[save_ct] = t_max
         # println(maximum(c_frames[save_ct, :, :]))
 
