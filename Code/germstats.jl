@@ -44,6 +44,10 @@ module GermStats
     export germ_response_inducer_dep_inhibitor_combined_eq_c_ex
     export germ_response_inhibitor_dep_inducer_thresh_2_factors_eq
     export germ_response_inhibitor_dep_inducer_thresh_2_factors_eq_c_ex
+    export germ_response_inhibitor_dep_inducer_signal_2_factors_eq
+    export germ_response_inhibitor_dep_inducer_signal_2_factors_eq_c_ex
+    export germ_response_inhibitor_dep_inducer_combined_2_factors_eq
+    export germ_response_inhibitor_dep_inducer_combined_2_factors_eq_c_ex
     export germ_response_independent_eq
     export germ_response_independent_eq_c_ex
 
@@ -1511,7 +1515,7 @@ module GermStats
     end
 
 
-    function germ_response_inhibitor_dep_inducer_combined_2_factors_eq(ρₛ, dist_ξ, c₀_cs, K_cs, K_I, k, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4)
+    function germ_response_inhibitor_dep_inducer_combined_2_factors_eq(ρₛ, dist_ξ, c₀_cs, K_cs, K_I, k, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4, abstol=1e-6)
         """
         Compute the equilibrium germination response
         for an inhibitor-dependent inducer threshold and signal and
@@ -1531,6 +1535,7 @@ module GermStats
             μ_ψ - mean initial concentration
             σ_ψ - standard deviation of initial concentration
             reltol - relative tolerance for the integration
+            abstol - absolute tolerance for the integration
         output:
             the equilibrium germination response for the given parameters
         """
@@ -1556,11 +1561,11 @@ module GermStats
             return tail1 * tail2 * pdf(dist_ξ, ξ) * pdf(dist_ψ, ψ)
         end
 
-        return hcubature(integrand, [0.0, 0.0], [quantile(dist_ξ, 1-1e-8), quantile(dist_ψ, 1-1e-9)], reltol=reltol, abstol=1e-6)[1]
+        return hcubature(integrand, [0.0, 0.0], [quantile(dist_ξ, 1-1e-8), quantile(dist_ψ, 1-1e-9)], reltol=reltol, abstol=abstol)[1]
     end
 
 
-    function germ_response_inhibitor_dep_inducer_combined_2_factors_eq_c_ex(ρₛ, dist_ξ, c_ex, c₀_cs, K_cs, K_I, k, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4)
+    function germ_response_inhibitor_dep_inducer_combined_2_factors_eq_c_ex(ρₛ, dist_ξ, c_ex, c₀_cs, K_cs, K_I, k, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4, abstol=1e-6)
         """
         Compute the equilibrium germination response
         for an inhibitor-dependent inducer threshold and signal and
@@ -1581,6 +1586,7 @@ module GermStats
             μ_ψ - mean initial concentration
             σ_ψ - standard deviation of initial concentration
             reltol - relative tolerance for the integration
+            abstol - absolute tolerance for the integration
         output:
             the equilibrium germination response for the given parameters
         """
@@ -1606,7 +1612,7 @@ module GermStats
             return tail1 * tail2 * pdf(dist_ξ, ξ) * pdf(dist_ψ, ψ)
         end
 
-        return hcubature(integrand, [0.0, 0.0], [quantile(dist_ξ, 1-1e-8), quantile(dist_ψ, 1-1e-8)], reltol=reltol, abstol=1e-6)[1]
+        return hcubature(integrand, [0.0, 0.0], [quantile(dist_ξ, 1-1e-8), quantile(dist_ψ, 1-1e-8)], reltol=reltol, abstol=abstol)[1]
     end
 
 
@@ -1701,7 +1707,7 @@ module GermStats
     end
 
 
-    function germ_response_inhibitor_dep_inducer_signal_2_factors_eq(ρₛ, dist_ξ, c₀_cs, K_cs, K_I, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4)
+    function germ_response_inhibitor_dep_inducer_signal_2_factors_eq(ρₛ, dist_ξ, c₀_cs, K_cs, K_I, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4, abstol=1e-6)
         """
         Compute the equilibrium germination response
         for an inhibitor-dependent inducer signal and
@@ -1720,6 +1726,7 @@ module GermStats
             μ_ψ - mean initial concentration
             σ_ψ - standard deviation of initial concentration
             reltol - relative tolerance for the integration
+            abstol - absolute tolerance for the integration
         output:
             the equilibrium germination response for the given parameters
         """
@@ -1745,11 +1752,11 @@ module GermStats
             return tail1 * tail2 * pdf(dist_ξ, ξ) * pdf(dist_ψ, ψ)
         end
 
-        return hcubature(integrand, [0.0, 0.0], [quantile(dist_ξ, 1-1e-8), quantile(dist_ψ, 1-1e-9)], reltol=reltol, abstol=1e-6)[1]
+        return hcubature(integrand, [0.0, 0.0], [quantile(dist_ξ, 1-1e-8), quantile(dist_ψ, 1-1e-9)], reltol=reltol, abstol=abstol)[1]
     end
 
 
-    function germ_response_inhibitor_dep_inducer_signal_2_factors_eq_c_ex(ρₛ, dist_ξ, c_ex, c₀_cs, K_cs, K_I, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4)
+    function germ_response_inhibitor_dep_inducer_signal_2_factors_eq_c_ex(ρₛ, dist_ξ, c_ex, c₀_cs, K_cs, K_I, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4, abstol=1e-6)
         """
         Compute the equilibrium germination response
         for an inhibitor-dependent inducer signal and
@@ -1769,6 +1776,7 @@ module GermStats
             μ_ψ - mean initial concentration
             σ_ψ - standard deviation of initial concentration
             reltol - relative tolerance for the integration
+            abstol - absolute tolerance for the integration
         output:
             the equilibrium germination response for the given parameters
         """
@@ -1794,7 +1802,7 @@ module GermStats
             return tail1 * tail2 * pdf(dist_ξ, ξ) * pdf(dist_ψ, ψ)
         end
 
-        return hcubature(integrand, [0.0, 0.0], [quantile(dist_ξ, 1-1e-8), quantile(dist_ψ, 1-1e-8)], reltol=reltol, abstol=1e-6)[1]
+        return hcubature(integrand, [0.0, 0.0], [quantile(dist_ξ, 1-1e-8), quantile(dist_ψ, 1-1e-8)], reltol=reltol, abstol=abstol)[1]
     end
 
 

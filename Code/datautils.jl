@@ -862,8 +862,10 @@ module DataUtils
         @argcheck model_type in ["inhibitor", "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal", "independent",
                                 "inhibitor_ex", "combined_inducer_ex", "combined_inducer_thresh_ex", "combined_inducer_signal_ex", "independent_ex"]
 
-        if !isnothing(c_ex_vals) && isnothing(ref_density)
+        if isnothing(ref_density)
             ref_density = inverse_mL_to_cubic_um(densities[1]) # Use first density as reference if not provided
+        elseif !isnothing(c_ex_vals)
+            ref_density = inverse_mL_to_cubic_um(ref_density) # Convert to cubic micrometers if provided
         end
 
         # Unpack radius distribution
@@ -974,8 +976,8 @@ module DataUtils
                 params[5] * exp(params[6]), # σ_γ = μ_γ * exp(δ_γ)
                 params[7], #μ_ω
                 params[7] * exp(params[8]), # σ_ω = μ_ω * exp(δ_ω)
-                params[8], #μ_ψ
-                params[8] * exp(params[9]) # σ_ψ = μ_ψ * exp(δ_ψ)
+                params[9], #μ_ψ
+                params[9] * exp(params[10]) # σ_ψ = μ_ψ * exp(δ_ψ)
             )
             param_keys = [:K_cs, :K_I, :k, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
         elseif model_type == "combined_inducer_thresh_ex"
@@ -1009,10 +1011,10 @@ module DataUtils
                 params[4] * exp(params[5]), # σ_γ = μ_γ * exp(δ_γ)
                 params[6], #μ_ω
                 params[6] * exp(params[7]), # σ_ω = μ_ω * exp(δ_ω)
-                params[7], #μ_ψ
-                params[7] * exp(params[8]) # σ_ψ = μ_ψ * exp(δ_ψ)
+                params[8], #μ_ψ
+                params[8] * exp(params[9]) # σ_ψ = μ_ψ * exp(δ_ψ)
             )
-            param_keys = [:K_cs, :K_I, :k, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
+            param_keys = [:K_cs, :K_I, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
         elseif model_type == "independent_ex"
             println("Model: Independent factors (exogenous inhibitor)")
             wrapper_ex = (c_ex, params) -> Main.germ_response_independent_eq_c_ex(
