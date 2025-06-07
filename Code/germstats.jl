@@ -1510,6 +1510,105 @@ module GermStats
     end
 
 
+    function germ_response_inhibitor_dep_inducer_combined_2_factors_eq(ρₛ, dist_ξ, c₀_cs, K_cs, K_I, k, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4)
+        """
+        Compute the equilibrium germination response
+        for an inhibitor-dependent inducer threshold and signal and
+        an additional inhibitor-dependent germination.
+        inputs:
+            ρₛ - spore density in spores/um^3
+            dist_ξ - distribution of spore radii (LogNormal)
+            c₀_cs - initial concentration of carbon source in M
+            K_cs - half-saturation constant for the carbon source
+            K_I - half-saturation constant for the inhibitor
+            k - inhibition strength over induction threshold
+            n - Hill coefficient for the inhibitor
+            μ_γ - mean inhibition threshold
+            σ_γ - standard deviation of inhibition threshold
+            μ_ω - mean induction threshold
+            σ_ω - standard deviation of induction threshold
+            μ_ψ - mean initial concentration
+            σ_ψ - standard deviation of initial concentration
+            reltol - relative tolerance for the integration
+        output:
+            the equilibrium germination response for the given parameters
+        """
+        
+        # Distributions
+        dist_γ = Normal(μ_γ, σ_γ)
+        dist_ω = Normal(μ_ω, σ_ω)
+        μ_ψ_log = log(μ_ψ^2 / sqrt(σ_ψ^2 + μ_ψ^2))
+        σ_ψ_log = sqrt(log(σ_ψ^2 / μ_ψ^2 + 1))
+        dist_ψ = LogNormal(μ_ψ_log, σ_ψ_log)
+
+        # Signal
+        s_eq = c₀_cs ./ (K_cs .+ c₀_cs)
+
+        function integrand(input)
+            ξ, ψ = input
+            V = 4/3 * π .* ξ^3
+            ϕ = ρₛ .* V
+            c_eq = ψ .* ϕ
+            s_mod = s_eq ./ (1 .+ (c_eq ./ K_I).^n)
+            tail1 = 1 .- cdf(dist_γ, ϕ)
+            tail2 = cdf(dist_ω, s_mod .- k .* c_eq)
+            return tail1 * tail2 * pdf(dist_ξ, ξ) * pdf(dist_ψ, ψ)
+        end
+
+        return hcubature(integrand, [0.0, 0.0], [quantile(dist_ξ, 1-1e-8), quantile(dist_ψ, 1-1e-9)], reltol=reltol, abstol=1e-6)[1]
+    end
+
+
+    function germ_response_inhibitor_dep_inducer_combined_2_factors_eq_c_ex(ρₛ, dist_ξ, c_ex, c₀_cs, K_cs, K_I, k, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4)
+        """
+        Compute the equilibrium germination response
+        for an inhibitor-dependent inducer threshold and signal and
+        an additional inhibitor-dependent germination.
+        inputs:
+            ρₛ - spore density in spores/um^3
+            dist_ξ - distribution of spore radii (LogNormal)
+            c_ex - external concentration of the inducer in M
+            c₀_cs - initial concentration of carbon source in M
+            K_cs - half-saturation constant for the carbon source
+            K_I - half-saturation constant for the inhibitor
+            k - inhibition strength over induction threshold
+            n - Hill coefficient for the inhibitor
+            μ_γ - mean inhibition threshold
+            σ_γ - standard deviation of inhibition threshold
+            μ_ω - mean induction threshold
+            σ_ω - standard deviation of induction threshold
+            μ_ψ - mean initial concentration
+            σ_ψ - standard deviation of initial concentration
+            reltol - relative tolerance for the integration
+        output:
+            the equilibrium germination response for the given parameters
+        """
+        
+        # Distributions
+        dist_γ = Normal(μ_γ, σ_γ)
+        dist_ω = Normal(μ_ω, σ_ω)
+        μ_ψ_log = log(μ_ψ^2 / sqrt(σ_ψ^2 + μ_ψ^2))
+        σ_ψ_log = sqrt(log(σ_ψ^2 / μ_ψ^2 + 1))
+        dist_ψ = LogNormal(μ_ψ_log, σ_ψ_log)
+
+        # Signal
+        s_eq = c₀_cs ./ (K_cs .+ c₀_cs)
+
+         function integrand(input)
+            ξ, ψ = input
+            V = 4/3 * π .* ξ^3
+            ϕ = ρₛ .* V
+            c_eq = ϕ .* ψ .+ (1 .- ϕ) .* c_ex
+            s_mod = s_eq ./ (1 .+ (c_eq ./ K_I).^n)
+            tail1 = 1 .- cdf(dist_γ, ϕ .+ (1 .- ϕ) .* c_ex ./ ψ)
+            tail2 = cdf(dist_ω, s_mod .- k .* c_eq)
+            return tail1 * tail2 * pdf(dist_ξ, ξ) * pdf(dist_ψ, ψ)
+        end
+
+        return hcubature(integrand, [0.0, 0.0], [quantile(dist_ξ, 1-1e-8), quantile(dist_ψ, 1-1e-8)], reltol=reltol, abstol=1e-6)[1]
+    end
+
+
     function germ_response_inhibitor_dep_inducer_thresh_2_factors_eq(ρₛ, dist_ξ, c₀_cs, K_cs, k, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4)
         """
         Compute the equilibrium germination response
@@ -1594,6 +1693,103 @@ module GermStats
             ϕ = ρₛ .* V
             tail1 = 1 .- cdf(dist_γ, ϕ .+ (1 .- ϕ) .* c_ex ./ ψ)
             tail2 = cdf(dist_ω, s_eq .- k .* (ϕ .* ψ .+ (1 .- ϕ) .* c_ex))
+            return tail1 * tail2 * pdf(dist_ξ, ξ) * pdf(dist_ψ, ψ)
+        end
+
+        return hcubature(integrand, [0.0, 0.0], [quantile(dist_ξ, 1-1e-8), quantile(dist_ψ, 1-1e-8)], reltol=reltol, abstol=1e-6)[1]
+    end
+
+
+    function germ_response_inhibitor_dep_inducer_signal_2_factors_eq(ρₛ, dist_ξ, c₀_cs, K_cs, K_I, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4)
+        """
+        Compute the equilibrium germination response
+        for an inhibitor-dependent inducer signal and
+        an additional inhibitor-dependent germination.
+        inputs:
+            ρₛ - spore density in spores/um^3
+            dist_ξ - distribution of spore radii (LogNormal)
+            c₀_cs - initial concentration of carbon source in M
+            K_cs - half-saturation constant for the carbon source
+            K_I - half-saturation constant for the inhibitor
+            n - Hill coefficient for the inhibitor
+            μ_γ - mean inhibition threshold
+            σ_γ - standard deviation of inhibition threshold
+            μ_ω - mean induction threshold
+            σ_ω - standard deviation of induction threshold
+            μ_ψ - mean initial concentration
+            σ_ψ - standard deviation of initial concentration
+            reltol - relative tolerance for the integration
+        output:
+            the equilibrium germination response for the given parameters
+        """
+        
+        # Distributions
+        dist_γ = Normal(μ_γ, σ_γ)
+        dist_ω = Normal(μ_ω, σ_ω)
+        μ_ψ_log = log(μ_ψ^2 / sqrt(σ_ψ^2 + μ_ψ^2))
+        σ_ψ_log = sqrt(log(σ_ψ^2 / μ_ψ^2 + 1))
+        dist_ψ = LogNormal(μ_ψ_log, σ_ψ_log)
+
+        # Signal
+        s_eq = c₀_cs ./ (K_cs .+ c₀_cs)
+
+        function integrand(input)
+            ξ, ψ = input
+            V = 4/3 * π .* ξ^3
+            ϕ = ρₛ .* V
+            c_eq = ψ .* ϕ
+            s_mod = s_eq ./ (1 .+ (c_eq ./ K_I).^n)
+            tail1 = 1 .- cdf(dist_γ, ϕ)
+            tail2 = cdf(dist_ω, s_mod)
+            return tail1 * tail2 * pdf(dist_ξ, ξ) * pdf(dist_ψ, ψ)
+        end
+
+        return hcubature(integrand, [0.0, 0.0], [quantile(dist_ξ, 1-1e-8), quantile(dist_ψ, 1-1e-9)], reltol=reltol, abstol=1e-6)[1]
+    end
+
+
+    function germ_response_inhibitor_dep_inducer_signal_2_factors_eq_c_ex(ρₛ, dist_ξ, c_ex, c₀_cs, K_cs, K_I, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4)
+        """
+        Compute the equilibrium germination response
+        for an inhibitor-dependent inducer signal and
+        an additional inhibitor-dependent germination.
+        inputs:
+            ρₛ - spore density in spores/um^3
+            dist_ξ - distribution of spore radii (LogNormal)
+            c_ex - external concentration of the inducer in M
+            c₀_cs - initial concentration of carbon source in M
+            K_cs - half-saturation constant for the carbon source
+            K_I - half-saturation constant for the inhibitor
+            n - Hill coefficient for the inhibitor
+            μ_γ - mean inhibition threshold
+            σ_γ - standard deviation of inhibition threshold
+            μ_ω - mean induction threshold
+            σ_ω - standard deviation of induction threshold
+            μ_ψ - mean initial concentration
+            σ_ψ - standard deviation of initial concentration
+            reltol - relative tolerance for the integration
+        output:
+            the equilibrium germination response for the given parameters
+        """
+        
+        # Distributions
+        dist_γ = Normal(μ_γ, σ_γ)
+        dist_ω = Normal(μ_ω, σ_ω)
+        μ_ψ_log = log(μ_ψ^2 / sqrt(σ_ψ^2 + μ_ψ^2))
+        σ_ψ_log = sqrt(log(σ_ψ^2 / μ_ψ^2 + 1))
+        dist_ψ = LogNormal(μ_ψ_log, σ_ψ_log)
+
+        # Signal
+        s_eq = c₀_cs ./ (K_cs .+ c₀_cs)
+
+         function integrand(input)
+            ξ, ψ = input
+            V = 4/3 * π .* ξ^3
+            ϕ = ρₛ .* V
+            c_eq = ϕ .* ψ .+ (1 .- ϕ) .* c_ex
+            s_mod = s_eq ./ (1 .+ (c_eq ./ K_I).^n)
+            tail1 = 1 .- cdf(dist_γ, ϕ .+ (1 .- ϕ) .* c_ex ./ ψ)
+            tail2 = cdf(dist_ω, s_mod)
             return tail1 * tail2 * pdf(dist_ξ, ξ) * pdf(dist_ψ, ψ)
         end
 
