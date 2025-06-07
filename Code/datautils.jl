@@ -859,7 +859,8 @@ module DataUtils
             params_out (Dict): optimized parameters
         """
 
-        @argcheck model_type in ["inhibitor", "combined_inducer", "independent", "inhibitor_ex", "combined_inducer_ex", "independent_ex"]
+        @argcheck model_type in ["inhibitor", "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal", "independent",
+                                "inhibitor_ex", "combined_inducer_ex", "combined_inducer_thresh_ex", "combined_inducer_signal_ex", "independent_ex"]
 
         if !isnothing(c_ex_vals) && isnothing(ref_density)
             ref_density = inverse_mL_to_cubic_um(densities[1]) # Use first density as reference if not provided
@@ -883,12 +884,30 @@ module DataUtils
             param_keys = [:μ_γ, :δ_γ]
         elseif model_type in ["combined_inducer", "combined_inducer_ex"]
             println("Model: Two-factor germination with inhibitor-dependent induction threshold")
+            wrapper = (ρₛ, params) -> Main.germ_response_inhibitor_dep_inducer_combined_2_factors_eq(
+                ρₛ,
+                dist_ξ,
+                def_params[:c₀_cs],
+                params[1], #K_cs
+                params[2], #K_I
+                exp(params[3]), #k
+                params[4], #n
+                params[5], #μ_γ
+                params[5] * exp(params[6]), # σ_γ = μ_γ * exp(δ_γ)
+                params[7], #μ_ω
+                params[7] * exp(params[8]), # σ_ω = μ_ω * exp(δ_ω)
+                params[9], #μ_ψ
+                params[9] * exp(params[10]) # σ_ψ = μ_ψ * exp(δ_ψ)
+            )
+            param_keys = [:K_cs, :K_I, :k, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
+        elseif model_type in ["combined_inducer_thresh", "combined_inducer_thresh_ex"]
+            println("Model: Two-factor germination with inhibitor-dependent induction threshold")
             wrapper = (ρₛ, params) -> Main.germ_response_inhibitor_dep_inducer_thresh_2_factors_eq(
                 ρₛ,
                 dist_ξ,
                 def_params[:c₀_cs],
                 params[1], #K_cs
-                params[2], #k
+                exp(params[2]), #k
                 params[3], #μ_γ
                 params[3] * exp(params[4]), # σ_γ = μ_γ * exp(δ_γ)
                 params[5], #μ_ω
@@ -897,6 +916,23 @@ module DataUtils
                 params[7] * exp(params[8]) # σ_ψ = μ_ψ * exp(δ_ψ)
             )
             param_keys = [:K_cs, :k, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
+        elseif model_type in ["combined_inducer_signal", "combined_inducer_signal_ex"]
+            println("Model: Two-factor germination with inhibitor-dependent induction threshold")
+            wrapper = (ρₛ, params) -> Main.germ_response_inhibitor_dep_inducer_signal_2_factors_eq(
+                ρₛ,
+                dist_ξ,
+                def_params[:c₀_cs],
+                params[1], #K_cs
+                params[2], #K_I
+                params[3], #n
+                params[4], #μ_γ
+                params[4] * exp(params[5]), # σ_γ = μ_γ * exp(δ_γ)
+                params[6], #μ_ω
+                params[6] * exp(params[7]), # σ_ω = μ_ω * exp(δ_ω)
+                params[8], #μ_ψ
+                params[8] * exp(params[9]) # σ_ψ = μ_ψ * exp(δ_ψ)
+            )
+            param_keys = [:K_cs, :K_I, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
         elseif model_type in ["independent", "independent_ex"]
             println("Model: Independent factors")
             wrapper = (ρₛ, params) -> Main.germ_response_independent_eq(
@@ -924,6 +960,25 @@ module DataUtils
             )
             param_keys = [:μ_γ, :δ_γ, :μ_ψ, :δ_ψ]
         elseif model_type == "combined_inducer_ex"
+            println("Model: Two-factor germination with inhibitor-dependent induction threshold and signal (exogenous inhibitor)")
+            wrapper_ex = (c_ex, params) -> Main.germ_response_inhibitor_dep_inducer_combined_2_factors_eq_c_ex(
+                ref_density, # Assuming single density for exogenous inhibitor
+                dist_ξ,
+                c_ex,
+                def_params[:c₀_cs],
+                params[1], #K_cs
+                params[2], #K_I
+                exp(params[3]), #k
+                params[4], #n
+                params[5], #μ_γ
+                params[5] * exp(params[6]), # σ_γ = μ_γ * exp(δ_γ)
+                params[7], #μ_ω
+                params[7] * exp(params[8]), # σ_ω = μ_ω * exp(δ_ω)
+                params[8], #μ_ψ
+                params[8] * exp(params[9]) # σ_ψ = μ_ψ * exp(δ_ψ)
+            )
+            param_keys = [:K_cs, :K_I, :k, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
+        elseif model_type == "combined_inducer_thresh_ex"
             println("Model: Two-factor germination with inhibitor-dependent induction threshold (exogenous inhibitor)")
             wrapper_ex = (c_ex, params) -> Main.germ_response_inhibitor_dep_inducer_thresh_2_factors_eq_c_ex(
                 ref_density, # Assuming single density for exogenous inhibitor
@@ -940,6 +995,24 @@ module DataUtils
                 params[7] * exp(params[8]) # σ_ψ = μ_ψ * exp(δ_ψ)
             )
             param_keys = [:K_cs, :k, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
+        elseif model_type == "combined_inducer_signal_ex"
+            println("Model: Two-factor germination with inhibitor-dependent induction signal (exogenous inhibitor)")
+            wrapper_ex = (c_ex, params) -> Main.germ_response_inhibitor_dep_inducer_signal_2_factors_eq_c_ex(
+                ref_density, # Assuming single density for exogenous inhibitor
+                dist_ξ,
+                c_ex,
+                def_params[:c₀_cs],
+                params[1], #K_cs
+                params[2], #K_I
+                params[3], #n
+                params[4], #μ_γ
+                params[4] * exp(params[5]), # σ_γ = μ_γ * exp(δ_γ)
+                params[6], #μ_ω
+                params[6] * exp(params[7]), # σ_ω = μ_ω * exp(δ_ω)
+                params[7], #μ_ψ
+                params[7] * exp(params[8]) # σ_ψ = μ_ψ * exp(δ_ψ)
+            )
+            param_keys = [:K_cs, :K_I, :k, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
         elseif model_type == "independent_ex"
             println("Model: Independent factors (exogenous inhibitor)")
             wrapper_ex = (c_ex, params) -> Main.germ_response_independent_eq_c_ex(
