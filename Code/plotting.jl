@@ -324,7 +324,7 @@ __precompile__(false)
                 0.02, 
                 axs[i, end].get_position().height - 0.01
             ])
-            fig.colorbar(img, cax=cax, orientation="vertical", label=L"10^{-5}\ \text{M}")
+            fig.colorbar(img, cax=cax, orientation="vertical", label=L"\mu\text{M}")
         end
 
         fig.suptitle(title)
