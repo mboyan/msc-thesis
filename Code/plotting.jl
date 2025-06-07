@@ -250,7 +250,7 @@ __precompile__(false)
     end
 
 
-    function compare_concentration_lattice(c_frames_compare, dx_compare; frame_indices=nothing, times=nothing, title=nothing, zoom=1.0)
+    function compare_concentration_lattice(c_frames_compare, dx_compare; frame_indices=nothing, times=nothing, title=nothing, zoom=1.0, lognorm=false)
         """
         Compares snapshots of the concentration lattice from two simulations.
         The simulations need to share the same time labels.
@@ -261,6 +261,7 @@ __precompile__(false)
             times (Array{Float64}): time labels for each simulation
             title (str): title of the plot
             zoom (float): zoom factor for the plot
+            lognorm (bool): whether to use logarithmic normalization for the color scale
         """
         
         c_frames_filtered = []
@@ -291,6 +292,13 @@ __precompile__(false)
             H = size(c_frames_filtered[i], 3)
             vmin = minimum(c_frames_filtered[i])
             vmax = maximum(c_frames_filtered[i])
+            if lognorm
+                norm = "log"
+                vmin = max(vmin, 1e-8)  # Avoid log(0)
+                c_frames_filtered[i] .= max.(1e-8, c_frames_filtered[i])  # Avoid log(0) in the data
+            else
+                norm = "linear"
+            end
             for j in 1:size(c_frames_filtered[i], 1)
                 if !isnothing(times) && !isnothing(frame_indices)
                     time = round(times[frame_indices[j]], digits=4)
@@ -299,7 +307,7 @@ __precompile__(false)
                 else
                     ax_title = "Frame $j"
                 end
-                img = axs[i, j].imshow(c_frames_filtered[i][j, :, :], cmap="viridis", interpolation="nearest", extent=[0, N*dx_compare[i], 0, H*dx_compare[i]], vmin=vmin, vmax=vmax)
+                img = axs[i, j].imshow(c_frames_filtered[i][j, :, :], cmap="viridis", interpolation="nearest", extent=[0, N*dx_compare[i], 0, H*dx_compare[i]], vmin=vmin, vmax=vmax, norm=norm)
                 axs[i, j].set_title(ax_title)
                 if i == n_rows 
                     axs[i, j].set_xlabel(@L_str"x\\ [\\mu m]")
