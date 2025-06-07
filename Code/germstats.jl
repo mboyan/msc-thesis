@@ -195,7 +195,7 @@ module GermStats
         elseif model_type == "special_inhibitor"
             germ_response = [germ_response_inhibitor_var_perm_gh(u, W, t, ρₛ, ξ, params[:μ_π], params[:σ_π], params[:μ_γ], params[:σ_γ]) for t in times]
         elseif model_type == "special_inducer"
-            germ_response = [germ_response_inducer_thresh_var_perm_st_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:k], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
+            germ_response = [germ_response_inducer_combined_var_perm_st_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:K_I], params[:k], params[:n], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
         elseif model_type == "special_independent"
             germ_response = [germ_response_independent_factors_var_perm_st_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_α], params[:σ_α]) for t in times]
         end
@@ -1284,6 +1284,92 @@ module GermStats
         c_in = ψ .* β
 
         tail = cdf.(dist_ω, s .- k .* c_in)
+
+        return sum(W4 .* tail)
+    end
+
+
+    function germ_response_inducer_combined_var_perm_st_gh(u, W4, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, K_I, k, n, μ_ω, σ_ω, μ_ψ, σ_ψ, μ_α, σ_α)
+        """
+        Compute the germination response for an inhibitor-dependent
+        induction threshold and signal for a given set of parameters,
+        whereby the permeation constant is a random variable.
+        The inducer signal is time-dependent.
+        Uses Gauss-Hermite approximation.
+        inputs:
+            u - transformed Gauss-Hermite nodes
+            W4 - transformed Gauss-Hermite weights (matrix)
+            t - time in seconds
+            ρₛ - spore density in spores/um^3
+            c₀_cs - initial concentration of carbon source in M
+            d_hp - thickness of the hydrophobin layer in um
+            ξ - spore radius in um
+            κ - cell wall thickness in um
+            Pₛ - permeation constant for the inhibitor in um/s
+            Pₛ_cs - permeation constant for the carbon source in um/s
+            K_cs - half-saturation constant for the carbon source
+            K_I - half-saturation constant for the inhibitor
+            k - inhibition strength over induction threshold
+            n - Hill coefficient for the inhibitor
+            μ_ω - mean induction threshold
+            σ_ω - standard deviation of induction threshold
+            μ_ψ - mean initial concentration
+            σ_ψ - standard deviation of initial concentration
+            μ_α - mean cell wall porosity
+            σ_α - standard deviation of cell wall porosity
+        output:
+            the germination response for the given parameters
+        """
+
+        # Transform to log-normal
+        μ_ψ_log = log(μ_ψ^2 / sqrt(σ_ψ^2 + μ_ψ^2))
+        σ_ψ_log = sqrt(log(σ_ψ^2 / μ_ψ^2 + 1))
+        ψ = exp.(μ_ψ_log .+ σ_ψ_log .* u)
+        μ_α_log = log(μ_α^2 / sqrt(σ_α^2 + μ_α^2))
+        σ_α_log = sqrt(log(σ_α^2 / μ_α^2 + 1))
+        α = exp.(μ_α_log .+ σ_α_log .* u)
+
+        # Distributions
+        dist_ω = Normal(μ_ω, σ_ω)
+
+        # Modulate permeation
+        Pₛ = Pₛ .* α
+        Pₛ_cs = Pₛ_cs .* α
+
+        # Cell wall and spore volumes
+        A = 4 * π .* ξ.^2
+        V_cw = 0.32 .* π .* ((ξ .- d_hp).^3 .- (ξ .- d_hp .- κ).^3)
+        V = 4/3 * π .* ξ.^3
+
+        # Reshape
+        n_nodes = size(u, 1)
+        V_cw = repeat(V_cw, 1, 1, n_nodes)
+        V = repeat(V, 1, 1, n_nodes)
+        A = repeat(A, 1, 1, n_nodes)
+        Pₛ = repeat(Pₛ, 1, n_nodes, n_nodes)
+        Pₛ = permutedims(Pₛ, (2, 3, 1))
+        Pₛ_cs = repeat(Pₛ_cs, 1, n_nodes, n_nodes)
+        Pₛ_cs = permutedims(Pₛ_cs, (2, 3, 1))
+        
+        # Inducer
+        c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
+        s = c_cs ./ (K_cs .+ c_cs)
+
+        # Inhibitor
+        τ = V ./ (Pₛ .* A)
+        ϕ = ρₛ .* V
+        β = (ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ))))
+
+        # Reshape
+        β = repeat(β, 1, 1, 1, n_nodes)
+        s = repeat(s, 1, 1, 1, n_nodes)
+        ψ = repeat(ψ, 1, n_nodes, n_nodes, n_nodes)
+        ψ = permutedims(ψ, (2, 3, 4, 1))
+
+        c_in = ψ .* β
+        s_mod = s ./ (1 .+ (c_in ./ K_I).^n)
+
+        tail = cdf.(dist_ω, s_mod .- k .* c_in)
 
         return sum(W4 .* tail)
     end

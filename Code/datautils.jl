@@ -686,7 +686,7 @@ module DataUtils
                 param_occurrences = [1, 1, n_src, n_src]
 
             elseif model_type_split[2] == "inducer"
-                println("Model: inhibitor-modulated inducer (threshold) with time-dependent inducer and varying permeability")
+                println("Model: inhibitor-modulated inducer (combined) with time-dependent inducer and varying permeability")
                 wrapper = (inputs, params) -> Main.germ_response_inducer_thresh_var_perm_st_gh(
                     u, W4,
                     inputs[1], #t
@@ -698,16 +698,18 @@ module DataUtils
                     params[1], #Pₛ
                     params[2], #Pₛ_cs
                     params[3], #K_cs
-                    exp(params[4]), #k
-                    params[5], #μ_ω
-                    params[5] * exp(params[6]), # σ_ω = μ_ω * exp(δ_ω)
-                    params[7], #μ_ψ
-                    params[7] * exp(params[8]), # σ_ψ = μ_ψ * exp(δ_ψ)
-                    params[9], #μ_α
-                    params[9] * exp(params[10]) # σ_α = μ_α * exp(δ_α)
+                    params[4], #K_I
+                    exp(params[5]), #k
+                    params[6], #n
+                    params[7], #μ_ω
+                    params[7] * exp(params[8]), # σ_ω = μ_ω * exp(δ_ω)
+                    params[9], #μ_ψ
+                    params[9] * exp(params[10]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                    params[11], #μ_α
+                    params[11] * exp(params[12]) # σ_α = μ_α * exp(δ_α)
                 )
-                param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :k, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ, :μ_α, :δ_α]
-                param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, 1, 1, 1, 1]
+                param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :K_I, :k, :n, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ, :μ_α, :δ_α]
+                param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, n_src, n_src, 1, 1, 1, 1]
 
             elseif model_type_split[2] == "independent"
                 println("Model: independent factors with time-dependent inducer and varying permeability")
