@@ -687,7 +687,7 @@ module DataUtils
 
             elseif model_type_split[2] == "inducer"
                 println("Model: inhibitor-modulated inducer (combined) with time-dependent inducer and varying permeability")
-                wrapper = (inputs, params) -> Main.germ_response_inducer_thresh_var_perm_st_gh(
+                wrapper = (inputs, params) -> Main.germ_response_inducer_combined_var_perm_st_gh(
                     u, W4,
                     inputs[1], #t
                     inputs[2], #ρₛ

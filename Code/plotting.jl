@@ -1058,7 +1058,7 @@ __precompile__(false)
             "combined_inducer_thresh" => "Combined model with inhibitor-dependent induction threshold",
             "combined_inducer_signal" => "Combined model with inhibitor-dependent induction signal",
             "special_inhibitor" => "Inducer-dependent inhibitor threshold and release (varying permeability)",
-            "special_inducer" => "Inhibitor-dependent induction threshold (varying permeability)",
+            "special_inducer" => "Inhibitor-dependent induction threshold and signal (varying permeability)",
             "special_independent" => "Independent inducer/inhibitor model (varying permeability)"
         )
 

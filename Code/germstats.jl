@@ -38,6 +38,7 @@ module GermStats
     export germ_response_inhibitor_dep_inducer_combined_2_factor_st_gh
     export germ_response_inhibitor_var_perm_gh
     export germ_response_inducer_thresh_var_perm_st_gh
+    export germ_response_inducer_combined_var_perm_st_gh
     export germ_response_independent_factors_var_perm_st_gh
     export germ_response_inducer_dep_inhibitor_combined_eq
     export germ_response_inducer_dep_inhibitor_combined_eq_c_ex
