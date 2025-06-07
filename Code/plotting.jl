@@ -907,7 +907,7 @@ __precompile__(false)
 
         dantigny_responses = plot_dantigny_time_course(p_max, τ_g, ν, ax=ax, times=times)
         ax.plot(times ./ 3600, germination_responses .* 100, label="Volume-based model")
-        ax.legend(fontsize="small")
+        ax.legend(fontsize=10, loc="lower right")#"small")
 
         if !isnothing(title)
             ax.set_title(title)
@@ -958,7 +958,7 @@ __precompile__(false)
         ax.set_ylabel("Long-term germination Response [%]")
         ax.set_ylim(0, 110)
         ax.grid()
-        ax.legend(fontsize="small")
+        ax.legend(fontsize=11)#"small")
 
         if !isnothing(title)
             ax.set_title(title)
@@ -998,7 +998,7 @@ __precompile__(false)
 
         # Create figure and subfigures
         fig = figure(figsize=(8, 2 + 2*length(densities_data)))
-        topfig, bottomfig = fig.subfigures(2, 1, height_ratios=(0.75, length(densities_data)/2), hspace=0.2)
+        topfig, bottomfig = fig.subfigures(2, 1, height_ratios=(0.75, 1.25*length(densities_data)/2), hspace=0.15)
         top_axs = topfig.subplots(1, 1)
         bottom_axs = bottomfig.subplots(length(densities_data), length(sources_data), sharex=true, sharey=true)
 
