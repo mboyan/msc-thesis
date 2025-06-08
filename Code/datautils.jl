@@ -759,7 +759,7 @@ module DataUtils
                     params[13], #μ_α
                     params[13] * exp(params[14]) # σ_α = μ_α * exp(δ_α)
                 )
-                param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :K_I, :k, :n, :μ_γ, :σ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ, :μ_α, :δ_α]
+                param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :K_I, :k, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ, :μ_α, :δ_α]
                 param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1, 1, 1]
             end
         else

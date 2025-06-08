@@ -89,7 +89,7 @@ module GermStats
                                 "inducer", "inducer_thresh", "inducer_signal",
                                 "combined_inhibitor", "combined_inhibitor_thresh", "combined_inhibitor_perm",
                                 "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal",
-                                "special_inhibitor", "special_inducer", "special_independent"]
+                                "special_inhibitor", "special_inducer", "special_independent", "special_combined"]
 
         # Determine number of nodes depending on the integral dimension (if not specified)
         if isnothing(n_nodes)
@@ -103,7 +103,7 @@ module GermStats
             elseif (model_type in ["inducer", "inducer_thresh", "inducer_signal"] && st) ||
                     model_type in ["combined_inducer", "combined_inducer_thresh", "combined_inducer_signal", "special_independent"]
                 n_nodes = 10 # 3D integral
-            elseif model_type == "special_inducer"
+            elseif model_type == ["special_inducer", "special_combined"]
                 n_nodes = 6 # 4D integral
             end
         end
@@ -139,7 +139,7 @@ module GermStats
         elseif (model_type in ["inducer", "inducer_thresh", "inducer_signal"] && st) ||
             model_type in ["combined_inducer", "combined_inducer_thresh", "combined_inducer_signal", "special_independent"]
             W3 = reshape(hw, n_nodes,1,1) .* reshape(hw, 1,n_nodes,1) .* reshape(hw, 1,1,n_nodes)
-        elseif model_type == "special_inducer"
+        elseif model_type in ["special_inducer", "special_combined"]
             W4 = reshape(hw, n_nodes,1,1,1) .* reshape(hw, 1,n_nodes,1,1) .* reshape(hw, 1,1,n_nodes,1) .* reshape(hw, 1,1,1,n_nodes)
         end
 
