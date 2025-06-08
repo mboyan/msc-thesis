@@ -256,14 +256,15 @@ __precompile__(false)
             "combined_inducer_signal" => "\\textbf{2 factors,}\\newline \\textbf{inhibitor →  }\\newline \\textbf{inducer}\\newline \\textbf{signal}",
             "special_inhibitor" => "\\textbf{Inducer →  }\\newline \\textbf{inhibitor}\\newline \\textbf{thresh. + release}\\newline \\textbf{(var. perm.)}",
             "special_inducer" => "\\textbf{Inhibitor →  }\\newline \\textbf{inducer}\\newline \\textbf{thresh.}\\newline \\textbf{(var. perm.)}",
-            "special_independent" => "\\textbf{2 factors,}\\newline \\textbf{independent}\\newline \\textbf{(var. perm.)}"
+            "special_independent" => "\\textbf{2 factors,}\\newline \\textbf{independent}\\newline \\textbf{(var. perm.)}",
+            "special_combined" => "\\textbf{2 factors,}\\newline \\textbf{Inhibitor →  }\\newline \\textbf{inducer}\\newline \\textbf{thresh. + signal}\\newline \\textbf{(var. perm.)}",
         )
 
         if isnothing(model_types)
             label_keys_sort = ["independent", "inhibitor", "inhibitor_thresh", "inhibitor_perm", "inducer", "inducer_thresh", "inducer_signal",
-                           "combined_inhibitor", "combined_inhibitor_thresh", "combined_inhibitor_perm",
-                           "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal",
-                           "special_inhibitor", "special_inducer", "special_independent"]
+                                "combined_inhibitor", "combined_inhibitor_thresh", "combined_inhibitor_perm",
+                                "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal",
+                                "special_inhibitor", "special_inducer", "special_independent", "special_combined"]
         else
             label_keys_sort = model_types
         end
