@@ -190,7 +190,7 @@ module DataUtils
                                 "inducer", "inducer_thresh", "inducer_signal",
                                 "combined_inhibitor", "combined_inhibitor_thresh", "combined_inhibitor_perm",
                                 "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal",
-                                "special_inhibitor", "special_inducer", "special_independent", "special_combined"]
+                                "special_inhibitor", "special_inducer", "special_independent", "special_combined", "special_combined_thresh", "special_combined_signal",]
 
         # println("Running ", model_type, " model fitting with ", st ? "time-dependent inducer" : "static inducer")
 
@@ -211,7 +211,7 @@ module DataUtils
         elseif (model_type in ["inducer", "inducer_thresh", "inducer_signal"] && st) ||
                 model_type in ["combined_inducer", "combined_inducer_thresh", "combined_inducer_signal", "special_inducer_independent"]
             n_nodes = 10 # 3D integral
-        elseif model_type in ["special_inducer", "special_combined"]
+        elseif model_type in ["special_inducer", "special_combined", "special_combined_thresh", "special_combined_signal"]
             n_nodes = 6 # 4D integral
         else
             error("Model type not recognized or not implemented.")
@@ -761,6 +761,59 @@ module DataUtils
                 )
                 param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :K_I, :k, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ, :μ_α, :δ_α]
                 param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1, 1, 1]
+
+            elseif model_type_split[2] == "combined" && model_type_split[3] == "thresh"
+                println("Model: 2-factor germination with inhibitor-modulated inducer (threshold), time-dependent inducer and varying permeability")
+                wrapper = (inputs, params) -> Main.germ_response_inducer_thresh_2_factors_var_perm_st_gh(
+                    u, W4,
+                    inputs[1], #t
+                    inputs[2], #ρₛ
+                    def_params[:c₀_cs],
+                    def_params[:d_hp],
+                    ξ2,
+                    κ2,
+                    params[1], #Pₛ
+                    params[2], #Pₛ_cs
+                    params[3], #K_cs
+                    exp(params[4]), #k
+                    params[5], #μ_γ
+                    params[5] * exp(params[6]), # σ_γ = μ_γ * exp(δ_γ)
+                    params[7], #μ_ω
+                    params[7] * exp(params[8]), # σ_ω = μ_ω * exp(δ_ω)
+                    params[9], #μ_ψ
+                    params[9] * exp(params[10]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                    params[11], #μ_α
+                    params[11] * exp(params[112]) # σ_α = μ_α * exp(δ_α)
+                )
+                param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :k, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ, :μ_α, :δ_α]
+                param_occurrences = [1, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1, 1, 1]
+
+            elseif model_type_split[2] == "combined" && model_type_split[3] == "signal"
+                println("Model: 2-factor germination with inhibitor-modulated inducer (combined), time-dependent inducer and varying permeability")
+                wrapper = (inputs, params) -> Main.germ_response_inducer_signal_2_factors_var_perm_st_gh(
+                    u, W4,
+                    inputs[1], #t
+                    inputs[2], #ρₛ
+                    def_params[:c₀_cs],
+                    def_params[:d_hp],
+                    ξ2,
+                    κ2,
+                    params[1], #Pₛ
+                    params[2], #Pₛ_cs
+                    params[3], #K_cs
+                    params[4], #K_I
+                    params[5], #n
+                    params[6], #μ_γ
+                    params[6] * exp(params[7]), # σ_γ = μ_γ * exp(δ_γ)
+                    params[8], #μ_ω
+                    params[8] * exp(params[9]), # σ_ω = μ_ω * exp(δ_ω)
+                    params[10], #μ_ψ
+                    params[10] * exp(params[11]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                    params[12], #μ_α
+                    params[12] * exp(params[13]) # σ_α = μ_α * exp(δ_α)
+                )
+                param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :K_I, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ, :μ_α, :δ_α]
+                param_occurrences = [1, n_src, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1, 1, 1]
             end
         else
             error("Model type not recognized.")

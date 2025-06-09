@@ -872,7 +872,7 @@ __precompile__(false)
             germination_responses = dantigny.(times ./3600, p_max, τ_g, ν) * 0.01
         end
 
-        ax.plot(times ./ 3600, germination_responses .* 100, label="Dantigny model")
+        ax.plot(times ./ 3600, germination_responses .* 100, label="Dantigny")
         ax.axhline(p_max, color="red", linestyle="--", label=L"p_{\text{max}}")
         ax.axvline(τ_g, color="green", linestyle="--", label=L"\tau_g")
         ax.set_xlabel("Time [h]")
@@ -914,7 +914,7 @@ __precompile__(false)
         end
 
         dantigny_responses = plot_dantigny_time_course(p_max, τ_g, ν, ax=ax, times=times)
-        ax.plot(times ./ 3600, germination_responses .* 100, label="Volume-based model")
+        ax.plot(times ./ 3600, germination_responses .* 100, label="Volume-based")
         ax.legend(fontsize=10, loc="lower right")#"small")
 
         if !isnothing(title)
@@ -1002,7 +1002,7 @@ __precompile__(false)
                                 "inducer", "inducer_thresh", "inducer_signal",
                                 "combined_inhibitor", "combined_inhibitor_thresh", "combined_inhibitor_perm",
                                 "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal",
-                                "special_inhibitor", "special_inducer", "special_independent", "special_combined"]
+                                "special_inhibitor", "special_inducer", "special_independent", "special_combined", "special_combined_thresh", "special_combined_signal"]
 
         # Create figure and subfigures
         fig = figure(figsize=(8, 2 + 2*length(densities_data)))
@@ -1060,7 +1060,9 @@ __precompile__(false)
             "special_inhibitor" => "Inducer-dependent inhibition (varying permeability)",
             "special_inducer" => "Inhibitor-dependent induction (varying permeability)",
             "special_independent" => "Independent inducer/inhibitor model (varying permeability)",
-            "special_combined" => "2-factor germination with inhibitor-dependent induction (var. permeability)"
+            "special_combined" => "2-factor germination with inhibitor-dependent induction (var. permeability)",
+            "special_combined_thresh" => "2-factor germination with inhibitor-dependent induction threshold (var. permeability)",
+            "special_combined_signal" => "2-factor germination with inhibitor-dependent induction signal (var. permeability)"
         )
 
         plot_germination_data_fit(densities_data, p_maxs_data, density_range, germ_resp_final .* 100, sources_data, yerr=p_max_errs,
