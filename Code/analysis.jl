@@ -258,6 +258,8 @@ __precompile__(false)
             "special_inducer" => "\\textbf{Inhibitor →  }\\newline \\textbf{inducer}\\newline \\textbf{thresh.}\\newline \\textbf{(var. perm.)}",
             "special_independent" => "\\textbf{2 factors,}\\newline \\textbf{independent}\\newline \\textbf{(var. perm.)}",
             "special_combined" => "\\textbf{2 factors,}\\newline \\textbf{Inhibitor →  }\\newline \\textbf{inducer}\\newline \\textbf{thresh. + signal}\\newline \\textbf{(var. perm.)}",
+            "special_combined_thresh" => "\\textbf{2 factors,}\\newline \\textbf{Inhibitor →  }\\newline \\textbf{inducer}\\newline \\textbf{threshold}\\newline \\textbf{(var. perm.)}",
+            "special_combined_signal" => "\\textbf{2 factors,}\\newline \\textbf{Inhibitor →  }\\newline \\textbf{inducer}\\newline \\textbf{signal}\\newline \\textbf{(var. perm.)}"
         )
 
         if isnothing(model_types)
@@ -308,7 +310,7 @@ __precompile__(false)
                 # println("Type split: $(type_split)")
 
                 # Check if the file matches the extra tag
-                if !isnothing(extra_tags) && !any(in.(extra_tags, Ref(type_split))) && !("combined" in type_split) && !("special" in type_split)
+                if !isnothing(extra_tags) && !any(in.(extra_tags, Ref(type_split))) && !any(in.(["combined", "special", "independent", "inhibitor", "inducer"], Ref(type_split)))#!("combined" in type_split) && !("special" in type_split)
                     continue
                 end
 
