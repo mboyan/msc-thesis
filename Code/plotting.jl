@@ -872,11 +872,11 @@ __precompile__(false)
             germination_responses = dantigny.(times ./3600, p_max, τ_g, ν) * 0.01
         end
 
-        ax.plot(times ./ 3600, germination_responses .* 100, label="Dantigny")
+        ax.plot(times ./ 3600, germination_responses .* 100, label="Dantigny model")
         ax.axhline(p_max, color="red", linestyle="--", label=L"p_{\text{max}}")
         ax.axvline(τ_g, color="green", linestyle="--", label=L"\tau_g")
-        ax.set_xlabel("Time [h]")
-        ax.set_ylabel("Germination response [%]")
+        ax.set_xlabel("Time [h]", fontsize="small")
+        ax.set_ylabel("Germ. response\n[%]", fontsize="small")
         ax.grid(true)
         
         if !isnothing(title)
@@ -912,13 +912,13 @@ __precompile__(false)
         else
             plotself = false
         end
-
+        
+        ax.plot(times ./ 3600, germination_responses .* 100, label="Volume-based model")
         dantigny_responses = plot_dantigny_time_course(p_max, τ_g, ν, ax=ax, times=times)
-        ax.plot(times ./ 3600, germination_responses .* 100, label="Volume-based")
         ax.legend(fontsize=10, loc="lower right")#"small")
 
         if !isnothing(title)
-            ax.set_title(title)
+            ax.set_title(title, fontsize="small")
         end
 
         if plotself
@@ -958,15 +958,15 @@ __precompile__(false)
 
         if !c_ex
             ax.set_xscale("log")
-            ax.set_xlabel("Spore Density [spores/mL]")
+            ax.set_xlabel("Spore Density [spores/mL]", fontsize="small")
         else
-            ax.set_xlabel("Exogenous inhibitor concentration [M]")
+            ax.set_xlabel("Exogenous inhibitor concentration [M]", fontsize="small")
         end
         
-        ax.set_ylabel("Long-term germination Response [%]")
+        ax.set_ylabel("Long-term germ. response\n[%]", fontsize="small")
         ax.set_ylim(0, 110)
         ax.grid()
-        ax.legend(fontsize=11)#"small")
+        ax.legend(fontsize="small")
 
         if !isnothing(title)
             ax.set_title(title)
@@ -1005,10 +1005,11 @@ __precompile__(false)
                                 "special_inhibitor", "special_inducer", "special_independent", "special_combined", "special_combined_thresh", "special_combined_signal"]
 
         # Create figure and subfigures
-        fig = figure(figsize=(8, 2 + 2*length(densities_data)))
-        topfig, bottomfig = fig.subfigures(2, 1, height_ratios=(0.75, 1.25*length(densities_data)/2), hspace=0.15)
+        fig = figure(figsize=(4.5, 2 + 1.5*length(densities_data)))
+        topfig, bottomfig = fig.subfigures(2, 1, height_ratios=(0.7, 1.25*length(densities_data)/2))
         top_axs = topfig.subplots(1, 1)
         bottom_axs = bottomfig.subplots(length(densities_data), length(sources_data), sharex=true, sharey=true)
+        bottomfig.subplots_adjust(hspace=0.3)
 
         # Compute germination responses using the fitted parameters
         density_exp_range = LinRange(dens_exp_limits[1], dens_exp_limits[2], 1000)
@@ -1026,15 +1027,21 @@ __precompile__(false)
                 germ_resp_sample = compute_germination_response(model_type, st, times, inverse_mL_to_cubic_um(density), get_params_for_idx(params_opt, i), n_nodes=n_nodes)
                 
                 dantigny_responses = compare_time_course_to_dantigny(germ_resp_sample, times, p_maxs_data[i, j], taus_data[i, j], nus_data[i, j],
-                                                                        ax=bottom_axs[j, i], title="$(sources_data[i]), " * @sprintf("%.3e", round(Int, densities_data[j])) * " spores/mL")
+                                                                        ax=bottom_axs[j, i], title="$(sources_data[i]), " * @sprintf("%.2e", round(Int, densities_data[j])) * " spores/mL")
                 
                 error_total += sum(abs2, germ_resp_sample .- dantigny_responses)
                 
-                if i > 0
+                if i > 1
                     bottom_axs[j, i].set_ylabel("")
                 end
                 if j < length(densities_data)
                     bottom_axs[j, i].set_xlabel("")
+                end
+
+                # Modify legend
+                bottom_axs[j, i].get_legend().remove()
+                if i == 1 && j == length(densities_data)
+                    bottom_axs[j, i].legend(fontsize="small", loc="upper left", bbox_to_anchor=(-0.05, -0.5), ncols=2)
                 end
             end
         end
@@ -1045,30 +1052,30 @@ __precompile__(false)
         # Model labels
         model_labels = Dict(
             "independent" => "Independent inducer/inhibitor model",
-            "inhibitor" => "Inducer-dependent inhibitor threshold and release",
+            "inhibitor" => "Inducer-dependent inhibitor\nthreshold and release",
             "inhibitor_thresh" => "Inducer-dependent inhibition threshold",
             "inhibitor_perm" => "Inducer-dependent inhibitor release",
-            "inducer" => "Inhibitor-dependent induction threshold and signal",
+            "inducer" => "Inhibitor-dependent induction\nthreshold and signal",
             "inducer_thresh" => "Inhibitor-dependent induction threshold",
             "inducer_signal" => "Inhibitor-dependent induction signal",
-            "combined_inhibitor" => "Combined model with inducer-dependent inhibitor threshold and release",
-            "combined_inhibitor_thresh" => "Combined model with inducer-dependent inhibitor threshold",
-            "combined_inhibitor_perm" => "Combined model with inducer-dependent inhibitor release",
-            "combined_inducer" => "Combined model with inhibitor-dependent induction threshold and signal",
-            "combined_inducer_thresh" => "Combined model with inhibitor-dependent induction threshold",
-            "combined_inducer_signal" => "Combined model with inhibitor-dependent induction signal",
-            "special_inhibitor" => "Inducer-dependent inhibition (varying permeability)",
-            "special_inducer" => "Inhibitor-dependent induction (varying permeability)",
-            "special_independent" => "Independent inducer/inhibitor model (varying permeability)",
-            "special_combined" => "2-factor germination with inhibitor-dependent induction (var. permeability)",
-            "special_combined_thresh" => "2-factor germination with inhibitor-dependent induction threshold (var. permeability)",
-            "special_combined_signal" => "2-factor germination with inhibitor-dependent induction signal (var. permeability)"
+            "combined_inhibitor" => "Combined model with\ninducer-dependent inhibitor\nthreshold and release",
+            "combined_inhibitor_thresh" => "Combined model with\ninducer-dependent inhibitor threshold",
+            "combined_inhibitor_perm" => "Combined model with\ninducer-dependent inhibitor release",
+            "combined_inducer" => "Combined model with inhibitor-dependent\ninduction threshold and signal",
+            "combined_inducer_thresh" => "Combined model with\ninhibitor-dependent induction threshold",
+            "combined_inducer_signal" => "Combined model with\ninhibitor-dependent induction signal",
+            "special_inhibitor" => "Inducer-dependent inhibition\n(varying permeability)",
+            "special_inducer" => "Inhibitor-dependent induction\n(varying permeability)",
+            "special_independent" => "Independent inducer/inhibitor model\n(varying permeability)",
+            "special_combined" => "Combined model with inhibitor-dependent\ninduction (var. permeability)",
+            "special_combined_thresh" => "Combined model with inhibitor-dependent\ninduction threshold (var. permeability)",
+            "special_combined_signal" => "Combined model with inhibitor-dependent\ninduction signal (var. permeability)"
         )
 
         plot_germination_data_fit(densities_data, p_maxs_data, density_range, germ_resp_final .* 100, sources_data, yerr=p_max_errs,
-                                    ax=top_axs, title=model_labels[model_type] * ", RMSE: $(round(rmse, sigdigits=3))")
+                                    ax=top_axs, title=model_labels[model_type] * "\nRMSE: $(round(rmse, sigdigits=3))")
 
-        tight_layout()
+        # tight_layout()
         gcf()
 
     end

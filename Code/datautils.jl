@@ -789,7 +789,7 @@ module DataUtils
                 param_occurrences = [1, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1, 1, 1]
 
             elseif model_type_split[2] == "combined" && model_type_split[3] == "signal"
-                println("Model: 2-factor germination with inhibitor-modulated inducer (combined), time-dependent inducer and varying permeability")
+                println("Model: 2-factor germination with inhibitor-modulated inducer (signal), time-dependent inducer and varying permeability")
                 wrapper = (inputs, params) -> Main.germ_response_inducer_signal_2_factors_var_perm_st_gh(
                     u, W4,
                     inputs[1], #t
