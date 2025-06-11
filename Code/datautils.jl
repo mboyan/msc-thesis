@@ -734,7 +734,7 @@ module DataUtils
                 param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_α, :δ_α]
                 param_occurrences = [1, n_src, n_src, 1, 1, n_src, n_src, 1, 1]
 
-            elseif model_type_split[2] == "combined"
+            elseif model_type == "special_combined"
                 println("Model: 2-factor germination with inhibitor-modulated inducer (combined), time-dependent inducer and varying permeability")
                 wrapper = (inputs, params) -> Main.germ_response_inducer_combined_2_factors_var_perm_st_gh(
                     u, W4,
