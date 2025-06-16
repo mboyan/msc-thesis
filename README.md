@@ -1,6 +1,9 @@
 # Master Thesis
 Includes materials for Master's Thesis Project
 
+## Applying _A. niger_-fitted parameters to _A. nidulans_ data
+Only $(\textrm{I}\rightarrow \textrm{S})\textrm{C}$ seems to remotely match the density-driven inhibition data (not the $c_{\textrm{ex}}$ data). So parameters are possibly somewhat similar. But do not forget - spore radius is different.
+
 ## To fix for model fitting:
 - `inhibitor_thresh_st` and `inhibitor_st` - what's up?
 - See if you can omit constant-inducer scenario (for final results) but reconstruct it with time-dependent scenario.
