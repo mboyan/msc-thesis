@@ -392,7 +392,7 @@ __precompile__(false)
         ax.set_xlabel("Time [s]")
         ax.set_ylabel("Concentration [M]")
         if isnothing(title)
-            ax.set_title("Concentration evolution")
+            # ax.set_title("Concentration evolution")
         else
             ax.set_title(title)
         end
@@ -470,7 +470,7 @@ __precompile__(false)
 
         if isnothing(ax)
             plotself = true
-            fig, ax = subplots(1, 1, figsize=(8, 4))
+            fig, ax = subplots(1, 1, figsize=(4, 3))
         else
             plotself = false
         end
@@ -523,7 +523,7 @@ __precompile__(false)
 
         if isnothing(ax)
             plotself = true
-            fig, ax = subplots(1, 1, figsize=(8, 4))
+            fig, ax = subplots(1, 1, figsize=(5, 3))
         else
             plotself = false
         end
@@ -557,7 +557,7 @@ __precompile__(false)
 
         if isnothing(ax)
             plotself = true
-            fig, ax = subplots(1, 1, figsize=(8, 4))
+            fig, ax = subplots(1, 1, figsize=(6, 3))
             ax.set_title("Lattice regions")
         else
             plotself = false
