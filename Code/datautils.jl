@@ -3,9 +3,6 @@ module DataUtils
     Contains utility functions.
     """
 
-    # using Distributed
-    # addprocs(4)
-
     using DataFrames
     using CSV
     using FastGaussQuadrature
