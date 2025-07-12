@@ -13,7 +13,7 @@ Finally, germination probability models incorporating induction and inhibition a
 
 ## Code
 
-The experiments for this thesis are programmed in Julia and are presented in the Jupyter notebooks in the `Notebooks` folder. To make sure you have all dependencies installed, you can run the following code in the Julia REPL:
+The experiments for this thesis are programmed in Julia and are presented in the Jupyter notebooks in the `Notebooks` folder. The code is structured in designated modules, which can be found in the `src` folder. To make sure you have all dependencies installed, you can run the following code in the Julia REPL:
 
 ```
 using Pkg
