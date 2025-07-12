@@ -1,6 +1,6 @@
 # Modelling Diffusive Signals for the Germination of _Aspergillus_ Conidia
 
-This repository contains the code, data and documentation used in my Master's Thesis (MSc Computational Science, UvA/VU, Amsterdam).
+This repository contains the code, data and documentation used in my Master's Thesis (MSc Computational Science, UvA/VU, Amsterdam, 2024/2025).
 
 ## Abstract
 
