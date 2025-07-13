@@ -1,0 +1,100 @@
+%!Adobe-FontList 1.24
+%Locale:0x409
+
+%BeginFont
+Handler:DirectoryHandler
+FontType:TrueType
+FontName:Candara
+FamilyName:Candara
+StyleName:Regular
+FullName:Candara
+MenuName:Candara
+StyleBits:0
+WritingScript:Roman
+OutlineFileName:C:\Users\mihbo\Documents\GitHub\msc-thesis\Reports\Thesis_CoverDesign Folder\Document fonts\candara.ttf
+DataFormat:sfntData
+hasSVG:no
+hasCOLR:no
+VariableFontType:NonVariableFont
+FileLength:242012
+FileModTime:1711956129
+WeightClass:400
+WidthClass:5
+AngleClass:0
+NameArray:0,Mac,4,Candara
+NameArray:0,Win,1,Candara
+%EndFont
+
+%BeginFont
+Handler:DirectoryHandler
+FontType:TrueType
+FontName:Candara-Bold
+FamilyName:Candara
+StyleName:Bold
+FullName:Candara Bold
+MenuName:Candara
+StyleBits:2
+WritingScript:Roman
+OutlineFileName:C:\Users\mihbo\Documents\GitHub\msc-thesis\Reports\Thesis_CoverDesign Folder\Document fonts\candarab.ttf
+DataFormat:sfntData
+hasSVG:no
+hasCOLR:no
+VariableFontType:NonVariableFont
+FileLength:250772
+FileModTime:1711956159
+WeightClass:700
+WidthClass:5
+AngleClass:0
+NameArray:0,Mac,4,Candara Bold
+NameArray:0,Win,1,Candara
+%EndFont
+
+%BeginFont
+Handler:DirectoryHandler
+FontType:TrueType
+FontName:Candara-Italic
+FamilyName:Candara
+StyleName:Italic
+FullName:Candara Italic
+MenuName:Candara
+StyleBits:1
+WritingScript:Roman
+OutlineFileName:C:\Users\mihbo\Documents\GitHub\msc-thesis\Reports\Thesis_CoverDesign Folder\Document fonts\candarai.ttf
+DataFormat:sfntData
+hasSVG:no
+hasCOLR:no
+VariableFontType:NonVariableFont
+FileLength:251156
+FileModTime:1711956153
+WeightClass:400
+WidthClass:5
+AngleClass:1
+NameArray:0,Mac,4,Candara Italic
+NameArray:0,Win,1,Candara
+%EndFont
+
+%BeginFont
+Handler:DirectoryHandler
+FontType:TrueType
+FontName:Candara-LightItalic
+FamilyName:Candara
+StyleName:Light Italic
+FullName:Candara Light Italic
+MenuName:Candara Light
+StyleBits:1
+WritingScript:Roman
+OutlineFileName:C:\Users\mihbo\Documents\GitHub\msc-thesis\Reports\Thesis_CoverDesign Folder\Document fonts\candarali.ttf
+DataFormat:sfntData
+hasSVG:no
+hasCOLR:no
+VariableFontType:NonVariableFont
+FileLength:189388
+FileModTime:1711956164
+WeightClass:400
+WidthClass:5
+AngleClass:1
+NameArray:0,Mac,4,Candara Light Italic
+NameArray:0,Win,1,Candara Light
+NameArray:0,Win,16,Candara
+%EndFont
+
