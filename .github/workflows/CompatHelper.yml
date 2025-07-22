@@ -34,6 +34,16 @@ jobs:
           version = "3"
           Pkg.add(; name, uuid, version)
         shell: julia --color=yes {0}
+      - name: Check GITHUB_TOKEN existence
+        run: |
+          if [ -z "${GITHUB_TOKEN}" ]; then
+            echo "GITHUB_TOKEN is missing!"
+            exit 1
+          else
+            echo "GITHUB_TOKEN is present."
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: "Run CompatHelper"
         run: |
           import CompatHelper
