@@ -21,3 +21,7 @@ Pkg.add(url="https://github.com/mboyan/msc-thesis/")
 ```
 
 This is my first serious undertaking with Julia, and there are possibly quite a few redundancies or sub-optimal pieces of code. If you have any useful suggestions on how to improve things, forks and pull requests are very welcome. I will likely not maintain this repository regularly, but I appreciate opportunities to learn new things.
+
+## Report and Data
+
+The thesis report can be found in the `Reports` directory, citing all the data used in the research. The input data in the table `src/Data/swelling_germination_results.csv` is a subset from the statistical data on conidial swelling and germination published by Ijadpanahsaravi et al (2022, https://doi.org/10.1007/s10482-022-01762-4).
