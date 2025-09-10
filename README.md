@@ -1,3 +1,10 @@
+# Notes
+
+## Week 37 highlights
+- LaTeX set up, but workaround needs to be used to insert chapter text into Han's Word template of preference (using `python-docx`);
+- At first glance, no relevant information on Damköhler/Biot/Thiele analysis in the context of 1-octen-3-ol/Aspergillus; but rough calculations could support existing results;
+- Look into Bayesian model averaging.
+
 # Modelling Diffusive Signals for the Germination of _Aspergillus_ Conidia
 
 This repository contains the code, data and documentation used in my Master's Thesis (MSc Computational Science, UvA/VU, Amsterdam, 2024/2025).
