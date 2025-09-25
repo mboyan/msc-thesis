@@ -76,7 +76,7 @@ module GermStats
         inputs:
             model_type (String): model type to fit
             times (Vector{Float64}): time points to compute the germination response
-            ρₛ (float) - spore density in spores/um^3
+            ρₛ (float) - spore density in spores/μm^3
             n_nodes (int) - number of Gauss-Hermite nodes to use
             params (Dict) - additional parameters for the germination response function
             n_nodes (int) - number of Gauss-Hermite nodes to use
@@ -1923,36 +1923,41 @@ module GermStats
         # Random samples
         sobol_pts = QuasiMonteCarlo.sample(n_samples, 4, SobolSample(R = OwenScramble(base = 2, pad = 10)))
 
-        samples_ξ = quantile(dist_ξ, sobol_pts[1,:])
+        samples_ξ = max.(quantile(dist_ξ, sobol_pts[1,:]))
 
-        μ_ψ_log = log(μ_ψ^2 / sqrt(σ_γ^2 + μ_ψ^2))
-        σ_γ_log = sqrt(log(σ_γ^2 / μ_ψ^2 + 1))
-        dist_ψ = LogNormal(μ_ψ_log, σ_γ_log)
-        samples_ψ = quantile(dist_ψ, sobol_pts[2,:])
+        μ_ψ_log = log(μ_ψ^2 / sqrt(σ_ψ^2 + μ_ψ^2))
+        σ_ψ_log = sqrt(log(σ_ψ^2 / μ_ψ^2 + 1))
+        dist_ψ = LogNormal(μ_ψ_log, σ_ψ_log)
+        samples_ψ = max.(quantile(dist_ψ, sobol_pts[2,:]))
 
         μ_γ_log = log(μ_γ^2 / sqrt(σ_γ^2 + μ_γ^2))
         σ_γ_log = sqrt(log(σ_γ^2 / μ_γ^2 + 1))
         dist_γ = LogNormal(μ_γ_log, σ_γ_log)
-        samples_γ = quantile(dist_γ, sobol_pts[3,:])
+        samples_γ = max.(quantile(dist_γ, sobol_pts[3,:]))
 
-        samples_κ = quantile(dist_γ, sobol_pts[4,:])
+        samples_κ = max.(quantile(dist_κ, sobol_pts[4,:]))
+        
+        samples_AV = compute_spore_area_and_volume_from_dia.(2 .* samples_ξ)
+        samples_A, samples_Vₛ = (map(x -> x[1], samples_AV), map(x -> x[2], samples_AV))
+        samples_V_out = 1.0/ρₛ .- samples_Vₛ
+        samples_V_ps = compute_ps_layer_volume.(samples_ξ, d_hp, samples_κ)
 
         # ODE function
         function ode!(du, u, p, t)
             cinI, coutI, cinC = u
 
-            g = (p.K_cs + cinC * (1 + p.s_max) * p.A) / (p.K_cs + cinC)
+            g = (p.K_cs + cinC * (1 + p.s_max)) * p.A / (p.K_cs + cinC)
             rateI = g * p.Pₛ_I
             rateC = g * p.Pₛ_C
 
             du[1] = -(rateI / p.Vₛ) * (cinI - coutI)
             du[2] = (rateI / p.V_out) * (cinI - coutI)
-            du[3] = -(rateC / p.V_ps) * (cinC - c₀_cs)
+            du[3] = -(rateC / p.V_ps) * (cinC - p.c₀_cs)
         end
 
         # Template problem
         dummyA, dummyV = compute_spore_area_and_volume_from_dia(2*mean(dist_ξ))
-        p_template = (A=dummyA, Vₛ=dummyV, V_out=1.0/ρₛ - dummyV, V_ps=compute_ps_layer_volume(mean(dist_ξ), d_hp, mean(dist_κ)),
+        p_template = (A=samples_A[1], Vₛ=samples_Vₛ[1], V_out=samples_V_out[1], V_ps=samples_V_ps[1],
                     Pₛ_I=Pₛ_I, Pₛ_C=Pₛ_C, K_cs=K_cs, s_max=s_max, c₀_cs=c₀_cs)
         u0_template = [μ_ψ, 0.0, 0.0]
         tspan = (0.0, t)
@@ -1961,14 +1966,21 @@ module GermStats
         # Ensemble integration function
         function prob_func(prob, i, repeat)
             r = max(samples_ξ[i], 1e-9)
-            A, Vₛ = compute_spore_area_and_volume_from_dia(2*r)
+            # A, Vₛ = compute_spore_area_and_volume_from_dia(2*r)
             
-            # Designated and outside volume
-            V_des = 1.0 / ρₛ
-            V_out = V_des - Vₛ
-            V_ps = compute_ps_layer_volume(r, d_hp, samples_κ[i])
+            # # Designated and outside volume
+            # V_des = 1.0 / ρₛ
+            # V_out = V_des - Vₛ
+            # V_ps = compute_ps_layer_volume(r, d_hp, samples_κ[i])
+
+            # if !(isfinite(A) && isfinite(Vₛ) && isfinite(V_out) && isfinite(V_ps))
+            #     @warn "Non-finite geometric quantities" i=i A=A Vₛ=Vₛ V_out=V_out V_ps=V_ps
+            # end
+            # if V_out <= 0
+            #     @warn "Nonpositive V_out" i=i V_out=V_out ρₛ=ρₛ Vₛ=Vₛ
+            # end
             
-            new_p = (A=A, Vₛ=Vₛ, V_out=V_out, V_ps=V_ps,
+            new_p = (A=samples_A[i], Vₛ=samples_Vₛ[i], V_out=samples_V_out[i], V_ps=samples_V_ps[i],
                     Pₛ_I=Pₛ_I, Pₛ_C=Pₛ_C, K_cs=K_cs, s_max=s_max, c₀_cs=c₀_cs)
 
             new_u0 = [samples_ψ[i], 0.0, 0.0]
@@ -1981,7 +1993,7 @@ module GermStats
 
         # Evaluate fraction germinated
         c_in_I_t = [sols[i](t)[1] for i in 1:n_samples]
-        germinated = c_inI_at_t .< samples_γ
+        germinated = c_in_I_t .< samples_γ
         
         return mean(germinated)
     end
