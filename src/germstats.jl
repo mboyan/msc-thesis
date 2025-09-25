@@ -16,39 +16,33 @@ module GermStats
     using .Conversions
 
     export compute_germination_response
-    export germ_response_inhibitor_gh
     export germ_response_independent_factors_gh
-    export germ_response_independent_factors_st_gh
-    export germ_response_inducer_dep_inhibitor_thresh_st_gh
-    export germ_response_inducer_dep_inhibitor_perm_st_gh
-    export germ_response_inducer_dep_inhibitor_combined_st_gh
+    export germ_response_inducer_dep_inhibitor_thresh_gh
+    export germ_response_inducer_dep_inhibitor_perm_gh
+    export germ_response_inducer_dep_inhibitor_gh
     export germ_response_inhibitor_dep_inducer_thresh_gh
-    export germ_response_inhibitor_dep_inducer_thresh_st_gh
     export germ_response_inhibitor_dep_inducer_signal_gh
-    export germ_response_inhibitor_dep_inducer_signal_st_gh
-    export germ_response_inhibitor_dep_inducer_combined_gh
-    export germ_response_inhibitor_dep_inducer_combined_st_gh
-    export germ_response_inducer_dep_inhibitor_thresh_2_factor_st_gh
-    export germ_response_inducer_dep_inhibitor_perm_2_factor_st_gh
-    export germ_response_inducer_dep_inhibitor_combined_2_factor_st_gh
-    export germ_response_inhibitor_dep_inducer_thresh_2_factor_st_gh
-    export germ_response_inhibitor_dep_inducer_signal_2_factor_st_gh
-    export germ_response_inhibitor_dep_inducer_combined_2_factor_st_gh
-    export germ_response_inhibitor_var_perm_gh
-    export germ_response_inducer_thresh_var_perm_st_gh
-    export germ_response_inducer_combined_var_perm_st_gh
-    export germ_response_independent_factors_var_perm_st_gh
-    export germ_response_inducer_thresh_2_factors_var_perm_st_gh
-    export germ_response_inducer_signal_2_factors_var_perm_st_gh
-    export germ_response_inducer_combined_2_factors_var_perm_st_gh
-    export germ_response_inducer_dep_inhibitor_combined_eq
-    export germ_response_inducer_dep_inhibitor_combined_eq_c_ex
+    export germ_response_inhibitor_dep_inducer_gh
+    export germ_response_inducer_dep_inhibitor_thresh_2_factor_gh
+    export germ_response_inducer_dep_inhibitor_perm_2_factor_gh
+    export germ_response_inducer_dep_inhibitor_2_factor_gh
+    export germ_response_inhibitor_dep_inducer_thresh_2_factor_gh
+    export germ_response_inhibitor_dep_inducer_signal_2_factor_gh
+    export germ_response_inhibitor_dep_inducer_2_factor_gh
+    export germ_response_inducer_thresh_var_perm_gh
+    export germ_response_inducer_var_perm_gh
+    export germ_response_independent_factors_var_perm_gh
+    export germ_response_inducer_thresh_2_factors_var_perm_gh
+    export germ_response_inducer_signal_2_factors_var_perm_gh
+    export germ_response_inducer_2_factors_var_perm_gh
+    export germ_response_inducer_dep_inhibitor_eq
+    export germ_response_inducer_dep_inhibitor_eq_c_ex
     export germ_response_inhibitor_dep_inducer_thresh_2_factors_eq
     export germ_response_inhibitor_dep_inducer_thresh_2_factors_eq_c_ex
     export germ_response_inhibitor_dep_inducer_signal_2_factors_eq
     export germ_response_inhibitor_dep_inducer_signal_2_factors_eq_c_ex
-    export germ_response_inhibitor_dep_inducer_combined_2_factors_eq
-    export germ_response_inhibitor_dep_inducer_combined_2_factors_eq_c_ex
+    export germ_response_inhibitor_dep_inducer_2_factors_eq
+    export germ_response_inhibitor_dep_inducer_2_factors_eq_c_ex
     export germ_response_independent_eq
     export germ_response_independent_eq_c_ex
 
@@ -89,21 +83,17 @@ module GermStats
                                 "inducer", "inducer_thresh", "inducer_signal",
                                 "combined_inhibitor", "combined_inhibitor_thresh", "combined_inhibitor_perm",
                                 "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal",
-                                "special_inhibitor", "special_inducer", "special_independent", "special_combined", "special_combined_thresh", "special_combined_signal"]
+                                "special_inducer", "special_independent", "special_combined", "special_thresh", "special_signal"]
 
         # Determine number of nodes depending on the integral dimension (if not specified)
         if isnothing(n_nodes)
-            if model_type in ["independent", "inhibitor", "inhibitor_thresh", "inhibitor_perm"] && !st
-                n_nodes = 216 # 1D integral
-            elseif (model_type in ["inducer", "inducer_thresh", "inducer_signal"] && !st) ||
-                    (model_type in ["independent", "inhibitor", "inhibitor_thresh", "inhibitor_perm"] && st) ||
-                    model_type in ["combined_inhibitor", "combined_inhibitor_thresh", "combined_inhibitor_perm"] ||
-                    (model_type in ["special_inhibitor"])
+            if model_type in ["independent", "inhibitor", "inhibitor_thresh", "inhibitor_perm",
+                                "combined_inhibitor", "combined_inhibitor_thresh", "combined_inhibitor_perm"]
                 n_nodes = 36 # 2D integral
-            elseif (model_type in ["inducer", "inducer_thresh", "inducer_signal"] && st) ||
-                    model_type in ["combined_inducer", "combined_inducer_thresh", "combined_inducer_signal", "special_independent"]
+            elseif model_type in ["inducer", "inducer_thresh", "inducer_signal", 
+                                "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal", "special_independent"]
                 n_nodes = 10 # 3D integral
-            elseif model_type == ["special_inducer", "special_combined", "special_combined_thresh", "special_combined_signal"]
+            elseif model_type in ["special_inducer", "special_combined", "special_thresh", "special_signal"]
                 n_nodes = 6 # 4D integral
             end
         end
@@ -131,159 +121,77 @@ module GermStats
         end
 
         # Weight tensors
-        if (model_type in ["independent", "inhibitor", "inhibitor_thresh", "inhibitor_perm"] && st) ||
-            (model_type in ["inducer", "inducer_thresh", "inducer_signal"] && !st) ||
-            model_type in ["combined_inhibitor", "combined_inhibitor_thresh", "combined_inhibitor_perm"] ||
-            model_type in ["special_inhibitor"]
+        if model_type in ["independent", "inhibitor", "inhibitor_thresh", "inhibitor_perm",
+                            "combined_inhibitor", "combined_inhibitor_thresh", "combined_inhibitor_perm"]
             W = hw * hw'
-        elseif (model_type in ["inducer", "inducer_thresh", "inducer_signal"] && st) ||
-            model_type in ["combined_inducer", "combined_inducer_thresh", "combined_inducer_signal", "special_independent"]
+        elseif model_type in ["inducer", "inducer_thresh", "inducer_signal",
+                            "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal", "special_independent"]
             W3 = reshape(hw, n_nodes,1,1) .* reshape(hw, 1,n_nodes,1) .* reshape(hw, 1,1,n_nodes)
-        elseif model_type in ["special_inducer", "special_combined", "special_combined_thresh", "special_combined_signal"]
+        elseif model_type in ["special_inducer", "special_combined", "special_thresh", "special_signal"]
             W4 = reshape(hw, n_nodes,1,1,1) .* reshape(hw, 1,n_nodes,1,1) .* reshape(hw, 1,1,n_nodes,1) .* reshape(hw, 1,1,1,n_nodes)
         end
 
         # Compute the germination response
         if model_type == "independent"
-            if !st
-                germ_response = [germ_response_independent_factors_gh(u, hw, t, ρₛ, ξ, params[:Pₛ], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω]) for t in times]
-            else
-                germ_response = [germ_response_independent_factors_st_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω]) for t in times]
-            end
+            germ_response = [germ_response_independent_factors_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω]) for t in times]
+            
         elseif model_type == "inhibitor"
-            if !st
-                germ_response = [germ_response_inhibitor_gh(u, hw, t, ρₛ, ξ, params[:Pₛ], params[:μ_γ], params[:σ_γ]) for t in times]
-            else
-                germ_response = [germ_response_inducer_dep_inhibitor_combined_st_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:k], params[:μ_γ], params[:σ_γ]) for t in times]
-            end
+            germ_response = [germ_response_inducer_dep_inhibitor_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:k], params[:μ_γ], params[:σ_γ]) for t in times]
+            
         elseif model_type == "inhibitor_thresh"
-            if !st
-                germ_response = [germ_response_inhibitor_gh(u, hw, t, ρₛ, ξ, params[:Pₛ], params[:μ_γ], params[:σ_γ]) for t in times]
-            else
-                germ_response = [germ_response_inducer_dep_inhibitor_thresh_st_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:k], params[:K_cs], params[:μ_γ], params[:σ_γ]) for t in times]
-            end
+            germ_response = [germ_response_inducer_dep_inhibitor_thresh_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:k], params[:K_cs], params[:μ_γ], params[:σ_γ]) for t in times]
+            
         elseif model_type == "inhibitor_perm"
-            if !st
-                germ_response = [germ_response_inhibitor_gh(u, hw, t, ρₛ, ξ, params[:Pₛ], params[:μ_γ], params[:σ_γ]) for t in times]
-            else
-                germ_response = [germ_response_inducer_dep_inhibitor_perm_st_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:μ_γ], params[:σ_γ]) for t in times]
-            end
+            germ_response = [germ_response_inducer_dep_inhibitor_perm_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:μ_γ], params[:σ_γ]) for t in times]
+            
         elseif model_type == "inducer"
-            if !st
-                germ_response = [germ_response_inhibitor_dep_inducer_combined_gh(u, W, t, ρₛ, ξ, params[:Pₛ], params[:k], params[:K_I], params[:n], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
-            else
-                germ_response = [germ_response_inhibitor_dep_inducer_combined_st_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:k], params[:K_cs], params[:K_I], params[:n], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
-            end
+            germ_response = [germ_response_inhibitor_dep_inducer_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:k], params[:K_cs], params[:K_I], params[:n], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
+
         elseif model_type == "inducer_thresh"
-            if !st
-                germ_response = [germ_response_inhibitor_dep_inducer_thresh_gh(u, W, t, ρₛ, ξ, params[:Pₛ], params[:k], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
-            else
-                germ_response = [germ_response_inhibitor_dep_inducer_thresh_st_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:k], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
-            end
+            germ_response = [germ_response_inhibitor_dep_inducer_thresh_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:k], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
+            
         elseif model_type == "inducer_signal"
-            if !st
-                germ_response = [germ_response_inhibitor_dep_inducer_signal_gh(u, W, t, ρₛ, ξ, params[:Pₛ], params[:K_I], params[:n], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
-            else
-                germ_response = [germ_response_inhibitor_dep_inducer_signal_st_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:K_I], params[:n], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
-            end
+            germ_response = [germ_response_inhibitor_dep_inducer_signal_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:K_I], params[:n], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
+            
         elseif model_type == "combined_inhibitor"
-            germ_response = [germ_response_inducer_dep_inhibitor_combined_2_factor_st_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:k], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω]) for t in times]
+            germ_response = [germ_response_inducer_dep_inhibitor_2_factor_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:k], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω]) for t in times]
+            
         elseif model_type == "combined_inhibitor_thresh"
-            germ_response = [germ_response_inducer_dep_inhibitor_thresh_2_factor_st_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:k], params[:K_cs], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω]) for t in times]
+            germ_response = [germ_response_inducer_dep_inhibitor_thresh_2_factor_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:k], params[:K_cs], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω]) for t in times]
+            
         elseif model_type == "combined_inhibitor_perm"
-            germ_response = [germ_response_inducer_dep_inhibitor_perm_2_factor_st_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω]) for t in times]
+            germ_response = [germ_response_inducer_dep_inhibitor_perm_2_factor_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω]) for t in times]
+            
         elseif model_type == "combined_inducer"
-            germ_response = [germ_response_inhibitor_dep_inducer_combined_2_factor_st_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:K_I], params[:n], params[:k], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
+            germ_response = [germ_response_inhibitor_dep_inducer_2_factor_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:K_I], params[:n], params[:k], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
+            
         elseif model_type == "combined_inducer_thresh"
-            germ_response = [germ_response_inhibitor_dep_inducer_thresh_2_factor_st_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:k], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
+            germ_response = [germ_response_inhibitor_dep_inducer_thresh_2_factor_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:k], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
+            
         elseif model_type == "combined_inducer_signal"
-            germ_response = [germ_response_inhibitor_dep_inducer_signal_2_factor_st_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:K_I], params[:n], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
-        elseif model_type == "special_inhibitor"
-            germ_response = [germ_response_inhibitor_var_perm_gh(u, W, t, ρₛ, ξ, params[:μ_π], params[:σ_π], params[:μ_γ], params[:σ_γ]) for t in times]
+            germ_response = [germ_response_inhibitor_dep_inducer_signal_2_factor_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:K_I], params[:n], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
+            
         elseif model_type == "special_inducer"
-            germ_response = [germ_response_inducer_combined_var_perm_st_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:K_I], params[:k], params[:n], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
+            germ_response = [germ_response_inducer_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:K_I], params[:k], params[:n], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
+            
         elseif model_type == "special_independent"
-            germ_response = [germ_response_independent_factors_var_perm_st_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_α], params[:σ_α]) for t in times]
+            germ_response = [germ_response_independent_factors_var_perm_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_α], params[:σ_α]) for t in times]
+            
         elseif model_type == "special_combined"
-            germ_response = [germ_response_inducer_combined_2_factors_var_perm_st_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:K_I], params[:k], params[:n], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
-        elseif model_type == "special_combined_thresh"
-            germ_response = [germ_response_inducer_thresh_2_factors_var_perm_st_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:k], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
-        elseif model_type == "special_combined_signal"
-            germ_response = [germ_response_inducer_signal_2_factors_var_perm_st_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:K_I], params[:n], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
+            germ_response = [germ_response_inducer_2_factors_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:K_I], params[:k], params[:n], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
+            
+        elseif model_type == "special_thresh"
+            germ_response = [germ_response_inducer_thresh_2_factors_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:k], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
+            
+        elseif model_type == "special_signal"
+            germ_response = [germ_response_inducer_signal_2_factors_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:K_I], params[:n], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
         end
 
         return germ_response
     end
 
 
-    function germ_response_inhibitor_gh(u, hw, t, ρₛ, ξ, Pₛ, μ_γ, σ_γ)
-        """
-        Compute the germination response for purely
-        inhibition-dependent germination for a given set of parameters,
-        without considering an external initial concentration.
-        Uses Gauss-Hermite approximation.
-        inputs:
-            u - transformed Gauss-Hermite nodes
-            hw - transformed Gauss-Hermite weights
-            t - time in seconds
-            ρₛ - spore density in spores/um^3
-            ξ - spore radius in um
-            Pₛ - permeation constant in um/s
-            μ_γ - mean inhibition threshold
-            σ_γ - standard deviation of inhibition threshold
-        output:
-            the germination response for the given parameters
-        """
-
-        # Distributions
-        dist_γ = Normal(μ_γ, σ_γ)
-
-        # Inhibitor
-        V = 4/3 * π .* ξ.^3
-        A = 4 * π .* ξ.^2
-        τ = V ./ (Pₛ * A)
-        ϕ = ρₛ .* V
-        β = ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ)))
-
-        tail = 1 .- cdf.(dist_γ, β)
-
-        return sum(hw .* tail)
-    end
-
-
-    function germ_response_independent_factors_gh(u, hw, t, ρₛ, ξ, Pₛ, μ_γ, σ_γ, μ_ω, σ_ω)
-        """
-        Compute the germination response for independent
-        inhibition and induction for a given set of parameters.
-        Uses Gauss-Hermite approximation.
-        inputs:
-            u - transformed Gauss-Hermite nodes
-            hw - transformed Gauss-Hermite weights
-            t - time in seconds
-            ρₛ - spore density in spores/um^3
-            ξ - spore radius in um
-            Pₛ - permeation constant in um/s
-            μ_γ - mean inhibition threshold
-            σ_γ - standard deviation of inhibition threshold
-            μ_ω - mean induction threshold
-            σ_ω - standard deviation of induction threshold
-        output:
-            the germination response for the given parameters
-        """
-
-        # Distributions
-        dist_ω = Normal(μ_ω, σ_ω)
-        # μ_ω_log = log(μ_ω^2 / sqrt(σ_ω^2 + μ_ω^2))
-        # σ_ω_log = sqrt(log(σ_ω^2 / μ_ω^2 + 1))
-        # dist_ω = LogNormal(μ_ω_log, σ_ω_log)
-        
-        induction_factor = cdf.(dist_ω, 1)
-        
-        return induction_factor .* germ_response_inhibitor_gh(u, hw, t, ρₛ, ξ, Pₛ, μ_γ, σ_γ)
-    end
-    
-
-    function germ_response_independent_factors_st_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, μ_γ, σ_γ, μ_ω, σ_ω)
+    function germ_response_independent_factors_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, μ_γ, σ_γ, μ_ω, σ_ω)
         """
         Compute the germination response for independent
         inhibition and induction for a given set of parameters.
@@ -331,7 +239,7 @@ module GermStats
     end
 
 
-    function germ_response_inducer_dep_inhibitor_thresh_st_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, k, K_cs, μ_γ, σ_γ)
+    function germ_response_inducer_dep_inhibitor_thresh_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, k, K_cs, μ_γ, σ_γ)
         """
         Compute the germination response for an inducer-dependent
         inhibitor threshold for a given set of parameters,
@@ -378,7 +286,7 @@ module GermStats
     end
 
 
-    function germ_response_inducer_dep_inhibitor_perm_st_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, μ_γ, σ_γ)
+    function germ_response_inducer_dep_inhibitor_perm_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, μ_γ, σ_γ)
         """
         Compute the germination response for an inducer-dependent
         inhibitor permeation for a given set of parameters,
@@ -424,7 +332,7 @@ module GermStats
     end
 
 
-    function germ_response_inducer_dep_inhibitor_combined_st_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, k, μ_γ, σ_γ)
+    function germ_response_inducer_dep_inhibitor_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, k, μ_γ, σ_γ)
         """
         Compute the germination response for an inducer-dependent
         inhibitor threshold and permeation for a given set of parameters,
@@ -471,54 +379,7 @@ module GermStats
     end
 
 
-    function germ_response_inhibitor_dep_inducer_thresh_gh(u, W, t, ρₛ, ξ, Pₛ, k, μ_ω, σ_ω, μ_ψ, σ_ψ)
-        """
-        Compute the germination response for an inhibitor-dependent
-        induction threshold for a given set of parameters.
-        Uses Gauss-Hermite approximation.
-        inputs:
-            u - transformed Gauss-Hermite nodes
-            W - transformed Gauss-Hermite weights (matrix)
-            t - time in seconds
-            ρₛ - spore density in spores/um^3
-            ξ - spore radius in um
-            Pₛ - permeation constant for the inhibitor in um/s
-            k - inhibition strength over induction threshold
-            μ_ω - mean induction threshold
-            σ_ω - standard deviation of induction threshold
-            μ_ψ - mean initial concentration
-            σ_ψ - standard deviation of initial concentration
-        output:
-            the germination response for the given parameters
-        """
-
-        # Transform to log-normal
-        μ_ψ_log = log(μ_ψ^2 / sqrt(σ_ψ^2 + μ_ψ^2))
-        σ_ψ_log = sqrt(log(σ_ψ^2 / μ_ψ^2 + 1))
-        ψ = exp.(μ_ψ_log .+ σ_ψ_log .* u)
-
-        # Distributions
-        dist_ω = Normal(μ_ω, σ_ω)
-
-        # Inhibitor
-        V = 4/3 * π .* ξ.^3
-        A = 4 * π .* ξ.^2
-        τ = V ./ (Pₛ * A)
-        ϕ = ρₛ .* V
-        β = (ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ))))
-
-        # Reshape
-        β, ψ = meshgrid(β, ψ)
-
-        c_in = ψ .* β
-
-        tail = cdf.(dist_ω, 1 .- k .* c_in)
-
-        return sum(W .* tail)
-    end
-
-
-    function germ_response_inhibitor_dep_inducer_thresh_st_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, k, μ_ω, σ_ω, μ_ψ, σ_ψ)
+    function germ_response_inhibitor_dep_inducer_thresh_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, k, μ_ω, σ_ω, μ_ψ, σ_ψ)
         """
         Compute the germination response for an inhibitor-dependent
         induction threshold for a given set of parameters.
@@ -580,56 +441,7 @@ module GermStats
     end
 
 
-    function germ_response_inhibitor_dep_inducer_signal_gh(u, W, t, ρₛ, ξ, Pₛ, K_I, n, μ_ω, σ_ω, μ_ψ, σ_ψ)
-        """
-        Compute the germination response for an inhibitor-dependent
-        induction signal for a given set of parameters.
-        Uses Gauss-Hermite approximation.
-        inputs:
-            u - transformed Gauss-Hermite nodes
-            W - transformed Gauss-Hermite weights (matrix)
-            t - time in seconds
-            ρₛ - spore density in spores/um^3
-            ξ - spore radius in um
-            Pₛ - permeation constant for the inhibitor in um/s
-            K_I - half-saturation constant for the inhibitor
-            n - Hill coefficient for the inhibitor
-            μ_ω - mean induction threshold
-            σ_ω - standard deviation of induction threshold
-            μ_ψ - mean initial concentration
-            σ_ψ - standard deviation of initial concentration
-        output:
-            the germination response for the given parameters
-        """
-        
-        # Transform to log-normal
-        μ_ψ_log = log(μ_ψ^2 / sqrt(σ_ψ^2 + μ_ψ^2))
-        σ_ψ_log = sqrt(log(σ_ψ^2 / μ_ψ^2 + 1))
-        ψ = exp.(μ_ψ_log .+ σ_ψ_log .* u)
-
-        # Distributions
-        dist_ω = Normal(μ_ω, σ_ω)
-
-        # Inhibitor
-        V = 4/3 * π .* ξ.^3
-        A = 4 * π .* ξ.^2
-        τ = V ./ (Pₛ * A)
-        ϕ = ρₛ .* V
-        β = ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ)))
-
-        # Reshape
-        β, ψ = meshgrid(β, ψ)
-
-        c_in = ψ .* β
-        s_mod = 1 ./ (1 .+ (c_in ./ K_I).^n)
-
-        tail = cdf.(dist_ω, s_mod)
-
-        return sum(W .* tail)
-    end
-
-
-    function germ_response_inhibitor_dep_inducer_signal_st_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, K_I, n, μ_ω, σ_ω, μ_ψ, σ_ψ)
+    function germ_response_inhibitor_dep_inducer_signal_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, K_I, n, μ_ω, σ_ω, μ_ψ, σ_ψ)
         """
         Compute the germination response for an inhibitor-dependent
         induction signal for a given set of parameters.
@@ -694,57 +506,7 @@ module GermStats
     end
 
     
-    function germ_response_inhibitor_dep_inducer_combined_gh(u, W, t, ρₛ, ξ, Pₛ, k, K_I, n, μ_ω, σ_ω, μ_ψ, σ_ψ)
-        """
-        Compute the germination response for an inhibitor-dependent
-        induction threshold and signal for a given set of parameters.
-        Uses Gauss-Hermite approximation.
-        inputs:
-            u - transformed Gauss-Hermite nodes
-            W - transformed Gauss-Hermite weights (matrix)
-            t - time in seconds
-            ρₛ - spore density in spores/um^3
-            ξ - spore radius in um
-            Pₛ - permeation constant for the inhibitor in um/s
-            k - inhibition strength over induction threshold
-            K_I - half-saturation constant for the inhibitor
-            n - Hill coefficient for the inhibitor
-            μ_ω - mean induction threshold
-            σ_ω - standard deviation of induction threshold
-            μ_ψ - mean initial concentration
-            σ_ψ - standard deviation of initial concentration
-        output:
-            the germination response for the given parameters
-        """
-
-        # Transform to log-normal
-        μ_ψ_log = log(μ_ψ^2 / sqrt(σ_ψ^2 + μ_ψ^2))
-        σ_ψ_log = sqrt(log(σ_ψ^2 / μ_ψ^2 + 1))
-        ψ = exp.(μ_ψ_log .+ σ_ψ_log .* u)
-
-        # Distributions
-        dist_ω = Normal(μ_ω, σ_ω)
-
-        # Inhibitor
-        V = 4/3 * π .* ξ.^3
-        A = 4 * π .* ξ.^2
-        τ = V ./ (Pₛ * A)
-        ϕ = ρₛ .* V
-        β = ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ)))
-
-        # Reshape
-        β, ψ = meshgrid(β, ψ)
-
-        c_in = ψ .* β
-        s_mod = 1 ./ (1 .+ (c_in ./ K_I).^n)
-
-        tail = cdf.(dist_ω, s_mod .- k .* c_in)
-
-        return sum(W .* tail)
-    end
-
-
-    function germ_response_inhibitor_dep_inducer_combined_st_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, k, K_cs, K_I, n, μ_ω, σ_ω, μ_ψ, σ_ψ)
+    function germ_response_inhibitor_dep_inducer_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, k, K_cs, K_I, n, μ_ω, σ_ω, μ_ψ, σ_ψ)
         """
         Compute the germination response for an inhibitor-dependent
         induction threshold and signal for a given set of parameters.
@@ -810,7 +572,7 @@ module GermStats
     end
 
 
-    function germ_response_inducer_dep_inhibitor_thresh_2_factor_st_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, k, K_cs, μ_γ, σ_γ, μ_ω, σ_ω)
+    function germ_response_inducer_dep_inhibitor_thresh_2_factor_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, k, K_cs, μ_γ, σ_γ, μ_ω, σ_ω)
         """
         Compute the germination response for an inducer-dependent
         inhibitor threshold for a given set of parameters,
@@ -860,7 +622,7 @@ module GermStats
     end
 
 
-    function germ_response_inducer_dep_inhibitor_perm_2_factor_st_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, μ_γ, σ_γ, μ_ω, σ_ω)
+    function germ_response_inducer_dep_inhibitor_perm_2_factor_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, μ_γ, σ_γ, μ_ω, σ_ω)
         """
         Compute the germination response for an inducer-dependent
         inhibitor permeation for a given set of parameters,
@@ -909,7 +671,7 @@ module GermStats
     end
 
 
-    function germ_response_inducer_dep_inhibitor_combined_2_factor_st_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, k, μ_γ, σ_γ, μ_ω, σ_ω)
+    function germ_response_inducer_dep_inhibitor_2_factor_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, k, μ_γ, σ_γ, μ_ω, σ_ω)
         """
         Compute the germination response for an inducer-dependent
         inhibitor threshold and permeation and an additional
@@ -959,7 +721,7 @@ module GermStats
     end
 
 
-    function germ_response_inhibitor_dep_inducer_thresh_2_factor_st_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, k, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ)
+    function germ_response_inhibitor_dep_inducer_thresh_2_factor_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, k, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ)
         """
         Compute the germination response for an inhibitor-dependent
         induction threshold and an additional inhibitor-dependent
@@ -1028,7 +790,7 @@ module GermStats
         return sum(W3 .* tail)
     end
 
-    function germ_response_inhibitor_dep_inducer_signal_2_factor_st_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, K_I, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ)
+    function germ_response_inhibitor_dep_inducer_signal_2_factor_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, K_I, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ)
         """
         Compute the germination response for an inhibitor-dependent
         induction signal and an additional inhibitor-dependent
@@ -1100,7 +862,7 @@ module GermStats
     end
 
 
-    function germ_response_inhibitor_dep_inducer_combined_2_factor_st_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, K_I, n, k, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ)
+    function germ_response_inhibitor_dep_inducer_2_factor_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, K_I, n, k, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ)
         """
         Compute the germination response for an inhibitor-dependent
         induction threshold and signal and an additional
@@ -1172,53 +934,7 @@ module GermStats
     end
 
 
-    function germ_response_inhibitor_var_perm_gh(u, W, t, ρₛ, ξ, μ_π, σ_π, μ_γ, σ_γ)
-        """
-        Compute the germination response for purely
-        inhibition-dependent germination for a given set of parameters,
-        whereby the permeation constant is a random variable.
-        Uses Gauss-Hermite approximation.
-        inputs:
-            u - transformed Gauss-Hermite nodes
-            W - transformed Gauss-Hermite weights (matrix)
-            t - time in seconds
-            ρₛ - spore density in spores/um^3
-            ξ - spore radius in um
-            μ_π - mean permeation constant in um/s
-            σ_π - standard deviation of permeation constant
-            μ_γ - mean inhibition threshold
-            σ_γ - standard deviation of inhibition threshold
-        output:
-            the germination response for the given parameters
-        """
-
-        # Transform to log-normal
-        μ_π_log = log(μ_π^2 / sqrt(σ_π^2 + μ_π^2))
-        σ_π_log = sqrt(log(σ_π^2 / μ_π^2 + 1))
-        πₛ = exp.(μ_π_log .+ σ_π_log .* u)
-
-        # Distributions
-        dist_γ = Normal(μ_γ, σ_γ)
-
-        # Inhibitor
-        V = 4/3 * π .* ξ.^3
-        A = 4 * π .* ξ.^2
-
-        # Reshape
-        πₛ, V = meshgrid(πₛ, V)
-        A = repeat(A, 1, size(πₛ, 2))
-
-        τ = V ./ (πₛ .* A)
-        ϕ = ρₛ .* V
-        β = ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ)))
-
-        tail = 1 .- cdf.(dist_γ, β)
-
-        return sum(W .* tail)
-    end
-
-
-    function germ_response_inducer_thresh_var_perm_st_gh(u, W4, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, k, μ_ω, σ_ω, μ_ψ, σ_ψ, μ_α, σ_α)
+    function germ_response_inducer_thresh_var_perm_gh(u, W4, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, k, μ_ω, σ_ω, μ_ψ, σ_ψ, μ_α, σ_α)
         """
         Compute the germination response for an inhibitor-dependent
         induction threshold for a given set of parameters,
@@ -1301,7 +1017,7 @@ module GermStats
     end
 
 
-    function germ_response_inducer_combined_var_perm_st_gh(u, W4, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, K_I, k, n, μ_ω, σ_ω, μ_ψ, σ_ψ, μ_α, σ_α)
+    function germ_response_inducer_var_perm_gh(u, W4, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, K_I, k, n, μ_ω, σ_ω, μ_ψ, σ_ψ, μ_α, σ_α)
         """
         Compute the germination response for an inhibitor-dependent
         induction threshold and signal for a given set of parameters,
@@ -1387,7 +1103,7 @@ module GermStats
     end
 
 
-    function germ_response_independent_factors_var_perm_st_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, μ_γ, σ_γ, μ_ω, σ_ω, μ_α, σ_α)
+    function germ_response_independent_factors_var_perm_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, μ_γ, σ_γ, μ_ω, σ_ω, μ_α, σ_α)
         """
         Compute the germination response for independent
         inhibition and induction for a given set of parameters,
@@ -1459,7 +1175,7 @@ module GermStats
     end
 
 
-    function germ_response_inducer_thresh_2_factors_var_perm_st_gh(u, W4, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, k, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ, μ_α, σ_α)
+    function germ_response_inducer_thresh_2_factors_var_perm_gh(u, W4, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, k, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ, μ_α, σ_α)
         """
         Compute the germination response for an inhibitor-dependent
         induction threshold for a given set of parameters,
@@ -1545,7 +1261,7 @@ module GermStats
     end
 
 
-    function germ_response_inducer_signal_2_factors_var_perm_st_gh(u, W4, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, K_I, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ, μ_α, σ_α)
+    function germ_response_inducer_signal_2_factors_var_perm_gh(u, W4, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, K_I, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ, μ_α, σ_α)
         """
         Compute the germination response for an inhibitor-dependent
         induction signal for a given set of parameters,
@@ -1633,7 +1349,7 @@ module GermStats
     end
 
 
-    function germ_response_inducer_combined_2_factors_var_perm_st_gh(u, W4, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, K_I, k, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ, μ_α, σ_α)
+    function germ_response_inducer_2_factors_var_perm_gh(u, W4, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, K_I, k, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ, μ_α, σ_α)
         """
         Compute the germination response for an inhibitor-dependent
         induction threshold and signal for a given set of parameters,
@@ -1722,7 +1438,7 @@ module GermStats
     end
 
 
-    function germ_response_inducer_dep_inhibitor_combined_eq(ρₛ, dist_ξ, μ_γ, σ_γ; reltol=1e-4)
+    function germ_response_inducer_dep_inhibitor_eq(ρₛ, dist_ξ, μ_γ, σ_γ; reltol=1e-4)
         """
         Compute the equilibrium germination response
         for an inducer-dependent inhibitor threshold and release.
@@ -1750,7 +1466,7 @@ module GermStats
     end
 
 
-    function germ_response_inducer_dep_inhibitor_combined_eq_c_ex(ρₛ, dist_ξ, c_ex, μ_γ, σ_γ, μ_ψ, σ_ψ; reltol=1e-4)
+    function germ_response_inducer_dep_inhibitor_eq_c_ex(ρₛ, dist_ξ, c_ex, μ_γ, σ_γ, μ_ψ, σ_ψ; reltol=1e-4)
         """
         Compute the equilibrium germination response
         for an inducer-dependent inhibitor threshold and release.
@@ -1785,7 +1501,7 @@ module GermStats
     end
 
 
-    function germ_response_inhibitor_dep_inducer_combined_2_factors_eq(ρₛ, dist_ξ, c₀_cs, K_cs, K_I, k, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4, abstol=1e-6)
+    function germ_response_inhibitor_dep_inducer_2_factors_eq(ρₛ, dist_ξ, c₀_cs, K_cs, K_I, k, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4, abstol=1e-6)
         """
         Compute the equilibrium germination response
         for an inhibitor-dependent inducer threshold and signal and
@@ -1835,7 +1551,7 @@ module GermStats
     end
 
 
-    function germ_response_inhibitor_dep_inducer_combined_2_factors_eq_c_ex(ρₛ, dist_ξ, c_ex, c₀_cs, K_cs, K_I, k, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4, abstol=1e-6)
+    function germ_response_inhibitor_dep_inducer_2_factors_eq_c_ex(ρₛ, dist_ξ, c_ex, c₀_cs, K_cs, K_I, k, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4, abstol=1e-6)
         """
         Compute the equilibrium germination response
         for an inhibitor-dependent inducer threshold and signal and
@@ -2156,4 +1872,8 @@ module GermStats
 
         return hcubature(integrand, [0.0, 0.0], [quantile(dist_ξ, 1-1e-8), quantile(dist_ψ, 1-1e-8)], reltol=reltol, abstol=1e-6)[1]
     end
+
+    # ===== FEEDBACK MODELS ===== #
+
+    
 end
