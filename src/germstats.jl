@@ -11,11 +11,14 @@ module GermStats
     using Distributions
     using SpecialFunctions
     using ArgCheck
+    using DifferentialEquations
+    using QuasiMonteCarlo
 
     include("./conversions.jl")
     using .Conversions
 
     export compute_germination_response
+
     export germ_response_independent_factors_gh
     export germ_response_inducer_dep_inhibitor_thresh_gh
     export germ_response_inducer_dep_inhibitor_perm_gh
@@ -35,6 +38,7 @@ module GermStats
     export germ_response_inducer_thresh_2_factors_var_perm_gh
     export germ_response_inducer_signal_2_factors_var_perm_gh
     export germ_response_inducer_2_factors_var_perm_gh
+
     export germ_response_inducer_dep_inhibitor_eq
     export germ_response_inducer_dep_inhibitor_eq_c_ex
     export germ_response_inhibitor_dep_inducer_thresh_2_factors_eq
@@ -45,6 +49,8 @@ module GermStats
     export germ_response_inhibitor_dep_inducer_2_factors_eq_c_ex
     export germ_response_independent_eq
     export germ_response_independent_eq_c_ex
+
+    export germ_response_feedback_inhibitor
 
 
     function inducer_concentration(c_out, t, Pₛ, A, V_cw)
@@ -64,13 +70,11 @@ module GermStats
     end
 
     # ===== GAUSS-HERMITE APPROXIMATIONS =====
-    function compute_germination_response(model_type, st, times, ρₛ, params; n_nodes=nothing)
+    function compute_germination_response(model_type, times, ρₛ, params; n_nodes=nothing)
         """
         Generic wrapper function to compute the germination response.
         inputs:
             model_type (String): model type to fit
-                ("independent", "inhibitor", "inhibitor_thresh", "inhibitor_perm", "inducer", "inducer_thresh", "inducer_signal")
-            st (Bool): whether to use a time-dependent inducer
             times (Vector{Float64}): time points to compute the germination response
             ρₛ (float) - spore density in spores/um^3
             n_nodes (int) - number of Gauss-Hermite nodes to use
@@ -83,7 +87,8 @@ module GermStats
                                 "inducer", "inducer_thresh", "inducer_signal",
                                 "combined_inhibitor", "combined_inhibitor_thresh", "combined_inhibitor_perm",
                                 "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal",
-                                "special_inducer", "special_independent", "special_combined", "special_thresh", "special_signal"]
+                                "special_inducer", "special_independent", "special_combined", "special_thresh", "special_signal",
+                                "feedback_inhibitor"]
 
         # Determine number of nodes depending on the integral dimension (if not specified)
         if isnothing(n_nodes)
@@ -97,27 +102,34 @@ module GermStats
                 n_nodes = 6 # 4D integral
             end
         end
-        
-        # Gauss-Hermite nodes and weights
-        ghnodes, ghweights = gausshermite(n_nodes)
-        u = √2 .* ghnodes
-        hw = ghweights ./ √π
+
+        gh_integral = false
+        if split(model_type, "_")[1] != "feedback"
+            gh_integral = true
+
+            # Gauss-Hermite nodes and weights
+            ghnodes, ghweights = gausshermite(n_nodes)
+            u = √2 .* ghnodes
+            hw = ghweights ./ √π
+        end
 
         # Unpack means and stds and weight samples
         μ_ξ = params[:μ_ξ]
         σ_ξ = params[:σ_ξ]
         μ_ξ_log = log(μ_ξ^2 / sqrt(σ_ξ^2 + μ_ξ^2))
         σ_ξ_log = sqrt(log(σ_ξ^2 / μ_ξ^2 + 1))
-        ξ = exp.(μ_ξ_log .+ σ_ξ_log .* u)
+        if gh_integral ξ = exp.(μ_ξ_log .+ σ_ξ_log .* u) end
 
         if haskey(params, :μ_κ)
             μ_κ = params[:μ_κ]
             σ_κ = params[:σ_κ]
             μ_κ_log = log(μ_κ^2 / sqrt(σ_κ^2 + μ_κ^2))
             σ_κ_log = sqrt(log(σ_κ^2 / μ_κ^2 + 1))
-            κ = exp.(μ_κ_log .+ σ_κ_log .* u)
+            if gh_integral
+                κ = exp.(μ_κ_log .+ σ_κ_log .* u)
 
-            ξ2, κ2 = meshgrid(ξ, κ)
+                ξ2, κ2 = meshgrid(ξ, κ)
+            end
         end
 
         # Weight tensors
@@ -129,6 +141,12 @@ module GermStats
             W3 = reshape(hw, n_nodes,1,1) .* reshape(hw, 1,n_nodes,1) .* reshape(hw, 1,1,n_nodes)
         elseif model_type in ["special_inducer", "special_combined", "special_thresh", "special_signal"]
             W4 = reshape(hw, n_nodes,1,1,1) .* reshape(hw, 1,n_nodes,1,1) .* reshape(hw, 1,1,n_nodes,1) .* reshape(hw, 1,1,1,n_nodes)
+        end
+
+        # Construct distributions
+        if model_type in ["feedback_inhibitor"]
+            dist_ξ = LogNormal(μ_ξ_log, σ_ξ_log)
+            dist_κ = LogNormal(μ_κ_log, σ_κ_log)
         end
 
         # Compute the germination response
@@ -185,6 +203,10 @@ module GermStats
             
         elseif model_type == "special_signal"
             germ_response = [germ_response_inducer_signal_2_factors_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:K_I], params[:n], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
+        
+        elseif model_type == "feedback_inhibitor"
+            germ_response = [germ_response_feedback_inhibitor(t, ρₛ, dist_ξ, dist_κ, params[:s_max], params[:c₀_cs], params[:d_hp], params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:μ_γ], params[:σ_γ], params[:μ_ψ], params[:σ_ψ]) for t in times]
+            
         end
 
         return germ_response
@@ -214,7 +236,7 @@ module GermStats
             μ_ω - mean induction threshold
             σ_ω - standard deviation of induction threshold
         output:
-            the germination response for the given parameters
+            the germination response for the given parameters (normalized)
         """
 
         # Distributions
@@ -229,7 +251,7 @@ module GermStats
         β = ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ)))
 
         # Inducer
-        V_cw = 0.32 .* π .* ((ξ .- d_hp).^3 .- (ξ .- d_hp .- κ).^3)
+        V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
         s = c_cs ./ (K_cs .+ c_cs)
         
@@ -262,7 +284,7 @@ module GermStats
             μ_γ - mean inhibition threshold
             σ_γ - standard deviation of inhibition threshold
         output:
-            the germination response for the given parameters
+            the germination response for the given parameters (normalized)
         """
 
         # Distributions
@@ -276,7 +298,7 @@ module GermStats
         β = ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ)))
 
         # Inducer
-        V_cw = 0.32 .* π .* ((ξ .- d_hp).^3 .- (ξ .- d_hp .- κ).^3)
+        V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
         s = c_cs ./ (K_cs .+ c_cs)
 
@@ -308,7 +330,7 @@ module GermStats
             μ_γ - mean inhibition threshold
             σ_γ - standard deviation of inhibition threshold
         output:
-            the germination response for the given parameters
+            the germination response for the given parameters (normalized)
         """
 
         # Distributions
@@ -316,7 +338,7 @@ module GermStats
 
         # Inducer
         A = 4 * π .* ξ.^2
-        V_cw = 0.32 .* π .* ((ξ .- d_hp).^3 .- (ξ .- d_hp .- κ).^3)
+        V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
         s = c_cs ./ (K_cs .+ c_cs)
 
@@ -355,7 +377,7 @@ module GermStats
             μ_γ - mean inhibition threshold
             σ_γ - standard deviation of inhibition threshold
         output:
-            the germination response for the given parameters
+            the germination response for the given parameters (normalized)
         """
 
         # Distributions
@@ -363,7 +385,7 @@ module GermStats
 
         # Inducer
         A = 4 * π .* ξ.^2
-        V_cw = 0.32 .* π .* ((ξ .- d_hp).^3 .- (ξ .- d_hp .- κ).^3)
+        V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
         s = c_cs ./ (K_cs .+ c_cs)
 
@@ -403,7 +425,7 @@ module GermStats
             μ_ψ - mean initial concentration
             σ_ψ - standard deviation of initial concentration
         output:
-            the germination response for the given parameters
+            the germination response for the given parameters (normalized)
         """
 
         # Transform to log-normal
@@ -416,7 +438,7 @@ module GermStats
 
         # Inducer
         A = 4 * π .* ξ.^2
-        V_cw = 0.32 .* π .* ((ξ .- d_hp).^3 .- (ξ .- d_hp .- κ).^3) # psi and kappa
+        V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
         s = c_cs ./ (K_cs .+ c_cs)
 
@@ -467,7 +489,7 @@ module GermStats
             μ_ψ - mean initial concentration
             σ_ψ - standard deviation of initial concentration
         output:
-            the germination response for the given parameters
+            the germination response for the given parameters (normalized)
         """
 
         # Transform to log-normal
@@ -480,7 +502,7 @@ module GermStats
 
         # Inducer
         A = 4 * π .* ξ.^2
-        V_cw = 0.32 .* π .* ((ξ .- d_hp).^3 .- (ξ .- d_hp .- κ).^3)
+        V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
         s = c_cs ./ (K_cs .+ c_cs)
 
@@ -533,7 +555,7 @@ module GermStats
             μ_ψ - mean initial concentration
             σ_ψ - standard deviation of initial concentration
         output:
-            the germination response for the given parameters
+            the germination response for the given parameters (normalized)
         """
 
         # Transform to log-normal
@@ -546,7 +568,7 @@ module GermStats
 
         # Inducer
         A = 4 * π .* ξ.^2
-        V_cw = 0.32 .* π .* ((ξ .- d_hp).^3 .- (ξ .- d_hp .- κ).^3)
+        V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
         s = c_cs ./ (K_cs .+ c_cs)
 
@@ -597,7 +619,7 @@ module GermStats
             μ_ω - mean induction threshold
             σ_ω - standard deviation of induction threshold
         output:
-            the germination response for the given parameters
+            the germination response for the given parameters (normalized)
         """
 
         # Distributions
@@ -612,7 +634,7 @@ module GermStats
         β = ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ)))
 
         # Inducer
-        V_cw = 0.32 .* π .* ((ξ .- d_hp).^3 .- (ξ .- d_hp .- κ).^3)
+        V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
         s = c_cs ./ (K_cs .+ c_cs)
 
@@ -646,7 +668,7 @@ module GermStats
             μ_ω - mean induction threshold
             σ_ω - standard deviation of induction threshold
         output:
-            the germination response for the given parameters
+            the germination response for the given parameters (normalized)
         """
 
         # Distributions
@@ -655,7 +677,7 @@ module GermStats
 
         # Inducer
         A = 4 * π .* ξ.^2
-        V_cw = 0.32 .* π .* ((ξ .- d_hp).^3 .- (ξ .- d_hp .- κ).^3)
+        V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
         s = c_cs ./ (K_cs .+ c_cs)
 
@@ -696,7 +718,7 @@ module GermStats
             μ_ω - mean induction threshold
             σ_ω - standard deviation of induction threshold
         output:
-            the germination response for the given parameters
+            the germination response for the given parameters (normalized)
         """
 
         # Distributions
@@ -705,7 +727,7 @@ module GermStats
 
         # Inducer
         A = 4 * π .* ξ.^2
-        V_cw = 0.32 .* π .* ((ξ .- d_hp).^3 .- (ξ .- d_hp .- κ).^3)
+        V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
         s = c_cs ./ (K_cs .+ c_cs)
 
@@ -748,7 +770,7 @@ module GermStats
             μ_ψ - mean initial concentration
             σ_ψ - standard deviation of initial concentration
         output:
-            the germination response for the given parameters
+            the germination response for the given parameters (normalized)
         """
 
         # Transform to log-normal
@@ -762,7 +784,7 @@ module GermStats
 
         # Inducer
         A = 4 * π .* ξ.^2
-        V_cw = 0.32 .* π .* ((ξ .- d_hp).^3 .- (ξ .- d_hp .- κ).^3) # psi and kappa
+        V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
         s = c_cs ./ (K_cs .+ c_cs)
 
@@ -818,7 +840,7 @@ module GermStats
             μ_ψ - mean initial concentration
             σ_ψ - standard deviation of initial concentration
         output:
-            the germination response for the given parameters
+            the germination response for the given parameters (normalized)
         """
 
         # Transform to log-normal
@@ -832,7 +854,7 @@ module GermStats
 
         # Inducer
         A = 4 * π .* ξ.^2
-        V_cw = 0.32 .* π .* ((ξ .- d_hp).^3 .- (ξ .- d_hp .- κ).^3) # psi and kappa
+        V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
         s = c_cs ./ (K_cs .+ c_cs)
 
@@ -890,7 +912,7 @@ module GermStats
             μ_ψ - mean initial concentration
             σ_ψ - standard deviation of initial concentration
         output:
-            the germination response for the given parameters
+            the germination response for the given parameters (normalized)
         """
 
         # Transform to log-normal
@@ -904,7 +926,7 @@ module GermStats
 
         # Inducer
         A = 4 * π .* ξ.^2
-        V_cw = 0.32 .* π .* ((ξ .- d_hp).^3 .- (ξ .- d_hp .- κ).^3) # psi and kappa
+        V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
         s = c_cs ./ (K_cs .+ c_cs)
 
@@ -961,7 +983,7 @@ module GermStats
             μ_α - mean cell wall porosity
             σ_α - standard deviation of cell wall porosity
         output:
-            the germination response for the given parameters
+            the germination response for the given parameters (normalized)
         """
 
         # Transform to log-normal
@@ -981,7 +1003,7 @@ module GermStats
 
         # Cell wall and spore volumes
         A = 4 * π .* ξ.^2
-        V_cw = 0.32 .* π .* ((ξ .- d_hp).^3 .- (ξ .- d_hp .- κ).^3)
+        V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         V = 4/3 * π .* ξ.^3
 
         # Reshape
@@ -1046,7 +1068,7 @@ module GermStats
             μ_α - mean cell wall porosity
             σ_α - standard deviation of cell wall porosity
         output:
-            the germination response for the given parameters
+            the germination response for the given parameters (normalized)
         """
 
         # Transform to log-normal
@@ -1066,7 +1088,7 @@ module GermStats
 
         # Cell wall and spore volumes
         A = 4 * π .* ξ.^2
-        V_cw = 0.32 .* π .* ((ξ .- d_hp).^3 .- (ξ .- d_hp .- κ).^3)
+        V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         V = 4/3 * π .* ξ.^3
 
         # Reshape
@@ -1129,7 +1151,7 @@ module GermStats
             μ_α - mean cell wall porosity
             σ_α - standard deviation of cell wall porosity
         output:
-            the germination response for the given parameters
+            the germination response for the given parameters (normalized)
         """
 
         # Transform to log-normal
@@ -1146,7 +1168,7 @@ module GermStats
         A = 4 * π .* ξ.^2
 
         # Cell wall volume
-        V_cw = 0.32 .* π .* ((ξ .- d_hp).^3 .- (ξ .- d_hp .- κ).^3)
+        V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
 
         # Modulate permeation
         Pₛ = Pₛ .* α
@@ -1204,7 +1226,7 @@ module GermStats
             μ_α - mean cell wall porosity
             σ_α - standard deviation of cell wall porosity
         output:
-            the germination response for the given parameters
+            the germination response for the given parameters (normalized)
         """
 
         # Transform to log-normal
@@ -1225,7 +1247,7 @@ module GermStats
 
         # Cell wall and spore volumes
         A = 4 * π .* ξ.^2
-        V_cw = 0.32 .* π .* ((ξ .- d_hp).^3 .- (ξ .- d_hp .- κ).^3)
+        V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         V = 4/3 * π .* ξ.^3
 
         # Reshape
@@ -1291,7 +1313,7 @@ module GermStats
             μ_α - mean cell wall porosity
             σ_α - standard deviation of cell wall porosity
         output:
-            the germination response for the given parameters
+            the germination response for the given parameters (normalized)
         """
 
         # Transform to log-normal
@@ -1312,7 +1334,7 @@ module GermStats
 
         # Cell wall and spore volumes
         A = 4 * π .* ξ.^2
-        V_cw = 0.32 .* π .* ((ξ .- d_hp).^3 .- (ξ .- d_hp .- κ).^3)
+        V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         V = 4/3 * π .* ξ.^3
 
         # Reshape
@@ -1380,7 +1402,7 @@ module GermStats
             μ_α - mean cell wall porosity
             σ_α - standard deviation of cell wall porosity
         output:
-            the germination response for the given parameters
+            the germination response for the given parameters (normalized)
         """
 
         # Transform to log-normal
@@ -1401,7 +1423,7 @@ module GermStats
 
         # Cell wall and spore volumes
         A = 4 * π .* ξ.^2
-        V_cw = 0.32 .* π .* ((ξ .- d_hp).^3 .- (ξ .- d_hp .- κ).^3)
+        V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         V = 4/3 * π .* ξ.^3
 
         # Reshape
@@ -1449,7 +1471,7 @@ module GermStats
             σ_γ - standard deviation of inhibition threshold
             reltol - relative tolerance for the integration
         output:
-            the equilibrium germination response for the given parameters
+            the equilibrium germination response for the given parameters (normalized)
         """
 
         # Distributions
@@ -1480,7 +1502,7 @@ module GermStats
             σ_ψ - standard deviation of initial concentration in M
             reltol - relative tolerance for the integration
         output:
-            the equilibrium germination response for the given parameters
+            the equilibrium germination response for the given parameters (normalized)
         """
 
         # Distributions
@@ -1523,7 +1545,7 @@ module GermStats
             reltol - relative tolerance for the integration
             abstol - absolute tolerance for the integration
         output:
-            the equilibrium germination response for the given parameters
+            the equilibrium germination response for the given parameters (normalized)
         """
         
         # Distributions
@@ -1574,7 +1596,7 @@ module GermStats
             reltol - relative tolerance for the integration
             abstol - absolute tolerance for the integration
         output:
-            the equilibrium germination response for the given parameters
+            the equilibrium germination response for the given parameters (normalized)
         """
         
         # Distributions
@@ -1622,7 +1644,7 @@ module GermStats
             reltol - relative tolerance for the integration
             abstol - absolute tolerance for the integration
         output:
-            the equilibrium germination response for the given parameters
+            the equilibrium germination response for the given parameters (normalized)
         """
         
         # Distributions
@@ -1668,7 +1690,7 @@ module GermStats
             σ_ψ - standard deviation of initial concentration
             reltol - relative tolerance for the integration
         output:
-            the equilibrium germination response for the given parameters
+            the equilibrium germination response for the given parameters (normalized)
         """
         
         # Distributions
@@ -1694,7 +1716,7 @@ module GermStats
     end
 
 
-    function germ_response_inhibitor_dep_inducer_signal_2_factors_eq(ρₛ, dist_ξ, c₀_cs, K_cs, K_I, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4, abstol=1e-6)
+    function germ_response_inhibitor_dep_inducer_signal_2_factors_eq(t, ρₛ, dist_ξ, c₀_cs, K_cs, K_I, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4, abstol=1e-6)
         """
         Compute the equilibrium germination response
         for an inhibitor-dependent inducer signal and
@@ -1715,7 +1737,7 @@ module GermStats
             reltol - relative tolerance for the integration
             abstol - absolute tolerance for the integration
         output:
-            the equilibrium germination response for the given parameters
+            the equilibrium germination response for the given parameters (normalized)
         """
         
         # Distributions
@@ -1765,7 +1787,7 @@ module GermStats
             reltol - relative tolerance for the integration
             abstol - absolute tolerance for the integration
         output:
-            the equilibrium germination response for the given parameters
+            the equilibrium germination response for the given parameters (normalized)
         """
         
         # Distributions
@@ -1808,7 +1830,7 @@ module GermStats
             σ_ω - standard deviation of induction threshold
             reltol - relative tolerance for the integration
         output:
-            the equilibrium germination response for the given parameters
+            the equilibrium germination response for the given parameters (normalized)
         """
 
         # Distributions
@@ -1848,7 +1870,7 @@ module GermStats
             σ_ψ - standard deviation of initial concentration
             reltol - relative tolerance for the integration
         output:
-            the equilibrium germination response for the given parameters
+            the equilibrium germination response for the given parameters (normalized)
         """
 
         # Distributions
@@ -1874,6 +1896,94 @@ module GermStats
     end
 
     # ===== FEEDBACK MODELS ===== #
+    function germ_response_feedback_inhibitor(t, ρₛ, dist_ξ, dist_κ, s_max, c₀_cs, d_hp, Pₛ_I, Pₛ_C, K_cs, μ_γ, σ_γ, μ_ψ, σ_ψ; n_samples=1024)
+        """
+        Compute the germination response for inducer-dependent
+        cell wall permeability and an inhibitor-dependent germination.
+        inputs:
+            t - time in seconds
+            ρₛ - spore density in spores/um^3
+            dist_ξ - distribution of spore radii (LogNormal)
+            dist_κ - distribution of polysaccharide layer thicknesses (LogNormal)
+            s_max - maximum inductive signal strength
+            c₀_cs - initial concentration of carbon source in M
+            d_hp - polysaccharide layer thickness in μm
+            Pₛ_I - permeation constant for the inhibitor in um/s
+            Pₛ_C - permeation constant for the carbon source in um/s
+            K_cs - half-saturation constant for the carbon source
+            μ_γ - mean inhibition threshold
+            σ_γ - standard deviation of inhibition threshold
+            μ_ψ - mean initial concentration
+            σ_ψ - standard deviation of initial concentration
+            n_samples - number of Sobol samples for integration
+        output:
+            the germination response for the given parameters (normalized)
+        """
 
+        # Random samples
+        sobol_pts = QuasiMonteCarlo.sample(n_samples, 4, SobolSample(R = OwenScramble(base = 2, pad = 10)))
+
+        samples_ξ = quantile(dist_ξ, sobol_pts[1,:])
+
+        μ_ψ_log = log(μ_ψ^2 / sqrt(σ_γ^2 + μ_ψ^2))
+        σ_γ_log = sqrt(log(σ_γ^2 / μ_ψ^2 + 1))
+        dist_ψ = LogNormal(μ_ψ_log, σ_γ_log)
+        samples_ψ = quantile(dist_ψ, sobol_pts[2,:])
+
+        μ_γ_log = log(μ_γ^2 / sqrt(σ_γ^2 + μ_γ^2))
+        σ_γ_log = sqrt(log(σ_γ^2 / μ_γ^2 + 1))
+        dist_γ = LogNormal(μ_γ_log, σ_γ_log)
+        samples_γ = quantile(dist_γ, sobol_pts[3,:])
+
+        samples_κ = quantile(dist_γ, sobol_pts[4,:])
+
+        # ODE function
+        function ode!(du, u, p, t)
+            cinI, coutI, cinC = u
+
+            g = (p.K_cs + cinC * (1 + p.s_max) * p.A) / (p.K_cs + cinC)
+            rateI = g * p.Pₛ_I
+            rateC = g * p.Pₛ_C
+
+            du[1] = -(rateI / p.Vₛ) * (cinI - coutI)
+            du[2] = (rateI / p.V_out) * (cinI - coutI)
+            du[3] = -(rateC / p.V_ps) * (cinC - c₀_cs)
+        end
+
+        # Template problem
+        dummyA, dummyV = compute_spore_area_and_volume_from_dia(2*mean(dist_ξ))
+        p_template = (A=dummyA, Vₛ=dummyV, V_out=1.0/ρₛ - dummyV, V_ps=compute_ps_layer_volume(mean(dist_ξ), d_hp, mean(dist_κ)),
+                    Pₛ_I=Pₛ_I, Pₛ_C=Pₛ_C, K_cs=K_cs, s_max=s_max, c₀_cs=c₀_cs)
+        u0_template = [μ_ψ, 0.0, 0.0]
+        tspan = (0.0, t)
+        prob = ODEProblem(ode!, u0_template, tspan, p_template)
+
+        # Ensemble integration function
+        function prob_func(prob, i, repeat)
+            r = max(samples_ξ[i], 1e-9)
+            A, Vₛ = compute_spore_area_and_volume_from_dia(2*r)
+            
+            # Designated and outside volume
+            V_des = 1.0 / ρₛ
+            V_out = V_des - Vₛ
+            V_ps = compute_ps_layer_volume(r, d_hp, samples_κ[i])
+            
+            new_p = (A=A, Vₛ=Vₛ, V_out=V_out, V_ps=V_ps,
+                    Pₛ_I=Pₛ_I, Pₛ_C=Pₛ_C, K_cs=K_cs, s_max=s_max, c₀_cs=c₀_cs)
+
+            new_u0 = [samples_ψ[i], 0.0, 0.0]
+            remake(prob; u0 = new_u0, p = new_p)
+        end
+
+        # Run ODE ensembles
+        ep = EnsembleProblem(prob; prob_func=prob_func)
+        sols = solve(ep, Rodas5(), EnsembleThreads(), trajectories=n_samples, saveat=[t])
+
+        # Evaluate fraction germinated
+        c_in_I_t = [sols[i](t)[1] for i in 1:n_samples]
+        germinated = c_inI_at_t .< samples_γ
+        
+        return mean(germinated)
+    end
     
 end

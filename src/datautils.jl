@@ -166,14 +166,12 @@ module DataUtils
         Fit a selected germination model to the data.
         inputs:
             model_type (String): model type to fit
-                ("independent", "inhibitor", "inhibitor_thresh", "inhibitor_perm", "inducer", "inducer_thresh", "inducer_signal")
             def_params (Dict): default parameter values
             dantigny_data (Matrix): time-dependent data from varying inducers and spore densities to fit
             times (Vector): time points
             sources (Vector): carbon sources
             densities (Vector): spore densities
             bounds_dict (Dict): bounds for the free parameters
-            p_maxs (Matrix): saturation fractions for the Dantigny model
             max_steps (int): maximum number of steps for the optimization
         outputs:
             params_out (Dict): optimized parameters
@@ -237,7 +235,7 @@ module DataUtils
         
         if model_type == "independent"
             # Independent inducer/inhibitor
-            println("Model: independent factors with time-dependent inducer")
+            println("Model: independent factors")
             wrapper = (inputs, params) -> germ_response_independent_factors_gh(
                 u, W,
                 inputs[1], #t
@@ -260,7 +258,7 @@ module DataUtils
         elseif model_type_split[1] == "inhibitor"
 
             if model_type == "inhibitor" # Inducer shifts inhibition threshold and modulates inhibitor permeability
-                println("Model: inducer-modulated inhibitor (combined) with time-dependent inducer")
+                println("Model: inducer-modulated inhibitor (combined)")
                 wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_gh(
                     u, W,
                     inputs[1], #t
@@ -280,7 +278,7 @@ module DataUtils
                 param_occurrences = [1, n_src, n_src, n_src, 1, 1]
 
             elseif model_type_split[2] == "thresh" # Inducer shifts inhibition threshold
-                println("Model: inducer-modulated inhibitor (threshold) with time-dependent inducer")
+                println("Model: inducer-modulated inhibitor (threshold)")
                 wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_thresh_gh(
                     u, W,
                     inputs[1], #t
@@ -300,7 +298,7 @@ module DataUtils
                 param_occurrences = [1, n_src, n_src, n_src, 1, 1]
                 
             elseif model_type_split[2] == "perm" # Inducer modulates inhibitor permeability
-                println("Model: inducer-modulated inhibitor (permeability) with time-dependent inducer")
+                println("Model: inducer-modulated inhibitor (permeability)")
                 wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_perm_gh(
                     u, W,
                     inputs[1], #t
@@ -323,7 +321,7 @@ module DataUtils
         elseif model_type_split[1] == "inducer"
 
             if model_type == "inducer" # Inhibitor shifts induction threshold and modulates inducer signal strength
-                println("Model: inhibitor-modulated inducer (combined) with time-dependent inducer")
+                println("Model: inhibitor-modulated inducer (combined)")
                 wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_gh(
                     u, W3,
                     inputs[1], #t
@@ -347,7 +345,7 @@ module DataUtils
                 param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, n_src, n_src, 1, 1]
                 
             elseif model_type_split[2] == "thresh" # Inhibitor shifts induction threshold
-                println("Model: inhibitor-modulated inducer (threshold) with time-dependent inducer")
+                println("Model: inhibitor-modulated inducer (threshold)")
                 wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_thresh_gh(
                     u, W3,
                     inputs[1], #t
@@ -369,7 +367,7 @@ module DataUtils
                 param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, 1, 1]
                 
             elseif model_type_split[2] == "signal" # Inhibitor shifts induction threshold
-                println("Model: inhibitor-modulated inducer (signal) with time-dependent inducer")
+                println("Model: inhibitor-modulated inducer (signal)")
                 wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_signal_gh(
                     u, W3,
                     inputs[1], #t
@@ -398,7 +396,7 @@ module DataUtils
             if model_type_split[2] == "inhibitor"
 
                 if model_type == "combined_inhibitor"
-                    println("Model: inducer-modulated inhibitor (combined) with time-dependent inducer")
+                    println("Model: inducer-modulated inhibitor (combined)")
                     wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_2_factor_gh(
                         u, W,
                         inputs[1], #t
@@ -418,8 +416,9 @@ module DataUtils
                     )
                     param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :k, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
                     param_occurrences = [1, n_src, n_src, n_src, 1, 1, n_src, n_src]
+
                 elseif model_type_split[3] == "thresh"
-                    println("Model: inducer-modulated inhibitor (combined) with time-dependent inducer")
+                    println("Model: inducer-modulated inhibitor (combined)")
                     wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_thresh_2_factor_gh(
                         u, W,
                         inputs[1], #t
@@ -439,8 +438,9 @@ module DataUtils
                     )
                     param_keys = [:Pₛ, :Pₛ_cs, :k, :K_cs, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
                     param_occurrences = [1, n_src, n_src, n_src, 1, 1, n_src, n_src]
+
                 elseif model_type_split[3] == "perm"
-                    println("Model: inducer-modulated inhibitor (release) with time-dependent inducer")
+                    println("Model: inducer-modulated inhibitor (release)")
                     wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_perm_2_factor_gh(
                         u, W,
                         inputs[1], #t
@@ -464,7 +464,7 @@ module DataUtils
             elseif model_type_split[2] == "inducer" 
 
                 if model_type == "combined_inducer"
-                    println("Model: inhibitor-modulated inducer (combined) with time-dependent inducer")
+                    println("Model: inhibitor-modulated inducer (combined)")
                     wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_2_factor_gh(
                         u, W3,
                         inputs[1], #t
@@ -488,8 +488,9 @@ module DataUtils
                     )
                     param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :K_I, :n, :k, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
                     param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1]
+
                 elseif model_type_split[3] == "thresh"
-                    println("Model: inhibitor-modulated inducer (threshold) with time-dependent inducer")
+                    println("Model: inhibitor-modulated inducer (threshold)")
                     wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_thresh_2_factor_gh(
                         u, W3,
                         inputs[1], #t
@@ -511,8 +512,9 @@ module DataUtils
                     )
                     param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :k, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
                     param_occurrences = [1, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1]
+
                 elseif model_type_split[3] == "signal"
-                    println("Model: inhibitor-modulated inducer (signal) with time-dependent inducer")
+                    println("Model: inhibitor-modulated inducer (signal)")
                     wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_signal_2_factor_gh(
                         u, W3,
                         inputs[1], #t
@@ -535,13 +537,14 @@ module DataUtils
                     )
                     param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :K_I, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
                     param_occurrences = [1, n_src, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1]
+
                 end
             end
 
         elseif model_type_split[1] == "special" 
 
             if model_type_split[2] == "inducer"
-                println("Model: inhibitor-modulated inducer (combined) with time-dependent inducer and varying permeability")
+                println("Model: inhibitor-modulated inducer (combined) with varying permeability")
                 wrapper = (inputs, params) -> Main.germ_response_inducer_var_perm_gh(
                     u, W4,
                     inputs[1], #t
@@ -567,7 +570,7 @@ module DataUtils
                 param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, n_src, n_src, 1, 1, 1, 1]
 
             elseif model_type_split[2] == "independent"
-                println("Model: independent factors with time-dependent inducer and varying permeability")
+                println("Model: independent factors with varying permeability")
                 wrapper = (inputs, params) -> Main.germ_response_independent_factors_var_perm_gh(
                     u, W3,
                     inputs[1], #t
@@ -590,7 +593,7 @@ module DataUtils
                 param_occurrences = [1, n_src, n_src, 1, 1, n_src, n_src, 1, 1]
 
             elseif model_type == "special_combined"
-                println("Model: 2-factor germination with inhibitor-modulated inducer (combined), time-dependent inducer and varying permeability")
+                println("Model: 2-factor germination with inhibitor-modulated inducer (combined) and varying permeability")
                 wrapper = (inputs, params) -> Main.germ_response_inducer_2_factors_var_perm_gh(
                     u, W4,
                     inputs[1], #t
@@ -618,7 +621,7 @@ module DataUtils
                 param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1, 1, 1]
 
             elseif model_type_split[2] == "combined" && model_type_split[3] == "thresh"
-                println("Model: 2-factor germination with inhibitor-modulated inducer (threshold), time-dependent inducer and varying permeability")
+                println("Model: 2-factor germination with inhibitor-modulated inducer (threshold) and varying permeability")
                 wrapper = (inputs, params) -> Main.germ_response_inducer_thresh_2_factors_var_perm_gh(
                     u, W4,
                     inputs[1], #t
@@ -644,7 +647,7 @@ module DataUtils
                 param_occurrences = [1, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1, 1, 1]
 
             elseif model_type_split[2] == "combined" && model_type_split[3] == "signal"
-                println("Model: 2-factor germination with inhibitor-modulated inducer (signal), time-dependent inducer and varying permeability")
+                println("Model: 2-factor germination with inhibitor-modulated inducer (signal) and varying permeability")
                 wrapper = (inputs, params) -> Main.germ_response_inducer_signal_2_factors_var_perm_gh(
                     u, W4,
                     inputs[1], #t
@@ -670,6 +673,13 @@ module DataUtils
                 param_keys = [:Pₛ, :Pₛ_cs, :K_cs, :K_I, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ, :μ_α, :δ_α]
                 param_occurrences = [1, n_src, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1, 1, 1]
             end
+
+        elseif model_type_split[1] == "feedback"
+            # FEEDBACK MODELS
+            if model_type_split[2] == "inhibitor" && model_type_split[3] == "perm"
+                println("Model: inducer-dependent inhibitor/inducer permeability")
+            end
+            
         else
             error("Model type not recognized.")
         end
@@ -783,7 +793,6 @@ module DataUtils
         Fit a selected equilibrium germination model to the data.
         inputs:
             model_type (String): model type to fit
-                ("inhibitor", "combined_inducer, "independent")
             def_params (Dict): default parameter values
             germ_data (Array): germination data (concatenated datesets if both exogenous and endogenous models are fitted)
             densities (Vector): spore densities in spores/mL
@@ -1067,6 +1076,8 @@ module DataUtils
         return params_out, rmse
     end
 
+    function fit_feedback_model_to_data(model_type, def_params, dantigny_data, times, sources, densities, bounds_dict, max_steps=10000)
 
+    end
 
 end

@@ -33,6 +33,7 @@ module Conversions
     export extract_mean_cw_concentration
     export compute_spore_concentration
     export generate_spore_positions
+    export compute_ps_layer_volume
 
 
     function cm_to_um(cm)
@@ -453,5 +454,20 @@ module Conversions
         spore_coords .= hcat(vec(spores_x), vec(spores_y), vec(spores_z))  # Concatenate the coordinates
 
         return spore_coords, spore_spacing
+    end
+
+    function compute_ps_layer_volume(R, d_hp, d_ps; porosity=0.32)
+        """
+        Compute polysaccharide layer volume.
+        inputs:
+            R - spore radius in μm
+            d_hp - hydrophobin layer thickness in μm
+            d_ps - polysaccharide layer thickness in μm
+            porosity - non-vacant fraction of the polysaccharide layer
+        output:
+            polysaccharide layer volume in μm^3
+        """
+
+        return porosity .* π .* ((R .- d_hp).^3 .- (R .- d_hp .- d_ps).^3)
     end
 end
