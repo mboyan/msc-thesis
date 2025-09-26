@@ -50,9 +50,21 @@ module GermStats
     export germ_response_independent_eq
     export germ_response_independent_eq_c_ex
 
-    export germ_response_feedback_inhibitor
+    export germ_response_feedback_inhibitor_perm
+
+    export clamp_inplace!
 
 
+    function clamp_inplace!(arr, eps=1e-12)
+        @inbounds for i in eachindex(arr)
+            if arr[i] < eps
+                arr[i] = eps
+            end
+        end
+        return arr
+    end
+    
+    
     function inducer_concentration(c_out, t, Pₛ, A, V_cw)
         """
         Compute the concentration of carbon source in the cell wall.
@@ -88,7 +100,7 @@ module GermStats
                                 "combined_inhibitor", "combined_inhibitor_thresh", "combined_inhibitor_perm",
                                 "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal",
                                 "special_inducer", "special_independent", "special_combined", "special_thresh", "special_signal",
-                                "feedback_inhibitor"]
+                                "feedback_inhibitor_perm"]
 
         # Determine number of nodes depending on the integral dimension (if not specified)
         if isnothing(n_nodes)
@@ -100,11 +112,15 @@ module GermStats
                 n_nodes = 10 # 3D integral
             elseif model_type in ["special_inducer", "special_combined", "special_thresh", "special_signal"]
                 n_nodes = 6 # 4D integral
+            elseif model_type in ["feedback_inhibitor_perm"]
+                n_nodes = 1024
             end
         end
 
         gh_integral = false
-        if split(model_type, "_")[1] != "feedback"
+        if split(model_type, "_")[1] == "feedback"
+            sobol_pts = QuasiMonteCarlo.sample(n_nodes, 4, SobolSample())
+        else
             gh_integral = true
 
             # Gauss-Hermite nodes and weights
@@ -143,10 +159,18 @@ module GermStats
             W4 = reshape(hw, n_nodes,1,1,1) .* reshape(hw, 1,n_nodes,1,1) .* reshape(hw, 1,1,n_nodes,1) .* reshape(hw, 1,1,1,n_nodes)
         end
 
-        # Construct distributions
-        if model_type in ["feedback_inhibitor"]
+        # Construct distributions and geometric samples
+        if !gh_integral
             dist_ξ = LogNormal(μ_ξ_log, σ_ξ_log)
             dist_κ = LogNormal(μ_κ_log, σ_κ_log)
+
+            samples_ξ = clamp_inplace!(quantile(dist_ξ, sobol_pts[1,:]))
+            samples_κ = clamp_inplace!(quantile(dist_κ, sobol_pts[2,:]))
+
+            samples_AV = compute_spore_area_and_volume_from_dia.(2 .* samples_ξ)
+            samples_A, samples_Vₛ = (getindex.(samples_AV, 1), getindex.(samples_AV, 2)) # (map(x -> x[1], samples_AV), map(x -> x[2], samples_AV))
+            samples_V_out = 1.0/ρₛ .- samples_Vₛ
+            samples_V_ps = compute_ps_layer_volume.(samples_ξ, params[:d_hp], samples_κ)
         end
 
         # Compute the germination response
@@ -204,8 +228,8 @@ module GermStats
         elseif model_type == "special_signal"
             germ_response = [germ_response_inducer_signal_2_factors_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:K_I], params[:n], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
         
-        elseif model_type == "feedback_inhibitor"
-            germ_response = [germ_response_feedback_inhibitor(t, ρₛ, dist_ξ, dist_κ, params[:s_max], params[:c₀_cs], params[:d_hp], params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:μ_γ], params[:σ_γ], params[:μ_ψ], params[:σ_ψ]) for t in times]
+        elseif model_type == "feedback_inhibitor_perm"
+            germ_response = germ_response_feedback_inhibitor_perm(sobol_pts, times, ρₛ, samples_A, samples_Vₛ, samples_V_out, samples_V_ps, params[:c₀_cs], params[:d_hp], params[:s_max], params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:μ_γ], params[:σ_γ], params[:μ_ψ], params[:σ_ψ])
             
         end
 
@@ -1896,18 +1920,21 @@ module GermStats
     end
 
     # ===== FEEDBACK MODELS ===== #
-    function germ_response_feedback_inhibitor(t, ρₛ, dist_ξ, dist_κ, s_max, c₀_cs, d_hp, Pₛ_I, Pₛ_C, K_cs, μ_γ, σ_γ, μ_ψ, σ_ψ; n_samples=1024)
+    function germ_response_feedback_inhibitor_perm(sobol_pts, times, ρₛ, samples_A, samples_Vₛ, samples_V_out, samples_V_ps, c₀_cs, d_hp, s_max, Pₛ_I, Pₛ_C, K_cs, μ_γ, σ_γ, μ_ψ, σ_ψ)
         """
         Compute the germination response for inducer-dependent
         cell wall permeability and an inhibitor-dependent germination.
         inputs:
-            t - time in seconds
+            sobol_pts - normalized Sobol samples
+            times - integration time frames in seconds
             ρₛ - spore density in spores/um^3
-            dist_ξ - distribution of spore radii (LogNormal)
-            dist_κ - distribution of polysaccharide layer thicknesses (LogNormal)
-            s_max - maximum inductive signal strength
+            samples_A - spore area samples (corresponding to sobol_pts)
+            samples_Vₛ - spore volume samples (corresponding to sobol_pts)
+            samples_V_out - outside volume samples (corresponding to sobol_pts)
+            samples_V_ps - polysaccharide layer volume samples (corresponding to sobol_pts)
             c₀_cs - initial concentration of carbon source in M
             d_hp - polysaccharide layer thickness in μm
+            s_max - maximum inductive signal strength
             Pₛ_I - permeation constant for the inhibitor in um/s
             Pₛ_C - permeation constant for the carbon source in um/s
             K_cs - half-saturation constant for the carbon source
@@ -1915,38 +1942,42 @@ module GermStats
             σ_γ - standard deviation of inhibition threshold
             μ_ψ - mean initial concentration
             σ_ψ - standard deviation of initial concentration
-            n_samples - number of Sobol samples for integration
         output:
             the germination response for the given parameters (normalized)
         """
 
         # Random samples
-        sobol_pts = QuasiMonteCarlo.sample(n_samples, 4, SobolSample(R = OwenScramble(base = 2, pad = 10)))
+        # sobol_pts = QuasiMonteCarlo.sample(n_samples, 4, SobolSample(R = OwenScramble(base = 2, pad = 10)))
 
-        samples_ξ = max.(quantile(dist_ξ, sobol_pts[1,:]))
+        # samples_ξ = max.(quantile(dist_ξ, sobol_pts[1,:]), 1e-12)
+        # samples_ξ = clamp_inplace!(quantile(dist_ξ, sobol_pts[1,:]))
 
         μ_ψ_log = log(μ_ψ^2 / sqrt(σ_ψ^2 + μ_ψ^2))
         σ_ψ_log = sqrt(log(σ_ψ^2 / μ_ψ^2 + 1))
         dist_ψ = LogNormal(μ_ψ_log, σ_ψ_log)
-        samples_ψ = max.(quantile(dist_ψ, sobol_pts[2,:]))
+        # samples_ψ = max.(quantile(dist_ψ, sobol_pts[2,:]), 1e-12)
+        samples_ψ = clamp_inplace!(quantile(dist_ψ, sobol_pts[3,:]))
 
         μ_γ_log = log(μ_γ^2 / sqrt(σ_γ^2 + μ_γ^2))
         σ_γ_log = sqrt(log(σ_γ^2 / μ_γ^2 + 1))
         dist_γ = LogNormal(μ_γ_log, σ_γ_log)
-        samples_γ = max.(quantile(dist_γ, sobol_pts[3,:]))
+        # samples_γ = max.(quantile(dist_γ, sobol_pts[3,:]), 1e-12)
+        samples_γ = clamp_inplace!(quantile(dist_γ, sobol_pts[4,:]))
 
-        samples_κ = max.(quantile(dist_κ, sobol_pts[4,:]))
+        # samples_κ = max.(quantile(dist_κ, sobol_pts[4,:]), 1e-12)
+        # samples_κ = clamp_inplace!(quantile(dist_κ, sobol_pts[4,:]))
         
-        samples_AV = compute_spore_area_and_volume_from_dia.(2 .* samples_ξ)
-        samples_A, samples_Vₛ = (map(x -> x[1], samples_AV), map(x -> x[2], samples_AV))
-        samples_V_out = 1.0/ρₛ .- samples_Vₛ
-        samples_V_ps = compute_ps_layer_volume.(samples_ξ, d_hp, samples_κ)
+        # samples_AV = compute_spore_area_and_volume_from_dia.(2 .* samples_ξ)
+        # samples_A, samples_Vₛ = (getindex.(samples_AV, 1), getindex.(samples_AV, 2)) # (map(x -> x[1], samples_AV), map(x -> x[2], samples_AV))
+        # samples_V_out = 1.0/ρₛ .- samples_Vₛ
+        # samples_V_ps = compute_ps_layer_volume.(samples_ξ, d_hp, samples_κ)
 
         # ODE function
         function ode!(du, u, p, t)
             cinI, coutI, cinC = u
 
-            g = (p.K_cs + cinC * (1 + p.s_max)) * p.A / (p.K_cs + cinC)
+            denom = p.K_cs + cinC
+            g = (denom * (1 + p.s_max)) * p.A / denom
             rateI = g * p.Pₛ_I
             rateC = g * p.Pₛ_C
 
@@ -1956,29 +1987,15 @@ module GermStats
         end
 
         # Template problem
-        dummyA, dummyV = compute_spore_area_and_volume_from_dia(2*mean(dist_ξ))
         p_template = (A=samples_A[1], Vₛ=samples_Vₛ[1], V_out=samples_V_out[1], V_ps=samples_V_ps[1],
                     Pₛ_I=Pₛ_I, Pₛ_C=Pₛ_C, K_cs=K_cs, s_max=s_max, c₀_cs=c₀_cs)
         u0_template = [μ_ψ, 0.0, 0.0]
-        tspan = (0.0, t)
+        tspan = (0.0, maximum(times))
         prob = ODEProblem(ode!, u0_template, tspan, p_template)
 
         # Ensemble integration function
         function prob_func(prob, i, repeat)
-            r = max(samples_ξ[i], 1e-9)
-            # A, Vₛ = compute_spore_area_and_volume_from_dia(2*r)
-            
-            # # Designated and outside volume
-            # V_des = 1.0 / ρₛ
-            # V_out = V_des - Vₛ
-            # V_ps = compute_ps_layer_volume(r, d_hp, samples_κ[i])
-
-            # if !(isfinite(A) && isfinite(Vₛ) && isfinite(V_out) && isfinite(V_ps))
-            #     @warn "Non-finite geometric quantities" i=i A=A Vₛ=Vₛ V_out=V_out V_ps=V_ps
-            # end
-            # if V_out <= 0
-            #     @warn "Nonpositive V_out" i=i V_out=V_out ρₛ=ρₛ Vₛ=Vₛ
-            # end
+            # r = max(samples_ξ[i], 1e-9)
             
             new_p = (A=samples_A[i], Vₛ=samples_Vₛ[i], V_out=samples_V_out[i], V_ps=samples_V_ps[i],
                     Pₛ_I=Pₛ_I, Pₛ_C=Pₛ_C, K_cs=K_cs, s_max=s_max, c₀_cs=c₀_cs)
@@ -1989,13 +2006,18 @@ module GermStats
 
         # Run ODE ensembles
         ep = EnsembleProblem(prob; prob_func=prob_func)
-        sols = solve(ep, Rodas5(), EnsembleThreads(), trajectories=n_samples, saveat=[t])
+        # sols = solve(ep, Tsit5(), EnsembleThreads(), trajectories=n_samples, saveat=[t])
+        # sols = solve(ep, Rodas5(), EnsembleThreads(), trajectories=n_samples, saveat=[t])
+        sols = solve(ep, AutoTsit5(Rosenbrock23()), EnsembleThreads(), trajectories=size(sobol_pts, 2), saveat=times, abstol=1e-6, reltol=1e-6)
+        # sols = solve(ep, Rosenbrock23(), EnsembleThreads(), trajectories=n_samples, saveat=[t])
 
         # Evaluate fraction germinated
-        c_in_I_t = [sols[i](t)[1] for i in 1:n_samples]
-        germinated = c_in_I_t .< samples_γ
+        # c_in_I_t = [sols[i](t)[1] for i in 1:n_samples]
+        # c_in_I_t = reduce(vcat, getindex.(sols, 1, t))
+        c_in_I_t = [[sol(t)[1] for sol in sols.u] for t in times]
+        germinated = [mean(c_in_I_t[i] .< samples_γ) for i in 1:length(times)]
         
-        return mean(germinated)
+        return germinated
     end
     
 end

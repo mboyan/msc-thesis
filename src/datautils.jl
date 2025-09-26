@@ -12,6 +12,7 @@ module DataUtils
     using MeshGrid
     using Distributions
     using ArgCheck
+    using QuasiMonteCarlo
     
     include("./conversions.jl")
     include("./germstats.jl")
@@ -32,7 +33,7 @@ module DataUtils
         with multiple incolulum densities and returns a DataFrame.
         """
 
-        df_germination = DataFrame(CSV.File("Data/swelling_germination_results.csv"; header=true))
+        df_germination = DataFrame(CSV.File("../src/Data/swelling_germination_results.csv"; header=true))
 
         # Filter the data to only include swelling
         df_germination_swelling = filter(row -> row[1] == "Swelling", df_germination)
@@ -181,7 +182,8 @@ module DataUtils
                                 "inducer", "inducer_thresh", "inducer_signal",
                                 "combined_inhibitor", "combined_inhibitor_thresh", "combined_inhibitor_perm",
                                 "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal",
-                                "special_inducer", "special_independent", "special_combined", "special_thresh", "special_signal"]
+                                "special_inducer", "special_independent", "special_combined", "special_thresh", "special_signal",
+                                "feedback_inhibitor_perm"]
 
         # Reshape input
         densities_tile = repeat(densities, outer=[1, length(sources), length(times)])
@@ -198,40 +200,66 @@ module DataUtils
             n_nodes = 10 # 3D integral
         elseif model_type in ["special_inducer", "special_combined", "special_thresh", "special_signal"]
             n_nodes = 6 # 4D integral
-        else
-            error("Model type not recognized or not implemented.")
+        elseif model_type in ["feedback_inhibitor_perm"]
+            n_nodes = 1024
         end
-        println("Number of nodes: ", n_nodes)
+        println("Number of nodes/samples: ", n_nodes)
 
-        # Gauss-Hermite nodes
-        ghnodes, ghweights = gausshermite(n_nodes)
-        u = √2 .* ghnodes
-        hw = ghweights ./ √π
+        model_type_split = split(model_type, "_")
+
+        gh_integral = false
+        if model_type_split[1] == "feedback"
+            sobol_pts = QuasiMonteCarlo.sample(n_nodes, 4, SobolSample())
+        else
+            gh_integral = true
+
+            # Gauss-Hermite nodes
+            ghnodes, ghweights = gausshermite(n_nodes)
+            u = √2 .* ghnodes
+            hw = ghweights ./ √π
+        end
 
         # Unpack means and stds and weight samples
         μ_ξ = def_params[:μ_ξ]
         σ_ξ = def_params[:σ_ξ]
         μ_ξ_log = log(μ_ξ^2 / sqrt(σ_ξ^2 + μ_ξ^2))
         σ_ξ_log = sqrt(log(σ_ξ^2 / μ_ξ^2 + 1))
-        ξ = exp.(μ_ξ_log .+ σ_ξ_log .* u)
+        if gh_integral ξ = exp.(μ_ξ_log .+ σ_ξ_log .* u) end
 
         if haskey(def_params, :μ_κ)
             μ_κ = def_params[:μ_κ]
             σ_κ = def_params[:σ_κ]
             μ_κ_log = log(μ_κ^2 / sqrt(σ_κ^2 + μ_κ^2))
             σ_κ_log = sqrt(log(σ_κ^2 / μ_κ^2 + 1))
-            κ = exp.(μ_κ_log .+ σ_κ_log .* u)
+            if gh_integral
+                κ = exp.(μ_κ_log .+ σ_κ_log .* u)
 
-            ξ2, κ2 = meshgrid(ξ, κ)
+                ξ2, κ2 = meshgrid(ξ, κ)
+            end
         end
 
-        W = hw * hw'
-        W3 = reshape(hw, n_nodes,1,1) .* reshape(hw, 1,n_nodes,1) .* reshape(hw, 1,1,n_nodes)
-        W4 = reshape(hw, n_nodes,1,1,1) .* reshape(hw, 1,n_nodes,1,1) .* reshape(hw, 1,1,n_nodes,1) .* reshape(hw, 1,1,1,n_nodes)
+        # Multi-dimensional Gauss-Hermite weights
+        if gh_integral
+            W = hw * hw'
+            W3 = reshape(hw, n_nodes,1,1) .* reshape(hw, 1,n_nodes,1) .* reshape(hw, 1,1,n_nodes)
+            W4 = reshape(hw, n_nodes,1,1,1) .* reshape(hw, 1,n_nodes,1,1) .* reshape(hw, 1,1,n_nodes,1) .* reshape(hw, 1,1,1,n_nodes)
+        end
+
+        # Construct distributions and geometric samples
+        if !gh_integral
+            dist_ξ = LogNormal(μ_ξ_log, σ_ξ_log)
+            dist_κ = LogNormal(μ_κ_log, σ_κ_log)
+
+            samples_ξ = clamp_inplace!(quantile(dist_ξ, sobol_pts[1,:]))
+            samples_κ = clamp_inplace!(quantile(dist_κ, sobol_pts[2,:]))
+
+            samples_AV = compute_spore_area_and_volume_from_dia.(2 .* samples_ξ)
+            samples_A, samples_Vₛ = (getindex.(samples_AV, 1), getindex.(samples_AV, 2))
+            # samples_V_out = 1.0/ρₛ .- samples_Vₛ
+            samples_V_ps = compute_ps_layer_volume.(samples_ξ, def_params[:d_hp], samples_κ)
+        end
 
         n_src = length(sources)
-
-        model_type_split = split(model_type, "_")
         
         if model_type == "independent"
             # Independent inducer/inhibitor
@@ -678,6 +706,27 @@ module DataUtils
             # FEEDBACK MODELS
             if model_type_split[2] == "inhibitor" && model_type_split[3] == "perm"
                 println("Model: inducer-dependent inhibitor/inducer permeability")
+                wrapper = (ρₛ, params) -> Main.germ_response_feedback_inhibitor_perm(
+                    sobol_pts,
+                    times,
+                    ρₛ,
+                    samples_A,
+                    samples_Vₛ,
+                    1.0/ρₛ .- samples_Vₛ,
+                    samples_V_ps,
+                    def_params[:c₀_cs],
+                    def_params[:d_hp],
+                    params[1], # s_max
+                    params[2], # Pₛ_I
+                    params[3], # Pₛ_C
+                    params[4], # K_cs
+                    params[5], # μ_γ
+                    params[5] * exp(params[6]), # σ_γ = μ_γ * exp(δ_γ)
+                    params[7], # μ_ψ
+                    params[7] * exp(params[8]) # σ_ψ = μ_ψ * exp(δ_ψ)
+                )
+                param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cs, :μ_γ, :δ_γ, :μ_ψ, :δ_ψ]
+                param_occurrences = [n_src, 1, n_src, n_src, 1, 1, 1, 1]
             end
             
         else
@@ -689,28 +738,60 @@ module DataUtils
         param_keys_dup = vcat([key for key in param_keys for _ in 1:param_occurrences[param_keys .== key][1]]...)
         param_starts = cumsum(param_occurrences) .- param_occurrences .+ 1
         bounds = [bounds_dict[key] for key in param_keys_dup]
-        
-        # Objective function
-        input_tuples =  [tuple.(times_tile[i, :, :], inverse_mL_to_cubic_um.(densities_tile[i, :, :])) for i in 1:length(sources)]
+
         param_indices_per_src = [param_starts .+ ((i - 1) .% param_occurrences) for i in 1:length(sources)]
-        dantigny_data_flat = [collect(dantigny_data[i, :, :]) for i in 1:length(sources)]
-        obj = params -> begin
-            err = 0
-            @inbounds for i in eachindex(sources)
-                params_select = view(params, param_indices_per_src[i])
-                ŷ = [wrapper(inputs, params_select) for inputs in input_tuples[i]]
-                err += sum(abs2, ŷ .- dantigny_data_flat[i])
+        
+        if gh_integral
+
+            # Objective function
+            input_tuples =  [tuple.(times_tile[i, :, :], inverse_mL_to_cubic_um.(densities_tile[i, :, :])) for i in 1:length(sources)]
+            dantigny_data_flat = [collect(dantigny_data[i, :, :]) for i in 1:length(sources)]
+            obj = params -> begin
+                err = 0.0
+                @inbounds for i in eachindex(sources)
+                    params_select = view(params, param_indices_per_src[i])
+                    ŷ = [wrapper(inputs, params_select) for inputs in input_tuples[i]]
+                    err += sum(abs2, ŷ .- dantigny_data_flat[i])
+                end
+                return err
             end
-            return err
-        end
-        objgrad = (params,_) -> begin
-            err = 0
-            @inbounds for i in eachindex(sources)
-                params_select = view(params, param_indices_per_src[i])
-                ŷ = [wrapper(inputs, params_select) for inputs in input_tuples[i]]
-                err += sum(abs2, ŷ .- dantigny_data_flat[i])
+            objgrad = (params,_) -> begin
+                err = 0
+                @inbounds for i in eachindex(sources)
+                    params_select = view(params, param_indices_per_src[i])
+                    ŷ = [wrapper(inputs, params_select) for inputs in input_tuples[i]]
+                    err += sum(abs2, ŷ .- dantigny_data_flat[i])
+                end
+                return err
             end
-            return err
+        else
+
+            # Objective function (feedback model)
+            input_densities = inverse_mL_to_cubic_um.(densities)
+            obj = params -> begin
+                err = 0.0
+                @inbounds for i in eachindex(sources)
+                    params_select = view(params, param_indices_per_src[i])
+
+                    # run a single simulation at all times
+                    ŷ = reduce(vcat, [wrapper(ρₛ, params_select) for ρₛ in input_densities]')
+
+                    err += sum(abs2, ŷ .- dantigny_data[i, :, :])
+                end
+                return err
+            end
+            objgrad = (params,_) -> begin
+                err = 0.0
+                @inbounds for i in eachindex(sources)
+                    params_select = view(params, param_indices_per_src[i])
+                    
+                    # run a single simulation at all times
+                    ŷ = reduce(vcat, [wrapper(ρₛ, params_select) for ρₛ in input_densities]')
+
+                    err += sum(abs2, ŷ .- dantigny_data[i, :, :])
+                end
+                return err
+            end
         end
         
         # Fit model

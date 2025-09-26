@@ -973,7 +973,7 @@ __precompile__(false)
     end
 
 
-    function plot_germination_data_fit_all(model_type, st, params_opt, times, sources_data, densities_data, p_maxs_data, taus_data, nus_data, p_max_errs, dens_exp_limits=(4, 6); n_nodes=nothing)
+    function plot_germination_data_fit_all(model_type, params_opt, times, sources_data, densities_data, p_maxs_data, taus_data, nus_data, p_max_errs, dens_exp_limits=(4, 6); n_nodes=nothing)
         """
         Creates a combined plot with density-dependent
         and time-dependent germination data and model fits.
@@ -997,7 +997,8 @@ __precompile__(false)
                                 "inducer", "inducer_thresh", "inducer_signal",
                                 "combined_inhibitor", "combined_inhibitor_thresh", "combined_inhibitor_perm",
                                 "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal",
-                                "special_inhibitor", "special_inducer", "special_independent", "special_combined", "special_combined_thresh", "special_combined_signal"]
+                                "special_inhibitor", "special_inducer", "special_independent", "special_combined", "special_combined_thresh", "special_combined_signal",
+                                "feedback_inhibitor_perm"]
 
         # Create figure and subfigures
         fig = figure(figsize=(4.5, 0.6 + 1.5*length(densities_data)))
@@ -1016,11 +1017,11 @@ __precompile__(false)
         for (i, src) in enumerate(sources_data)
             # Smooth curve of density-dependent germination response
             for (j, density) in enumerate(density_range)
-                germ_resp_final[i, j] = compute_germination_response(model_type, st, times[end], inverse_mL_to_cubic_um(density), get_params_for_idx(params_opt, i), n_nodes=n_nodes)[1]
+                germ_resp_final[i, j] = compute_germination_response(model_type, times[end], inverse_mL_to_cubic_um(density), get_params_for_idx(params_opt, i), n_nodes=n_nodes)[1]
             end
             # Time-dependent germination responses
             for (j, density) in enumerate(densities_data)
-                germ_resp_sample = compute_germination_response(model_type, st, times, inverse_mL_to_cubic_um(density), get_params_for_idx(params_opt, i), n_nodes=n_nodes)
+                germ_resp_sample = compute_germination_response(model_type, times, inverse_mL_to_cubic_um(density), get_params_for_idx(params_opt, i), n_nodes=n_nodes)
                 
                 dantigny_responses = compare_time_course_to_dantigny(germ_resp_sample, times, p_maxs_data[i, j], taus_data[i, j], nus_data[i, j],
                                                                         ax=bottom_axs[j, i], title="$(sources_data[i]), " * @sprintf("%.2e", round(Int, densities_data[j])) * " spores/mL")
@@ -1067,7 +1068,8 @@ __precompile__(false)
             "special_independent" => "Independent inducer/inhibitor model\n(varying permeability), ",
             "special_combined" => "Combined model with inhibitor-dependent\ninduction (var. permeability), ",
             "special_combined_thresh" => "Combined model with inhibitor-dependent\ninduction threshold (var. permeability), ",
-            "special_combined_signal" => "Combined model with inhibitor-dependent\ninduction signal (var. permeability), "
+            "special_combined_signal" => "Combined model with inhibitor-dependent\ninduction signal (var. permeability), ",
+            "feedback_inhibitor_perm" => "Inhibitor-dependent germination with\n inducer-dependent permeability"
         )
 
         plot_germination_data_fit(densities_data, p_maxs_data, density_range, germ_resp_final .* 100, sources_data, yerr=p_max_errs,
