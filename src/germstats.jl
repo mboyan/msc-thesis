@@ -229,7 +229,7 @@ module GermStats
             germ_response = [germ_response_inducer_signal_2_factors_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:K_I], params[:n], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
         
         elseif model_type == "feedback_inhibitor_perm"
-            germ_response = germ_response_feedback_inhibitor_perm(sobol_pts, times, ρₛ, samples_A, samples_Vₛ, samples_V_out, samples_V_ps, params[:c₀_cs], params[:d_hp], params[:s_max], params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:μ_γ], params[:σ_γ], params[:μ_ψ], params[:σ_ψ])
+            germ_response = germ_response_feedback_inhibitor_perm(sobol_pts, times, ρₛ, samples_A, samples_Vₛ, samples_V_out, samples_V_ps, params[:c₀_cs], params[:s_max], params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:μ_γ], params[:σ_γ], params[:μ_ψ], params[:σ_ψ])
             
         end
 
@@ -1920,7 +1920,7 @@ module GermStats
     end
 
     # ===== FEEDBACK MODELS ===== #
-    function germ_response_feedback_inhibitor_perm(sobol_pts, times, ρₛ, samples_A, samples_Vₛ, samples_V_out, samples_V_ps, c₀_cs, d_hp, s_max, Pₛ_I, Pₛ_C, K_cs, μ_γ, σ_γ, μ_ψ, σ_ψ)
+    function germ_response_feedback_inhibitor_perm(sobol_pts, times, ρₛ, samples_A, samples_Vₛ, samples_V_out, samples_V_ps, c₀_cs, s_max, Pₛ_I, Pₛ_C, K_cs, μ_γ, σ_γ, μ_ψ, σ_ψ)
         """
         Compute the germination response for inducer-dependent
         cell wall permeability and an inhibitor-dependent germination.
@@ -1933,7 +1933,6 @@ module GermStats
             samples_V_out - outside volume samples (corresponding to sobol_pts)
             samples_V_ps - polysaccharide layer volume samples (corresponding to sobol_pts)
             c₀_cs - initial concentration of carbon source in M
-            d_hp - polysaccharide layer thickness in μm
             s_max - maximum inductive signal strength
             Pₛ_I - permeation constant for the inhibitor in um/s
             Pₛ_C - permeation constant for the carbon source in um/s
@@ -1946,12 +1945,6 @@ module GermStats
             the germination response for the given parameters (normalized)
         """
 
-        # Random samples
-        # sobol_pts = QuasiMonteCarlo.sample(n_samples, 4, SobolSample(R = OwenScramble(base = 2, pad = 10)))
-
-        # samples_ξ = max.(quantile(dist_ξ, sobol_pts[1,:]), 1e-12)
-        # samples_ξ = clamp_inplace!(quantile(dist_ξ, sobol_pts[1,:]))
-
         μ_ψ_log = log(μ_ψ^2 / sqrt(σ_ψ^2 + μ_ψ^2))
         σ_ψ_log = sqrt(log(σ_ψ^2 / μ_ψ^2 + 1))
         dist_ψ = LogNormal(μ_ψ_log, σ_ψ_log)
@@ -1963,14 +1956,6 @@ module GermStats
         dist_γ = LogNormal(μ_γ_log, σ_γ_log)
         # samples_γ = max.(quantile(dist_γ, sobol_pts[3,:]), 1e-12)
         samples_γ = clamp_inplace!(quantile(dist_γ, sobol_pts[4,:]))
-
-        # samples_κ = max.(quantile(dist_κ, sobol_pts[4,:]), 1e-12)
-        # samples_κ = clamp_inplace!(quantile(dist_κ, sobol_pts[4,:]))
-        
-        # samples_AV = compute_spore_area_and_volume_from_dia.(2 .* samples_ξ)
-        # samples_A, samples_Vₛ = (getindex.(samples_AV, 1), getindex.(samples_AV, 2)) # (map(x -> x[1], samples_AV), map(x -> x[2], samples_AV))
-        # samples_V_out = 1.0/ρₛ .- samples_Vₛ
-        # samples_V_ps = compute_ps_layer_volume.(samples_ξ, d_hp, samples_κ)
 
         # ODE function
         function ode!(du, u, p, t)
@@ -2012,8 +1997,6 @@ module GermStats
         # sols = solve(ep, Rosenbrock23(), EnsembleThreads(), trajectories=n_samples, saveat=[t])
 
         # Evaluate fraction germinated
-        # c_in_I_t = [sols[i](t)[1] for i in 1:n_samples]
-        # c_in_I_t = reduce(vcat, getindex.(sols, 1, t))
         c_in_I_t = [[sol(t)[1] for sol in sols.u] for t in times]
         germinated = [mean(c_in_I_t[i] .< samples_γ) for i in 1:length(times)]
         
