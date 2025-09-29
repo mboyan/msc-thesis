@@ -1966,9 +1966,12 @@ module GermStats
             rateI = g * p.Pₛ_I
             rateC = g * p.Pₛ_C
 
-            du[1] = -(rateI / p.Vₛ) * (cinI - coutI)
-            du[2] = (rateI / p.V_out) * (cinI - coutI)
-            du[3] = -(rateC / p.V_ps) * (cinC - p.c₀_cs)
+            diffI = cinI - coutI
+            diffC = cinC - p.c₀_cs
+
+            du[1] = -(rateI / p.Vₛ) * diffI
+            du[2] = (rateI / p.V_out) * diffI
+            du[3] = -(rateC / p.V_ps) * diffC
         end
 
         # Template problem
