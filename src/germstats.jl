@@ -1945,7 +1945,7 @@ module GermStats
         du[3] = -(rateC / p.V_ps) * diffC
     end
 
-    function germ_response_feedback_inhibitor_perm(ode_func, sobol_pts, times, samples_A, samples_Vₛ, samples_V_out, samples_V_ps, c₀_cs, s_max, Pₛ_I, Pₛ_C, K_cs, μ_ψ, σ_ψ, μs_thresh, thresh_stds)
+    function germ_response_feedback_inhibitor_perm(ode_func, sobol_pts, times, samples_A, samples_Vₛ, samples_V_out, samples_V_ps, c₀_cs, s_max, Pₛ_I, Pₛ_C, K_cs, μ_ψ, σ_ψ, μs_thresh, σs_thresh)
         """
         Compute the germination response for inducer-dependent
         cell wall permeability and an inhibitor-dependent germination.
@@ -1981,7 +1981,7 @@ module GermStats
         samples_thresh = zeros(n_thresh, size(sobol_pts, 2))
         for i in 1:n_thresh
             dist_thresh = Normal(μs_thresh[i], σs_thresh[i])
-            samples_thresh[i] = clamp_inplace!(quantile(dist_thresh, sobol_pts[3 + i,:]))
+            samples_thresh[i, :] .= clamp_inplace!(quantile(dist_thresh, sobol_pts[3 + i,:]))
         end
         # μ_γ_log = log(μ_γ^2 / sqrt(σ_γ^2 + μ_γ^2))
         # σ_γ_log = sqrt(log(σ_γ^2 / μ_γ^2 + 1))
@@ -2032,9 +2032,19 @@ module GermStats
 
         # Evaluate fraction germinated
         # c_in_I_t = [[sol(t)[1] for sol in sols.u] for t in times]
+        # c_in_t = zeros(length(times), n_thresh)
+        println(sols.u[1](times[1]))
+        println(sols.u[2](times[1]))
+        println(sols.u[1](times[2]))
+        println(sols.u[2](times[2]))
         c_in_t = [[[sol(t)[1+i*2] for sol in sols.u] for i in 0:(n_thresh - 1)] for t in times]
         # germinated = [mean(c_in_I_t[i] .< samples_γ) for i in 1:length(times)]
-        germinated = [mean(reduce(.*, c_in_t[i] .< samples_thresh)) for i in 1:length(times)]
+        println(size(c_in_t))
+        println(size(c_in_t[1]))
+        println(size(c_in_t[1][1]))
+        println(size(samples_thresh))
+        println(size(samples_thresh[1]))
+        germinated = [mean(reduce(.*, c_in_t[i, :] .< samples_thresh)) for i in 1:length(times)]
         
         return germinated
     end
