@@ -706,10 +706,9 @@ module DataUtils
             # FEEDBACK MODELS
             if model_type_split[2] == "inhibitor" && model_type_split[3] == "perm"
                 println("Model: inducer-dependent inhibitor/inducer permeability")
-                wrapper = (ρₛ, V_des, params) -> Main.germ_response_feedback_inhibitor_perm(
+                wrapper = (V_des, params) -> Main.germ_response_feedback_inhibitor_perm(
                     sobol_pts,
                     times,
-                    ρₛ,
                     samples_A,
                     samples_Vₛ,
                     V_des,
@@ -719,12 +718,12 @@ module DataUtils
                     params[2], # Pₛ_I
                     params[3], # Pₛ_C
                     params[4], # K_cs
-                    params[5], # μ_γ
-                    params[5] * exp(params[6]), # σ_γ = μ_γ * exp(δ_γ)
-                    params[7], # μ_ψ
-                    params[7] * exp(params[8]) # σ_ψ = μ_ψ * exp(δ_ψ)
+                    params[5], # μ_ψ
+                    params[5] * exp(params[6]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                    [params[7]], # μ_γ
+                    [params[7] * exp(params[8])] # σ_γ = μ_γ * exp(δ_γ)
                 )
-                param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cs, :μ_γ, :δ_γ, :μ_ψ, :δ_ψ]
+                param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cs, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ]
                 param_occurrences = [n_src, 1, n_src, n_src, 1, 1, 1, 1]
             end
             
@@ -774,7 +773,7 @@ module DataUtils
                     params_select = view(params, param_indices_per_src[i])
 
                     # run a single simulation at all times
-                    ŷ = reduce(vcat, [wrapper(input_densities[j], samples_V_des[j], params_select) for j in eachindex(input_densities)]')
+                    ŷ = reduce(vcat, [wrapper(samples_V_des[j], params_select) for j in eachindex(input_densities)]')
 
                     err += sum(abs2, ŷ .- dantigny_data[i, :, :])
                 end
@@ -786,7 +785,7 @@ module DataUtils
                     params_select = view(params, param_indices_per_src[i])
                     
                     # run a single simulation at all times
-                    ŷ = reduce(vcat, [wrapper(input_densities[j], samples_V_des[j], params_select) for j in eachindex(input_densities)]')
+                    ŷ = reduce(vcat, [wrapper(samples_V_des[j], params_select) for j in eachindex(input_densities)]')
 
                     err += sum(abs2, ŷ .- dantigny_data[i, :, :])
                 end
