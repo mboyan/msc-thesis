@@ -50,7 +50,7 @@ module GermStats
     export germ_response_independent_eq
     export germ_response_independent_eq_c_ex
 
-    export germ_response_feedback_inhibitor_perm
+    export germ_response_feedback_perm
 
     export clamp_inplace!
 
@@ -102,7 +102,7 @@ module GermStats
                                 "combined_inhibitor", "combined_inhibitor_thresh", "combined_inhibitor_perm",
                                 "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal",
                                 "special_inducer", "special_independent", "special_combined", "special_thresh", "special_signal",
-                                "feedback_inhibitor_perm"]
+                                "feedback_inhibitor_perm", "feedback_combined_perm"]
 
         # Determine number of nodes depending on the integral dimension (if not specified)
         if isnothing(n_nodes)
@@ -114,14 +114,19 @@ module GermStats
                 n_nodes = 10 # 3D integral
             elseif model_type in ["special_inducer", "special_combined", "special_thresh", "special_signal"]
                 n_nodes = 6 # 4D integral
-            elseif model_type in ["feedback_inhibitor_perm"]
+            elseif model_type in ["feedback_inhibitor_perm", "feedback_combined_perm"]
                 n_nodes = 1024
             end
         end
 
         gh_integral = false
         if split(model_type, "_")[1] == "feedback"
-            sobol_pts = QuasiMonteCarlo.sample(n_nodes, 4, SobolSample())
+            if (haskey(params, :μ_γ) && haskey(params, :μ_ω))
+                sample_dim = 5
+            else
+                sample_dim = 4
+            end
+            sobol_pts = QuasiMonteCarlo.sample(n_nodes, sample_dim, SobolSample())
             # sobol_pts[1,:] for ξ
             # sobol_pts[2,:] for κ
             # sobol_pts[3,:] for ψ
@@ -236,8 +241,10 @@ module GermStats
             germ_response = [germ_response_inducer_signal_2_factors_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:K_I], params[:n], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
         
         elseif model_type == "feedback_inhibitor_perm"
-            germ_response = germ_response_feedback_inhibitor_perm(ode_inducer_dependent_perm!, sobol_pts, times, samples_A, samples_Vₛ, samples_V_out, samples_V_ps, params[:c₀_cs], params[:s_max], params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:μ_ψ], params[:σ_ψ], [params[:μ_γ]], [params[:σ_γ]])
+            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, sobol_pts, times, samples_A, samples_Vₛ, samples_V_out, samples_V_ps, params[:c₀_cs], params[:s_max], params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:μ_ψ], params[:σ_ψ], [params[:μ_γ]], [params[:σ_γ]])
             
+        elseif model_type == "feedback_combined_perm"
+            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, sobol_pts, times, samples_A, samples_Vₛ, samples_V_out, samples_V_ps, params[:c₀_cs], params[:s_max], params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:μ_ψ], params[:σ_ψ], [params[:μ_γ], params[:μ_ω]], [params[:σ_γ], params[:σ_ω]])
         end
 
         return germ_response
@@ -1947,11 +1954,11 @@ module GermStats
         du[3] = -(rateC / p.V_ps) * diffC
     end
 
-    
-    function germ_response_feedback_inhibitor_perm(ode_func, sobol_pts, times, samples_A, samples_Vₛ, samples_V_out, samples_V_ps, c₀_cs, s_max, Pₛ_I, Pₛ_C, K_cs, μ_ψ, σ_ψ, μs_thresh, σs_thresh)
+
+    function germ_response_feedback_perm(ode_func, sobol_pts, times, samples_A, samples_Vₛ, samples_V_out, samples_V_ps, c₀_cs, s_max, Pₛ_I, Pₛ_C, K_cs, μ_ψ, σ_ψ, μs_thresh, σs_thresh)
         """
-        Compute the germination response for inducer-dependent
-        cell wall permeability and an inhibitor-dependent germination.
+        Generic function for computing the germination response
+        for inducer-dependent cell wall permeability
         inputs:
             ode_func - ODE function to integrate
             sobol_pts - normalized Sobol samples
@@ -1984,7 +1991,9 @@ module GermStats
         samples_thresh = zeros(n_thresh, size(sobol_pts, 2))
         for i in 1:n_thresh
             dist_thresh = Normal(μs_thresh[i], σs_thresh[i])
-            samples_thresh[i, :] .= clamp_inplace!(quantile(dist_thresh, sobol_pts[3 + i,:]))
+            println(dist_thresh)
+            # samples_thresh[i, :] .= clamp_inplace!(quantile(dist_thresh, sobol_pts[3 + i,:]))
+            samples_thresh[i, :] .= quantile(dist_thresh, sobol_pts[3 + i,:])
         end
 
         # Template problem

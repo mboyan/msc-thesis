@@ -183,7 +183,7 @@ module DataUtils
                                 "combined_inhibitor", "combined_inhibitor_thresh", "combined_inhibitor_perm",
                                 "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal",
                                 "special_inducer", "special_independent", "special_combined", "special_thresh", "special_signal",
-                                "feedback_inhibitor_perm"]
+                                "feedback_inhibitor_perm", "feedback_combined_perm"]
 
         # Reshape input
         densities_tile = repeat(densities, outer=[1, length(sources), length(times)])
@@ -200,7 +200,7 @@ module DataUtils
             n_nodes = 10 # 3D integral
         elseif model_type in ["special_inducer", "special_combined", "special_thresh", "special_signal"]
             n_nodes = 6 # 4D integral
-        elseif model_type in ["feedback_inhibitor_perm"]
+        elseif model_type in ["feedback_inhibitor_perm", "feedback_combined_perm"]
             n_nodes = 1024
         end
         println("Number of nodes/samples: ", n_nodes)
@@ -705,8 +705,8 @@ module DataUtils
         elseif model_type_split[1] == "feedback"
             # FEEDBACK MODELS
             if model_type_split[2] == "inhibitor" && model_type_split[3] == "perm"
-                println("Model: inducer-dependent inhibitor/inducer permeability")
-                wrapper = (V_out, params) -> Main.germ_response_feedback_inhibitor_perm(
+                println("Model: inhibitor-dependent germination with inducer-dependent inhibitor/inducer permeability")
+                wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
                     Main.ode_inducer_dependent_perm!,
                     sobol_pts,
                     times,
@@ -726,6 +726,29 @@ module DataUtils
                 )
                 param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cs, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ]
                 param_occurrences = [n_src, 1, n_src, n_src, 1, 1, 1, 1]
+
+            elseif model_type_split[2] == "combined" && model_type_split[3] == "perm"
+                println("Model: 2-factor germination with inducer-dependent inhibitor/inducer permeability")
+                wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
+                    Main.ode_inducer_dependent_perm!,
+                    sobol_pts,
+                    times,
+                    samples_A,
+                    samples_Vₛ,
+                    V_out,
+                    samples_V_ps,
+                    def_params[:c₀_cs],
+                    params[1], # s_max
+                    params[2], # Pₛ_I
+                    params[3], # Pₛ_C
+                    params[4], # K_cs
+                    params[5], # μ_ψ
+                    params[5] * exp(params[6]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                    [params[7], params[9]], # [μ_γ, μ_ω]
+                    [params[7] * exp(params[8]), params[9] * exp(params[10])] # [σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)]
+                )
+                param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cs, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, μ_ω, δ_ω]
+                param_occurrences = [n_src, 1, n_src, n_src, 1, 1, 1, 1, n_src, n_src]
             end
             
         else
@@ -768,7 +791,6 @@ module DataUtils
             # Objective function (feedback model)
             input_densities = inverse_mL_to_cubic_um.(densities)
             samples_V_out = 1 ./ input_densities .- samples_Vₛ'
-            println(size(samples_V_out))
             obj = params -> begin
                 err = 0.0
                 @inbounds for i in eachindex(sources)
