@@ -54,6 +54,8 @@ module GermStats
 
     export clamp_inplace!
 
+    export ode_inducer_dependent_perm!
+
 
     function clamp_inplace!(arr, eps=1e-12)
         @inbounds for i in eachindex(arr)
@@ -1945,6 +1947,7 @@ module GermStats
         du[3] = -(rateC / p.V_ps) * diffC
     end
 
+    
     function germ_response_feedback_inhibitor_perm(ode_func, sobol_pts, times, samples_A, samples_Vₛ, samples_V_out, samples_V_ps, c₀_cs, s_max, Pₛ_I, Pₛ_C, K_cs, μ_ψ, σ_ψ, μs_thresh, σs_thresh)
         """
         Compute the germination response for inducer-dependent
@@ -1983,27 +1986,6 @@ module GermStats
             dist_thresh = Normal(μs_thresh[i], σs_thresh[i])
             samples_thresh[i, :] .= clamp_inplace!(quantile(dist_thresh, sobol_pts[3 + i,:]))
         end
-        # μ_γ_log = log(μ_γ^2 / sqrt(σ_γ^2 + μ_γ^2))
-        # σ_γ_log = sqrt(log(σ_γ^2 / μ_γ^2 + 1))
-        # dist_γ = LogNormal(μ_γ_log, σ_γ_log)
-        # samples_γ = clamp_inplace!(quantile(dist_γ, sobol_pts[4,:]))
-
-        # ODE function
-        # function ode!(du, u, p, t)
-        #     cinI, coutI, cinC = u
-
-        #     denom = p.K_cs + cinC
-        #     g = (denom * (1 + p.s_max)) * p.A / denom
-        #     rateI = g * p.Pₛ_I
-        #     rateC = g * p.Pₛ_C
-
-        #     diffI = cinI - coutI
-        #     diffC = cinC - p.c₀_cs
-
-        #     du[1] = -(rateI / p.Vₛ) * diffI
-        #     du[2] = (rateI / p.V_out) * diffI
-        #     du[3] = -(rateC / p.V_ps) * diffC
-        # end
 
         # Template problem
         p_template = (A=samples_A[1], Vₛ=samples_Vₛ[1], V_out=samples_V_out[1], V_ps=samples_V_ps[1],
@@ -2031,20 +2013,8 @@ module GermStats
         # sols = solve(ep, Rosenbrock23(), EnsembleThreads(), trajectories=n_samples, saveat=[t])
 
         # Evaluate fraction germinated
-        # c_in_I_t = [[sol(t)[1] for sol in sols.u] for t in times]
-        # c_in_t = zeros(length(times), n_thresh)
-        println(sols.u[1](times[1]))
-        println(sols.u[2](times[1]))
-        println(sols.u[1](times[2]))
-        println(sols.u[2](times[2]))
         c_in_t = [[[sol(t)[1+i*2] for sol in sols.u] for i in 0:(n_thresh - 1)] for t in times]
-        # germinated = [mean(c_in_I_t[i] .< samples_γ) for i in 1:length(times)]
-        println(size(c_in_t))
-        println(size(c_in_t[1]))
-        println(size(c_in_t[1][1]))
-        println(size(samples_thresh))
-        println(size(samples_thresh[1]))
-        germinated = [mean(reduce(.*, c_in_t[i, :] .< samples_thresh)) for i in 1:length(times)]
+        germinated = [mean(prod(reduce(hcat, c_in_t[i])' .< samples_thresh, dims=1)) for i in 1:length(times)]
         
         return germinated
     end

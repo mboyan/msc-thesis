@@ -706,12 +706,13 @@ module DataUtils
             # FEEDBACK MODELS
             if model_type_split[2] == "inhibitor" && model_type_split[3] == "perm"
                 println("Model: inducer-dependent inhibitor/inducer permeability")
-                wrapper = (V_des, params) -> Main.germ_response_feedback_inhibitor_perm(
+                wrapper = (V_out, params) -> Main.germ_response_feedback_inhibitor_perm(
+                    Main.ode_inducer_dependent_perm!,
                     sobol_pts,
                     times,
                     samples_A,
                     samples_Vₛ,
-                    V_des,
+                    V_out,
                     samples_V_ps,
                     def_params[:c₀_cs],
                     params[1], # s_max
@@ -766,14 +767,15 @@ module DataUtils
 
             # Objective function (feedback model)
             input_densities = inverse_mL_to_cubic_um.(densities)
-            samples_V_des = 1 ./ input_densities .- samples_Vₛ
+            samples_V_out = 1 ./ input_densities .- samples_Vₛ'
+            println(size(samples_V_out))
             obj = params -> begin
                 err = 0.0
                 @inbounds for i in eachindex(sources)
                     params_select = view(params, param_indices_per_src[i])
 
                     # run a single simulation at all times
-                    ŷ = reduce(vcat, [wrapper(samples_V_des[j], params_select) for j in eachindex(input_densities)]')
+                    ŷ = reduce(vcat, [wrapper(samples_V_out[j, :], params_select) for j in eachindex(input_densities)]')
 
                     err += sum(abs2, ŷ .- dantigny_data[i, :, :])
                 end
@@ -785,7 +787,7 @@ module DataUtils
                     params_select = view(params, param_indices_per_src[i])
                     
                     # run a single simulation at all times
-                    ŷ = reduce(vcat, [wrapper(samples_V_des[j], params_select) for j in eachindex(input_densities)]')
+                    ŷ = reduce(vcat, [wrapper(samples_V_out[j, :], params_select) for j in eachindex(input_densities)]')
 
                     err += sum(abs2, ŷ .- dantigny_data[i, :, :])
                 end
