@@ -102,7 +102,7 @@ module GermStats
                                 "combined_inhibitor", "combined_inhibitor_thresh", "combined_inhibitor_perm",
                                 "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal",
                                 "special_inducer", "special_independent", "special_combined", "special_thresh", "special_signal",
-                                "feedback_inhibitor_perm", "feedback_combined_perm"]
+                                "feedback_inhibitor_inducer_perm", "feedback_combined_inducer_perm"]
 
         # Determine number of nodes depending on the integral dimension (if not specified)
         if isnothing(n_nodes)
@@ -114,7 +114,7 @@ module GermStats
                 n_nodes = 10 # 3D integral
             elseif model_type in ["special_inducer", "special_combined", "special_thresh", "special_signal"]
                 n_nodes = 6 # 4D integral
-            elseif model_type in ["feedback_inhibitor_perm", "feedback_combined_perm"]
+            elseif model_type in ["feedback_inhibitor_inducer_perm", "feedback_combined_inducer_perm"]
                 n_nodes = 1024
             end
         end
@@ -183,6 +183,8 @@ module GermStats
             samples_A, samples_Vₛ = (getindex.(samples_AV, 1), getindex.(samples_AV, 2)) # (map(x -> x[1], samples_AV), map(x -> x[2], samples_AV))
             samples_V_out = 1.0/ρₛ .- samples_Vₛ
             samples_V_ps = compute_ps_layer_volume.(samples_ξ, params[:d_hp], samples_κ)
+
+            geom_samples = [samples_A, samples_Vₛ, samples_V_out, samples_V_ps]
         end
 
         # Compute the germination response
@@ -240,11 +242,15 @@ module GermStats
         elseif model_type == "special_signal"
             germ_response = [germ_response_inducer_signal_2_factors_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:K_I], params[:n], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
         
-        elseif model_type == "feedback_inhibitor_perm"
-            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, sobol_pts, times, samples_A, samples_Vₛ, samples_V_out, samples_V_ps, params[:c₀_cs], params[:s_max], params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:μ_ψ], params[:σ_ψ], [params[:μ_γ]], [params[:σ_γ]])
+        elseif model_type == "feedback_inhibitor_inducer_perm"
+            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:s_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cs]], params[:μ_ψ], params[:σ_ψ], [params[:μ_γ]], [params[:σ_γ]])
             
-        elseif model_type == "feedback_combined_perm"
-            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, sobol_pts, times, samples_A, samples_Vₛ, samples_V_out, samples_V_ps, params[:c₀_cs], params[:s_max], params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:μ_ψ], params[:σ_ψ], [params[:μ_γ], params[:μ_ω]], [params[:σ_γ], params[:σ_ω]])
+        elseif model_type == "feedback_combined_inducer_perm"
+            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:s_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cs]], params[:μ_ψ], params[:σ_ψ], [params[:μ_γ], params[:μ_ω]], [params[:σ_γ], params[:σ_ω]])
+            
+        elseif model_type == "feedback_inducer_inhibitor_perm"
+            germ_response = germ_response_feedback_perm(ode_inhibitor_dependent_perm!, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:s_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cs]], params[:μ_ψ], params[:σ_ψ], [params[:μ_ω]], [params[:σ_ω]])
+           
         end
 
         return germ_response
@@ -1941,8 +1947,9 @@ module GermStats
         """
         cinI, coutI, cinC = u
 
-        denom = p.K_cs + cinC
-        g = (denom * (1 + p.s_max)) * p.A / denom
+        # denom = p.K_cs + cinC
+        # g = (denom * (1 + p.s_max)) * p.A / denom
+        g = (1 + p.f_maxs[1] * cinC / (p.K_fs[1] + cinC)) * p.A
         rateI = g * p.Pₛ_I
         rateC = g * p.Pₛ_C
 
@@ -1955,7 +1962,30 @@ module GermStats
     end
 
 
-    function germ_response_feedback_perm(ode_func, sobol_pts, times, samples_A, samples_Vₛ, samples_V_out, samples_V_ps, c₀_cs, s_max, Pₛ_I, Pₛ_C, K_cs, μ_ψ, σ_ψ, μs_thresh, σs_thresh)
+    function ode_inhibitor_dependent_perm!(du, u, p, t)
+        """
+        ODE function for inhibitor-dependent
+        cell wall permeability.
+        """
+        cinI, coutI, cinC = u
+
+        # denom = p.K_cI + cinI
+        # g = (denom * (1 + p.λ)) * p.A / denom
+        g = (1 - p.f_maxs[1] * cinI / (p.K_fs[1] + cinI)) * p.A
+        rateI = g * p.Pₛ_I
+        rateC = g * p.Pₛ_C
+
+        diffI = cinI - coutI
+        diffC = cinC - p.c₀_cs
+
+        du[1] = -(rateI / p.Vₛ) * diffI
+        du[2] = (rateI / p.V_out) * diffI
+        du[3] = -(rateC / p.V_ps) * diffC
+    end
+
+
+    # function germ_response_feedback_perm(ode_func, sobol_pts, times, samples_A, samples_Vₛ, samples_V_out, samples_V_ps, c₀_cs, s_max, Pₛ_I, Pₛ_C, K_cs, μ_ψ, σ_ψ, μs_thresh, σs_thresh; ks=nothing)
+    function germ_response_feedback_perm(ode_func, sobol_pts, times, geom_samples, c₀_cs, f_maxs, Pₛ_I, Pₛ_C, K_fs, μ_ψ, σ_ψ, μs_thresh, σs_thresh; ks=nothing)
         """
         Generic function for computing the germination response
         for inducer-dependent cell wall permeability
@@ -1963,24 +1993,25 @@ module GermStats
             ode_func - ODE function to integrate
             sobol_pts - normalized Sobol samples
             times - integration time frames in seconds
-            samples_A - spore area samples (corresponding to sobol_pts)
-            samples_Vₛ - spore volume samples (corresponding to sobol_pts)
-            samples_V_out - outside volume samples (corresponding to sobol_pts)
-            samples_V_ps - polysaccharide layer volume samples (corresponding to sobol_pts)
+            geom_samples - geometric samples corresponding to sobol pts [samples_A, samples_Vₛ, samples_V_out, samples_V_ps]
             c₀_cs - initial concentration of carbon source in M
-            s_max - maximum inductive signal strength
+            f_maxs - maximum concentration-related signal strengths (inhibitory and/or inductive)
             Pₛ_I - permeation constant for the inhibitor in um/s
             Pₛ_C - permeation constant for the carbon source in um/s
-            K_cs - half-saturation constant for the carbon source
+            K_fs - half-saturation constants (inhibitory and/or inductive)
             μ_γ - mean inhibition threshold
             σ_γ - standard deviation of inhibition threshold
             μ_ψ - mean initial concentration
             σ_ψ - standard deviation of initial concentration
             μs_thresh - means of thresholds (γ and/or ω)
             σs_thresh - standard deviations of thresholds (γ and/or ω)
+            ks - scaling factors for threshold shifts (optional)
         output:
             the germination response for the given parameters (normalized)
         """
+
+        # Unpack geometric samples
+        samples_A, samples_Vₛ, samples_V_out, samples_V_ps = geom_samples
 
         μ_ψ_log = log(μ_ψ^2 / sqrt(σ_ψ^2 + μ_ψ^2))
         σ_ψ_log = sqrt(log(σ_ψ^2 / μ_ψ^2 + 1))
@@ -1991,14 +2022,13 @@ module GermStats
         samples_thresh = zeros(n_thresh, size(sobol_pts, 2))
         for i in 1:n_thresh
             dist_thresh = Normal(μs_thresh[i], σs_thresh[i])
-            println(dist_thresh)
             # samples_thresh[i, :] .= clamp_inplace!(quantile(dist_thresh, sobol_pts[3 + i,:]))
             samples_thresh[i, :] .= quantile(dist_thresh, sobol_pts[3 + i,:])
         end
 
         # Template problem
         p_template = (A=samples_A[1], Vₛ=samples_Vₛ[1], V_out=samples_V_out[1], V_ps=samples_V_ps[1],
-                    Pₛ_I=Pₛ_I, Pₛ_C=Pₛ_C, K_cs=K_cs, s_max=s_max, c₀_cs=c₀_cs)
+                    Pₛ_I=Pₛ_I, Pₛ_C=Pₛ_C, K_fs=K_fs, f_maxs=f_maxs, c₀_cs=c₀_cs)
         u0_template = [μ_ψ, 0.0, 0.0]
         tspan = (0.0, maximum(times))
         prob = ODEProblem(ode_func, u0_template, tspan, p_template)
@@ -2008,7 +2038,7 @@ module GermStats
             # r = max(samples_ξ[i], 1e-9)
             
             new_p = (A=samples_A[i], Vₛ=samples_Vₛ[i], V_out=samples_V_out[i], V_ps=samples_V_ps[i],
-                    Pₛ_I=Pₛ_I, Pₛ_C=Pₛ_C, K_cs=K_cs, s_max=s_max, c₀_cs=c₀_cs)
+                    Pₛ_I=Pₛ_I, Pₛ_C=Pₛ_C, K_fs=K_fs, f_maxs=f_maxs, c₀_cs=c₀_cs)
 
             new_u0 = [samples_ψ[i], 0.0, 0.0]
             remake(prob; u0 = new_u0, p = new_p)
@@ -2023,7 +2053,12 @@ module GermStats
 
         # Evaluate fraction germinated
         c_in_t = [[[sol(t)[1+i*2] for sol in sols.u] for i in 0:(n_thresh - 1)] for t in times]
-        germinated = [mean(prod(reduce(hcat, c_in_t[i])' .< samples_thresh, dims=1)) for i in 1:length(times)]
+        if isnothing(ks)
+            thresholds = samples_thresh
+        else
+            thresholds = samples_thresh .* ks
+        end
+        germinated = [mean(prod(reduce(hcat, c_in_t[i])' .< thresholds, dims=1)) for i in 1:length(times)]
         
         return germinated
     end

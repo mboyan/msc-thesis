@@ -183,7 +183,7 @@ module DataUtils
                                 "combined_inhibitor", "combined_inhibitor_thresh", "combined_inhibitor_perm",
                                 "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal",
                                 "special_inducer", "special_independent", "special_combined", "special_thresh", "special_signal",
-                                "feedback_inhibitor_perm", "feedback_combined_perm"]
+                                "feedback_inhibitor_inducer_perm", "feedback_combined_inducer_perm"]
 
         # Reshape input
         densities_tile = repeat(densities, outer=[1, length(sources), length(times)])
@@ -200,7 +200,7 @@ module DataUtils
             n_nodes = 10 # 3D integral
         elseif model_type in ["special_inducer", "special_combined", "special_thresh", "special_signal"]
             n_nodes = 6 # 4D integral
-        elseif model_type in ["feedback_inhibitor_perm", "feedback_combined_perm"]
+        elseif model_type in ["feedback_inhibitor_inducer_perm", "feedback_combined_inducer_perm"]
             n_nodes = 1024
         end
         println("Number of nodes/samples: ", n_nodes)
@@ -209,7 +209,12 @@ module DataUtils
 
         gh_integral = false
         if model_type_split[1] == "feedback"
-            sobol_pts = QuasiMonteCarlo.sample(n_nodes, 4, SobolSample())
+            if (haskey(bounds_dict, :μ_γ) && haskey(bounds_dict, :μ_ω))
+                sample_dim = 5
+            else
+                sample_dim = 4
+            end
+            sobol_pts = QuasiMonteCarlo.sample(n_nodes, sample_dim, SobolSample())
         else
             gh_integral = true
 
@@ -704,21 +709,21 @@ module DataUtils
 
         elseif model_type_split[1] == "feedback"
             # FEEDBACK MODELS
-            if model_type_split[2] == "inhibitor" && model_type_split[3] == "perm"
+            if model_type_split[2] == "inhibitor" && model_type_split[3] == "inducer" && model_type_split[4] == "perm"
                 println("Model: inhibitor-dependent germination with inducer-dependent inhibitor/inducer permeability")
                 wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
                     Main.ode_inducer_dependent_perm!,
                     sobol_pts,
                     times,
-                    samples_A,
+                    [samples_A,
                     samples_Vₛ,
                     V_out,
-                    samples_V_ps,
+                    samples_V_ps],
                     def_params[:c₀_cs],
-                    params[1], # s_max
+                    [params[1]], # s_max
                     params[2], # Pₛ_I
                     params[3], # Pₛ_C
-                    params[4], # K_cs
+                    [params[4]], # K_cs
                     params[5], # μ_ψ
                     params[5] * exp(params[6]), # σ_ψ = μ_ψ * exp(δ_ψ)
                     [params[7]], # μ_γ
@@ -727,27 +732,27 @@ module DataUtils
                 param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cs, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ]
                 param_occurrences = [n_src, 1, n_src, n_src, 1, 1, 1, 1]
 
-            elseif model_type_split[2] == "combined" && model_type_split[3] == "perm"
+            elseif model_type_split[2] == "combined" && model_type_split[3] == "inducer" && model_type_split[4] == "perm"
                 println("Model: 2-factor germination with inducer-dependent inhibitor/inducer permeability")
                 wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
                     Main.ode_inducer_dependent_perm!,
                     sobol_pts,
                     times,
-                    samples_A,
+                    [samples_A,
                     samples_Vₛ,
                     V_out,
-                    samples_V_ps,
+                    samples_V_ps],
                     def_params[:c₀_cs],
-                    params[1], # s_max
+                    [params[1]], # s_max
                     params[2], # Pₛ_I
                     params[3], # Pₛ_C
-                    params[4], # K_cs
+                    [params[4]], # K_cs
                     params[5], # μ_ψ
                     params[5] * exp(params[6]), # σ_ψ = μ_ψ * exp(δ_ψ)
                     [params[7], params[9]], # [μ_γ, μ_ω]
                     [params[7] * exp(params[8]), params[9] * exp(params[10])] # [σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)]
                 )
-                param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cs, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, μ_ω, δ_ω]
+                param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cs, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
                 param_occurrences = [n_src, 1, n_src, n_src, 1, 1, 1, 1, n_src, n_src]
             end
             
