@@ -55,6 +55,7 @@ module GermStats
     export clamp_inplace!
 
     export ode_inducer_dependent_perm!
+    export ode_inhibitor_dependent_perm!
 
 
     function clamp_inplace!(arr, eps=1e-12)
@@ -102,7 +103,8 @@ module GermStats
                                 "combined_inhibitor", "combined_inhibitor_thresh", "combined_inhibitor_perm",
                                 "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal",
                                 "special_inducer", "special_independent", "special_combined", "special_thresh", "special_signal",
-                                "feedback_inhibitor_inducer_perm", "feedback_combined_inducer_perm"]
+                                "feedback_inhibitor_inducer_perm", "feedback_combined_inducer_perm",
+                                "feedback_inducer_inhibitor_perm", "feedback_combined_inhibitor_perm"]
 
         # Determine number of nodes depending on the integral dimension (if not specified)
         if isnothing(n_nodes)
@@ -114,7 +116,7 @@ module GermStats
                 n_nodes = 10 # 3D integral
             elseif model_type in ["special_inducer", "special_combined", "special_thresh", "special_signal"]
                 n_nodes = 6 # 4D integral
-            elseif model_type in ["feedback_inhibitor_inducer_perm", "feedback_combined_inducer_perm"]
+            elseif model_type in ["feedback_inhibitor_inducer_perm", "feedback_combined_inducer_perm", "feedback_inducer_inhibitor_perm", "feedback_combined_inhibitor_perm"]
                 n_nodes = 1024
             end
         end
@@ -189,67 +191,70 @@ module GermStats
 
         # Compute the germination response
         if model_type == "independent"
-            germ_response = [germ_response_independent_factors_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω]) for t in times]
+            germ_response = [germ_response_independent_factors_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω]) for t in times]
             
         elseif model_type == "inhibitor"
-            germ_response = [germ_response_inducer_dep_inhibitor_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:k], params[:μ_γ], params[:σ_γ]) for t in times]
+            germ_response = [germ_response_inducer_dep_inhibitor_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:k], params[:μ_γ], params[:σ_γ]) for t in times]
             
         elseif model_type == "inhibitor_thresh"
-            germ_response = [germ_response_inducer_dep_inhibitor_thresh_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:k], params[:K_cs], params[:μ_γ], params[:σ_γ]) for t in times]
+            germ_response = [germ_response_inducer_dep_inhibitor_thresh_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:k], params[:K_cC], params[:μ_γ], params[:σ_γ]) for t in times]
             
         elseif model_type == "inhibitor_perm"
-            germ_response = [germ_response_inducer_dep_inhibitor_perm_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:μ_γ], params[:σ_γ]) for t in times]
+            germ_response = [germ_response_inducer_dep_inhibitor_perm_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:μ_γ], params[:σ_γ]) for t in times]
             
         elseif model_type == "inducer"
-            germ_response = [germ_response_inhibitor_dep_inducer_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:k], params[:K_cs], params[:K_I], params[:n], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
+            germ_response = [germ_response_inhibitor_dep_inducer_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:k], params[:K_cC], params[:K_I], params[:n], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
 
         elseif model_type == "inducer_thresh"
-            germ_response = [germ_response_inhibitor_dep_inducer_thresh_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:k], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
+            germ_response = [germ_response_inhibitor_dep_inducer_thresh_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:k], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
             
         elseif model_type == "inducer_signal"
-            germ_response = [germ_response_inhibitor_dep_inducer_signal_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:K_I], params[:n], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
+            germ_response = [germ_response_inhibitor_dep_inducer_signal_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:K_I], params[:n], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
             
         elseif model_type == "combined_inhibitor"
-            germ_response = [germ_response_inducer_dep_inhibitor_2_factor_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:k], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω]) for t in times]
+            germ_response = [germ_response_inducer_dep_inhibitor_2_factor_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:k], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω]) for t in times]
             
         elseif model_type == "combined_inhibitor_thresh"
-            germ_response = [germ_response_inducer_dep_inhibitor_thresh_2_factor_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:k], params[:K_cs], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω]) for t in times]
+            germ_response = [germ_response_inducer_dep_inhibitor_thresh_2_factor_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:k], params[:K_cC], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω]) for t in times]
             
         elseif model_type == "combined_inhibitor_perm"
-            germ_response = [germ_response_inducer_dep_inhibitor_perm_2_factor_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω]) for t in times]
+            germ_response = [germ_response_inducer_dep_inhibitor_perm_2_factor_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω]) for t in times]
             
         elseif model_type == "combined_inducer"
-            germ_response = [germ_response_inhibitor_dep_inducer_2_factor_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:K_I], params[:n], params[:k], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
+            germ_response = [germ_response_inhibitor_dep_inducer_2_factor_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:K_I], params[:n], params[:k], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
             
         elseif model_type == "combined_inducer_thresh"
-            germ_response = [germ_response_inhibitor_dep_inducer_thresh_2_factor_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:k], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
+            germ_response = [germ_response_inhibitor_dep_inducer_thresh_2_factor_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:k], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
             
         elseif model_type == "combined_inducer_signal"
-            germ_response = [germ_response_inhibitor_dep_inducer_signal_2_factor_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:K_I], params[:n], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
+            germ_response = [germ_response_inhibitor_dep_inducer_signal_2_factor_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:K_I], params[:n], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
             
         elseif model_type == "special_inducer"
-            germ_response = [germ_response_inducer_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:K_I], params[:k], params[:n], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
+            germ_response = [germ_response_inducer_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:K_I], params[:k], params[:n], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
             
         elseif model_type == "special_independent"
-            germ_response = [germ_response_independent_factors_var_perm_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_α], params[:σ_α]) for t in times]
+            germ_response = [germ_response_independent_factors_var_perm_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_α], params[:σ_α]) for t in times]
             
         elseif model_type == "special_combined"
-            germ_response = [germ_response_inducer_2_factors_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:K_I], params[:k], params[:n], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
+            germ_response = [germ_response_inducer_2_factors_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:K_I], params[:k], params[:n], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
             
         elseif model_type == "special_thresh"
-            germ_response = [germ_response_inducer_thresh_2_factors_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:k], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
+            germ_response = [germ_response_inducer_thresh_2_factors_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:k], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
             
         elseif model_type == "special_signal"
-            germ_response = [germ_response_inducer_signal_2_factors_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cs], params[:K_I], params[:n], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
+            germ_response = [germ_response_inducer_signal_2_factors_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:K_I], params[:n], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
         
         elseif model_type == "feedback_inhibitor_inducer_perm"
-            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:s_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cs]], params[:μ_ψ], params[:σ_ψ], [params[:μ_γ]], [params[:σ_γ]])
+            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:s_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cC]], params[:μ_ψ], params[:σ_ψ], [params[:μ_γ]], [params[:σ_γ]])
             
         elseif model_type == "feedback_combined_inducer_perm"
-            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:s_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cs]], params[:μ_ψ], params[:σ_ψ], [params[:μ_γ], params[:μ_ω]], [params[:σ_γ], params[:σ_ω]])
+            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:s_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cC]], params[:μ_ψ], params[:σ_ψ], [params[:μ_γ], params[:μ_ω]], [params[:σ_γ], params[:σ_ω]])
             
         elseif model_type == "feedback_inducer_inhibitor_perm"
-            germ_response = germ_response_feedback_perm(ode_inhibitor_dependent_perm!, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:s_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cs]], params[:μ_ψ], params[:σ_ψ], [params[:μ_ω]], [params[:σ_ω]])
+            germ_response = germ_response_feedback_perm(ode_inhibitor_dependent_perm!, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:b_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cI]], params[:μ_ψ], params[:σ_ψ], [params[:μ_ω]], [params[:σ_ω]])
+           
+        elseif model_type == "feedback_combined_inhibitor_perm"
+            germ_response = germ_response_feedback_perm(ode_inhibitor_dependent_perm!, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:b_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cI]], params[:μ_ψ], params[:σ_ψ], [params[:μ_γ], params[:μ_ω]], [params[:σ_γ], params[:σ_ω]])
            
         end
 
@@ -257,7 +262,7 @@ module GermStats
     end
 
 
-    function germ_response_independent_factors_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, μ_γ, σ_γ, μ_ω, σ_ω)
+    function germ_response_independent_factors_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cC, μ_γ, σ_γ, μ_ω, σ_ω)
         """
         Compute the germination response for independent
         inhibition and induction for a given set of parameters.
@@ -274,7 +279,7 @@ module GermStats
             κ - cell wall thickness in um
             Pₛ - permeation constant for the inhibitor in um/s
             Pₛ_cs - permeation constant for the carbon source in um/s
-            K_cs - half-saturation constant for the carbon source
+            K_cC - half-saturation constant for the carbon source
             μ_γ - mean inhibition threshold
             σ_γ - standard deviation of inhibition threshold
             μ_ω - mean induction threshold
@@ -297,7 +302,7 @@ module GermStats
         # Inducer
         V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        s = c_cs ./ (K_cs .+ c_cs)
+        s = c_cs ./ (K_cC .+ c_cs)
         
         tail = cdf.(dist_ω, s) .* (1 .- cdf.(dist_γ, β))
         
@@ -305,7 +310,7 @@ module GermStats
     end
 
 
-    function germ_response_inducer_dep_inhibitor_thresh_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, k, K_cs, μ_γ, σ_γ)
+    function germ_response_inducer_dep_inhibitor_thresh_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, k, K_cC, μ_γ, σ_γ)
         """
         Compute the germination response for an inducer-dependent
         inhibitor threshold for a given set of parameters,
@@ -324,7 +329,7 @@ module GermStats
             Pₛ - permeation constant for the inhibitor in um/s
             Pₛ_cs - permeation constant for the carbon source in um/s
             k - induction strength over inhibitor threshold
-            K_cs - half-saturation constant for the carbon source
+            K_cC - half-saturation constant for the carbon source
             μ_γ - mean inhibition threshold
             σ_γ - standard deviation of inhibition threshold
         output:
@@ -344,7 +349,7 @@ module GermStats
         # Inducer
         V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        s = c_cs ./ (K_cs .+ c_cs)
+        s = c_cs ./ (K_cC .+ c_cs)
 
         tail = 1 .- cdf.(dist_γ, β .- k .* s)
 
@@ -352,7 +357,7 @@ module GermStats
     end
 
 
-    function germ_response_inducer_dep_inhibitor_perm_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, μ_γ, σ_γ)
+    function germ_response_inducer_dep_inhibitor_perm_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cC, μ_γ, σ_γ)
         """
         Compute the germination response for an inducer-dependent
         inhibitor permeation for a given set of parameters,
@@ -370,7 +375,7 @@ module GermStats
             κ - cell wall thickness in um
             Pₛ - permeation constant for inhibitor in um/s
             Pₛ_cs - permeation constant for the carbon source in um/s
-            K_cs - half-saturation constant for the carbon source
+            K_cC - half-saturation constant for the carbon source
             μ_γ - mean inhibition threshold
             σ_γ - standard deviation of inhibition threshold
         output:
@@ -384,7 +389,7 @@ module GermStats
         A = 4 * π .* ξ.^2
         V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        s = c_cs ./ (K_cs .+ c_cs)
+        s = c_cs ./ (K_cC .+ c_cs)
 
         # Inhibitor
         V = 4/3 * π .* ξ.^3
@@ -398,7 +403,7 @@ module GermStats
     end
 
 
-    function germ_response_inducer_dep_inhibitor_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, k, μ_γ, σ_γ)
+    function germ_response_inducer_dep_inhibitor_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cC, k, μ_γ, σ_γ)
         """
         Compute the germination response for an inducer-dependent
         inhibitor threshold and permeation for a given set of parameters,
@@ -416,7 +421,7 @@ module GermStats
             κ - cell wall thickness in um
             Pₛ - permeation constant for the inhibitor in um/s
             Pₛ_cs - permeation constant for the carbon source in um/s
-            K_cs - half-saturation constant for the carbon source
+            K_cC - half-saturation constant for the carbon source
             k - proportionality constant for threshold modulation vs permeability modulation
             μ_γ - mean inhibition threshold
             σ_γ - standard deviation of inhibition threshold
@@ -431,7 +436,7 @@ module GermStats
         A = 4 * π .* ξ.^2
         V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        s = c_cs ./ (K_cs .+ c_cs)
+        s = c_cs ./ (K_cC .+ c_cs)
 
         # Inhibitor
         V = 4/3 * π .* ξ.^3
@@ -445,7 +450,7 @@ module GermStats
     end
 
 
-    function germ_response_inhibitor_dep_inducer_thresh_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, k, μ_ω, σ_ω, μ_ψ, σ_ψ)
+    function germ_response_inhibitor_dep_inducer_thresh_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cC, k, μ_ω, σ_ω, μ_ψ, σ_ψ)
         """
         Compute the germination response for an inhibitor-dependent
         induction threshold for a given set of parameters.
@@ -462,7 +467,7 @@ module GermStats
             κ - cell wall thickness in um
             Pₛ - permeation constant for the inhibitor in um/s
             Pₛ_cs - permeation constant for the carbon source in um/s
-            K_cs - half-saturation constant for the carbon source
+            K_cC - half-saturation constant for the carbon source
             k - inhibition strength over induction threshold
             μ_ω - mean induction threshold
             σ_ω - standard deviation of induction threshold
@@ -484,7 +489,7 @@ module GermStats
         A = 4 * π .* ξ.^2
         V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        s = c_cs ./ (K_cs .+ c_cs)
+        s = c_cs ./ (K_cC .+ c_cs)
 
         # Inhibitor
         V = 4/3 * π .* ξ.^3
@@ -507,7 +512,7 @@ module GermStats
     end
 
 
-    function germ_response_inhibitor_dep_inducer_signal_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, K_I, n, μ_ω, σ_ω, μ_ψ, σ_ψ)
+    function germ_response_inhibitor_dep_inducer_signal_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cC, K_I, n, μ_ω, σ_ω, μ_ψ, σ_ψ)
         """
         Compute the germination response for an inhibitor-dependent
         induction signal for a given set of parameters.
@@ -524,7 +529,7 @@ module GermStats
             κ - cell wall thickness in um
             Pₛ - permeation constant for the inhibitor in um/s
             Pₛ_cs - permeation constant for the carbon source in um/s
-            K_cs - half-saturation constant for the carbon source
+            K_cC - half-saturation constant for the carbon source
             K_I - half-saturation constant for the inhibitor
             n - Hill coefficient for the inhibitor
             k - inhibition strength over induction threshold
@@ -548,7 +553,7 @@ module GermStats
         A = 4 * π .* ξ.^2
         V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        s = c_cs ./ (K_cs .+ c_cs)
+        s = c_cs ./ (K_cC .+ c_cs)
 
         # Inhibitor
         V = 4/3 * π .* ξ.^3
@@ -572,7 +577,7 @@ module GermStats
     end
 
     
-    function germ_response_inhibitor_dep_inducer_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, k, K_cs, K_I, n, μ_ω, σ_ω, μ_ψ, σ_ψ)
+    function germ_response_inhibitor_dep_inducer_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, k, K_cC, K_I, n, μ_ω, σ_ω, μ_ψ, σ_ψ)
         """
         Compute the germination response for an inhibitor-dependent
         induction threshold and signal for a given set of parameters.
@@ -590,7 +595,7 @@ module GermStats
             Pₛ - permeation constant for the inhibitor in um/s
             Pₛ_cs - permeation constant for the carbon source in um/s
             k - proportionality constant for threshold modulation vs signal modulation
-            K_cs - half-saturation constant for the carbon source
+            K_cC - half-saturation constant for the carbon source
             K_I - half-saturation constant for the inhibitor
             n - Hill coefficient for the inhibitor
             k - inhibition strength over induction threshold
@@ -614,7 +619,7 @@ module GermStats
         A = 4 * π .* ξ.^2
         V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        s = c_cs ./ (K_cs .+ c_cs)
+        s = c_cs ./ (K_cC .+ c_cs)
 
         # Inhibitor
         V = 4/3 * π .* ξ.^3
@@ -638,7 +643,7 @@ module GermStats
     end
 
 
-    function germ_response_inducer_dep_inhibitor_thresh_2_factor_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, k, K_cs, μ_γ, σ_γ, μ_ω, σ_ω)
+    function germ_response_inducer_dep_inhibitor_thresh_2_factor_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, k, K_cC, μ_γ, σ_γ, μ_ω, σ_ω)
         """
         Compute the germination response for an inducer-dependent
         inhibitor threshold for a given set of parameters,
@@ -657,7 +662,7 @@ module GermStats
             Pₛ - permeation constant for the inhibitor in um/s
             Pₛ_cs - permeation constant for the carbon source in um/s
             k - induction strength over inhibitor threshold
-            K_cs - half-saturation constant for the carbon source
+            K_cC - half-saturation constant for the carbon source
             μ_γ - mean inhibition threshold
             σ_γ - standard deviation of inhibition threshold
             μ_ω - mean induction threshold
@@ -680,7 +685,7 @@ module GermStats
         # Inducer
         V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        s = c_cs ./ (K_cs .+ c_cs)
+        s = c_cs ./ (K_cC .+ c_cs)
 
         tail = (1 .- cdf.(dist_γ, β .- k .* s)) .* cdf.(dist_ω, s)
 
@@ -688,7 +693,7 @@ module GermStats
     end
 
 
-    function germ_response_inducer_dep_inhibitor_perm_2_factor_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, μ_γ, σ_γ, μ_ω, σ_ω)
+    function germ_response_inducer_dep_inhibitor_perm_2_factor_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cC, μ_γ, σ_γ, μ_ω, σ_ω)
         """
         Compute the germination response for an inducer-dependent
         inhibitor permeation for a given set of parameters,
@@ -706,7 +711,7 @@ module GermStats
             κ - cell wall thickness in um
             Pₛ - permeation constant for inhibitor in um/s
             Pₛ_cs - permeation constant for the carbon source in um/s
-            K_cs - half-saturation constant for the carbon source
+            K_cC - half-saturation constant for the carbon source
             μ_γ - mean inhibition threshold
             σ_γ - standard deviation of inhibition threshold
             μ_ω - mean induction threshold
@@ -723,7 +728,7 @@ module GermStats
         A = 4 * π .* ξ.^2
         V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        s = c_cs ./ (K_cs .+ c_cs)
+        s = c_cs ./ (K_cC .+ c_cs)
 
         # Inhibitor
         V = 4/3 * π .* ξ.^3
@@ -737,7 +742,7 @@ module GermStats
     end
 
 
-    function germ_response_inducer_dep_inhibitor_2_factor_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, k, μ_γ, σ_γ, μ_ω, σ_ω)
+    function germ_response_inducer_dep_inhibitor_2_factor_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cC, k, μ_γ, σ_γ, μ_ω, σ_ω)
         """
         Compute the germination response for an inducer-dependent
         inhibitor threshold and permeation and an additional
@@ -755,7 +760,7 @@ module GermStats
             κ - cell wall thickness in um
             Pₛ - permeation constant for the inhibitor in um/s
             Pₛ_cs - permeation constant for the carbon source in um/s
-            K_cs - half-saturation constant for the carbon source
+            K_cC - half-saturation constant for the carbon source
             k - proportionality constant for threshold modulation vs permeability modulation
             μ_γ - mean inhibition threshold
             σ_γ - standard deviation of inhibition threshold
@@ -773,7 +778,7 @@ module GermStats
         A = 4 * π .* ξ.^2
         V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        s = c_cs ./ (K_cs .+ c_cs)
+        s = c_cs ./ (K_cC .+ c_cs)
 
         # Inhibitor
         V = 4/3 * π .* ξ.^3
@@ -787,7 +792,7 @@ module GermStats
     end
 
 
-    function germ_response_inhibitor_dep_inducer_thresh_2_factor_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, k, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ)
+    function germ_response_inhibitor_dep_inducer_thresh_2_factor_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cC, k, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ)
         """
         Compute the germination response for an inhibitor-dependent
         induction threshold and an additional inhibitor-dependent
@@ -805,7 +810,7 @@ module GermStats
             κ - cell wall thickness in um
             Pₛ - permeation constant for the inhibitor in um/s
             Pₛ_cs - permeation constant for the carbon source in um/s
-            K_cs - half-saturation constant for the carbon source
+            K_cC - half-saturation constant for the carbon source
             k - inhibition strength over induction threshold
             μ_γ - mean inhibition threshold
             σ_γ - standard deviation of inhibition threshold
@@ -830,7 +835,7 @@ module GermStats
         A = 4 * π .* ξ.^2
         V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        s = c_cs ./ (K_cs .+ c_cs)
+        s = c_cs ./ (K_cC .+ c_cs)
 
         # Inhibitor
         V = 4/3 * π .* ξ.^3
@@ -856,7 +861,7 @@ module GermStats
         return sum(W3 .* tail)
     end
 
-    function germ_response_inhibitor_dep_inducer_signal_2_factor_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, K_I, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ)
+    function germ_response_inhibitor_dep_inducer_signal_2_factor_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cC, K_I, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ)
         """
         Compute the germination response for an inhibitor-dependent
         induction signal and an additional inhibitor-dependent
@@ -874,7 +879,7 @@ module GermStats
             κ - cell wall thickness in um
             Pₛ - permeation constant for the inhibitor in um/s
             Pₛ_cs - permeation constant for the carbon source in um/s
-            K_cs - half-saturation constant for the carbon source
+            K_cC - half-saturation constant for the carbon source
             K_I - half-saturation constant for the inhibitor
             n - Hill coefficient for the inhibitor
             μ_γ - mean inhibition threshold
@@ -900,7 +905,7 @@ module GermStats
         A = 4 * π .* ξ.^2
         V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        s = c_cs ./ (K_cs .+ c_cs)
+        s = c_cs ./ (K_cC .+ c_cs)
 
         # Inhibitor
         V = 4/3 * π .* ξ.^3
@@ -928,7 +933,7 @@ module GermStats
     end
 
 
-    function germ_response_inhibitor_dep_inducer_2_factor_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, K_I, n, k, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ)
+    function germ_response_inhibitor_dep_inducer_2_factor_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cC, K_I, n, k, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ)
         """
         Compute the germination response for an inhibitor-dependent
         induction threshold and signal and an additional
@@ -945,7 +950,7 @@ module GermStats
             κ - cell wall thickness in um
             Pₛ - permeation constant for the inhibitor in um/s
             Pₛ_cs - permeation constant for the carbon source in um/s
-            K_cs - half-saturation constant for the carbon source
+            K_cC - half-saturation constant for the carbon source
             K_I - half-saturation constant for the inhibitor
             n - Hill coefficient for the inhibitor
             k - inhibition strength over induction threshold
@@ -972,7 +977,7 @@ module GermStats
         A = 4 * π .* ξ.^2
         V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        s = c_cs ./ (K_cs .+ c_cs)
+        s = c_cs ./ (K_cC .+ c_cs)
 
         # Inhibitor
         V = 4/3 * π .* ξ.^3
@@ -1000,7 +1005,7 @@ module GermStats
     end
 
 
-    function germ_response_inducer_thresh_var_perm_gh(u, W4, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, k, μ_ω, σ_ω, μ_ψ, σ_ψ, μ_α, σ_α)
+    function germ_response_inducer_thresh_var_perm_gh(u, W4, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cC, k, μ_ω, σ_ω, μ_ψ, σ_ψ, μ_α, σ_α)
         """
         Compute the germination response for an inhibitor-dependent
         induction threshold for a given set of parameters,
@@ -1018,7 +1023,7 @@ module GermStats
             κ - cell wall thickness in um
             Pₛ - permeation constant for the inhibitor in um/s
             Pₛ_cs - permeation constant for the carbon source in um/s
-            K_cs - half-saturation constant for the carbon source
+            K_cC - half-saturation constant for the carbon source
             k - inhibition strength over induction threshold
             μ_ω - mean induction threshold
             σ_ω - standard deviation of induction threshold
@@ -1062,7 +1067,7 @@ module GermStats
         
         # Inducer
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        s = c_cs ./ (K_cs .+ c_cs)
+        s = c_cs ./ (K_cC .+ c_cs)
 
         # Inhibitor
         τ = V ./ (Pₛ .* A)
@@ -1083,7 +1088,7 @@ module GermStats
     end
 
 
-    function germ_response_inducer_var_perm_gh(u, W4, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, K_I, k, n, μ_ω, σ_ω, μ_ψ, σ_ψ, μ_α, σ_α)
+    function germ_response_inducer_var_perm_gh(u, W4, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cC, K_I, k, n, μ_ω, σ_ω, μ_ψ, σ_ψ, μ_α, σ_α)
         """
         Compute the germination response for an inhibitor-dependent
         induction threshold and signal for a given set of parameters,
@@ -1101,7 +1106,7 @@ module GermStats
             κ - cell wall thickness in um
             Pₛ - permeation constant for the inhibitor in um/s
             Pₛ_cs - permeation constant for the carbon source in um/s
-            K_cs - half-saturation constant for the carbon source
+            K_cC - half-saturation constant for the carbon source
             K_I - half-saturation constant for the inhibitor
             k - inhibition strength over induction threshold
             n - Hill coefficient for the inhibitor
@@ -1147,7 +1152,7 @@ module GermStats
         
         # Inducer
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        s = c_cs ./ (K_cs .+ c_cs)
+        s = c_cs ./ (K_cC .+ c_cs)
 
         # Inhibitor
         τ = V ./ (Pₛ .* A)
@@ -1169,7 +1174,7 @@ module GermStats
     end
 
 
-    function germ_response_independent_factors_var_perm_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, μ_γ, σ_γ, μ_ω, σ_ω, μ_α, σ_α)
+    function germ_response_independent_factors_var_perm_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cC, μ_γ, σ_γ, μ_ω, σ_ω, μ_α, σ_α)
         """
         Compute the germination response for independent
         inhibition and induction for a given set of parameters,
@@ -1187,7 +1192,7 @@ module GermStats
             κ - cell wall thickness in um
             Pₛ - baseline permeation constant for the inhibitor in um/s
             Pₛ_cs - baseline permeation constant for the carbon source in um/s
-            K_cs - half-saturation constant for the carbon source
+            K_cC - half-saturation constant for the carbon source
             μ_γ - mean inhibition threshold
             σ_γ - standard deviation of inhibition threshold
             μ_ω - mean induction threshold
@@ -1233,7 +1238,7 @@ module GermStats
 
         # Inducer
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        s = c_cs ./ (K_cs .+ c_cs)
+        s = c_cs ./ (K_cC .+ c_cs)
         
         tail = cdf.(dist_ω, s) .* (1 .- cdf.(dist_γ, β))
         
@@ -1241,7 +1246,7 @@ module GermStats
     end
 
 
-    function germ_response_inducer_thresh_2_factors_var_perm_gh(u, W4, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, k, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ, μ_α, σ_α)
+    function germ_response_inducer_thresh_2_factors_var_perm_gh(u, W4, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cC, k, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ, μ_α, σ_α)
         """
         Compute the germination response for an inhibitor-dependent
         induction threshold for a given set of parameters,
@@ -1259,7 +1264,7 @@ module GermStats
             κ - cell wall thickness in um
             Pₛ - permeation constant for the inhibitor in um/s
             Pₛ_cs - permeation constant for the carbon source in um/s
-            K_cs - half-saturation constant for the carbon source
+            K_cC - half-saturation constant for the carbon source
             k - inhibition strength over induction threshold
             μ_γ - mean inhibition threshold
             σ_γ - standard deviation of inhibition threshold
@@ -1306,7 +1311,7 @@ module GermStats
         
         # Inducer
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        s = c_cs ./ (K_cs .+ c_cs)
+        s = c_cs ./ (K_cC .+ c_cs)
 
         # Inhibitor
         τ = V ./ (Pₛ .* A)
@@ -1327,7 +1332,7 @@ module GermStats
     end
 
 
-    function germ_response_inducer_signal_2_factors_var_perm_gh(u, W4, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, K_I, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ, μ_α, σ_α)
+    function germ_response_inducer_signal_2_factors_var_perm_gh(u, W4, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cC, K_I, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ, μ_α, σ_α)
         """
         Compute the germination response for an inhibitor-dependent
         induction signal for a given set of parameters,
@@ -1345,7 +1350,7 @@ module GermStats
             κ - cell wall thickness in um
             Pₛ - permeation constant for the inhibitor in um/s
             Pₛ_cs - permeation constant for the carbon source in um/s
-            K_cs - half-saturation constant for the carbon source
+            K_cC - half-saturation constant for the carbon source
             K_I - half-saturation constant for the inhibitor
             n - Hill coefficient for the inhibitor
             μ_γ - mean inhibition threshold
@@ -1393,7 +1398,7 @@ module GermStats
         
         # Inducer
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        s = c_cs ./ (K_cs .+ c_cs)
+        s = c_cs ./ (K_cC .+ c_cs)
 
         # Inhibitor
         τ = V ./ (Pₛ .* A)
@@ -1415,7 +1420,7 @@ module GermStats
     end
 
 
-    function germ_response_inducer_2_factors_var_perm_gh(u, W4, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cs, K_I, k, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ, μ_α, σ_α)
+    function germ_response_inducer_2_factors_var_perm_gh(u, W4, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cC, K_I, k, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ, μ_α, σ_α)
         """
         Compute the germination response for an inhibitor-dependent
         induction threshold and signal for a given set of parameters,
@@ -1433,7 +1438,7 @@ module GermStats
             κ - cell wall thickness in um
             Pₛ - permeation constant for the inhibitor in um/s
             Pₛ_cs - permeation constant for the carbon source in um/s
-            K_cs - half-saturation constant for the carbon source
+            K_cC - half-saturation constant for the carbon source
             K_I - half-saturation constant for the inhibitor
             k - inhibition strength over induction threshold
             n - Hill coefficient for the inhibitor
@@ -1482,7 +1487,7 @@ module GermStats
         
         # Inducer
         c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        s = c_cs ./ (K_cs .+ c_cs)
+        s = c_cs ./ (K_cC .+ c_cs)
 
         # Inhibitor
         τ = V ./ (Pₛ .* A)
@@ -1567,7 +1572,7 @@ module GermStats
     end
 
 
-    function germ_response_inhibitor_dep_inducer_2_factors_eq(ρₛ, dist_ξ, c₀_cs, K_cs, K_I, k, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4, abstol=1e-6)
+    function germ_response_inhibitor_dep_inducer_2_factors_eq(ρₛ, dist_ξ, c₀_cs, K_cC, K_I, k, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4, abstol=1e-6)
         """
         Compute the equilibrium germination response
         for an inhibitor-dependent inducer threshold and signal and
@@ -1576,7 +1581,7 @@ module GermStats
             ρₛ - spore density in spores/um^3
             dist_ξ - distribution of spore radii (LogNormal)
             c₀_cs - initial concentration of carbon source in M
-            K_cs - half-saturation constant for the carbon source
+            K_cC - half-saturation constant for the carbon source
             K_I - half-saturation constant for the inhibitor
             k - inhibition strength over induction threshold
             n - Hill coefficient for the inhibitor
@@ -1600,7 +1605,7 @@ module GermStats
         dist_ψ = LogNormal(μ_ψ_log, σ_ψ_log)
 
         # Signal
-        s_eq = c₀_cs ./ (K_cs .+ c₀_cs)
+        s_eq = c₀_cs ./ (K_cC .+ c₀_cs)
 
         function integrand(input)
             ξ, ψ = input
@@ -1617,7 +1622,7 @@ module GermStats
     end
 
 
-    function germ_response_inhibitor_dep_inducer_2_factors_eq_c_ex(ρₛ, dist_ξ, c_ex, c₀_cs, K_cs, K_I, k, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4, abstol=1e-6)
+    function germ_response_inhibitor_dep_inducer_2_factors_eq_c_ex(ρₛ, dist_ξ, c_ex, c₀_cs, K_cC, K_I, k, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4, abstol=1e-6)
         """
         Compute the equilibrium germination response
         for an inhibitor-dependent inducer threshold and signal and
@@ -1627,7 +1632,7 @@ module GermStats
             dist_ξ - distribution of spore radii (LogNormal)
             c_ex - external concentration of the inducer in M
             c₀_cs - initial concentration of carbon source in M
-            K_cs - half-saturation constant for the carbon source
+            K_cC - half-saturation constant for the carbon source
             K_I - half-saturation constant for the inhibitor
             k - inhibition strength over induction threshold
             n - Hill coefficient for the inhibitor
@@ -1651,7 +1656,7 @@ module GermStats
         dist_ψ = LogNormal(μ_ψ_log, σ_ψ_log)
 
         # Signal
-        s_eq = c₀_cs ./ (K_cs .+ c₀_cs)
+        s_eq = c₀_cs ./ (K_cC .+ c₀_cs)
 
          function integrand(input)
             ξ, ψ = input
@@ -1668,7 +1673,7 @@ module GermStats
     end
 
 
-    function germ_response_inhibitor_dep_inducer_thresh_2_factors_eq(ρₛ, dist_ξ, c₀_cs, K_cs, k, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4, abstol=1e-6)
+    function germ_response_inhibitor_dep_inducer_thresh_2_factors_eq(ρₛ, dist_ξ, c₀_cs, K_cC, k, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4, abstol=1e-6)
         """
         Compute the equilibrium germination response
         for an inhibitor-dependent inducer threshold and
@@ -1677,7 +1682,7 @@ module GermStats
             ρₛ - spore density in spores/um^3
             dist_ξ - distribution of spore radii (LogNormal)
             c₀_cs - initial concentration of carbon source in M
-            K_cs - half-saturation constant for the carbon source
+            K_cC - half-saturation constant for the carbon source
             k - inhibition strength over induction threshold
             μ_γ - mean inhibition threshold
             σ_γ - standard deviation of inhibition threshold
@@ -1699,7 +1704,7 @@ module GermStats
         dist_ψ = LogNormal(μ_ψ_log, σ_ψ_log)
 
         # Signal
-        s_eq = c₀_cs ./ (K_cs .+ c₀_cs)
+        s_eq = c₀_cs ./ (K_cC .+ c₀_cs)
 
         function integrand(input)
             ξ, ψ = input
@@ -1714,7 +1719,7 @@ module GermStats
     end
 
 
-    function germ_response_inhibitor_dep_inducer_thresh_2_factors_eq_c_ex(ρₛ, dist_ξ, c_ex, c₀_cs, K_cs, k, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4)
+    function germ_response_inhibitor_dep_inducer_thresh_2_factors_eq_c_ex(ρₛ, dist_ξ, c_ex, c₀_cs, K_cC, k, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4)
         """
         Compute the equilibrium germination response
         for an inhibitor-dependent inducer threshold and
@@ -1724,7 +1729,7 @@ module GermStats
             dist_ξ - distribution of spore radii (LogNormal)
             c_ex - external concentration of the inducer in M
             c₀_cs - initial concentration of carbon source in M
-            K_cs - half-saturation constant for the carbon source
+            K_cC - half-saturation constant for the carbon source
             k - inhibition strength over induction threshold
             μ_γ - mean inhibition threshold
             σ_γ - standard deviation of inhibition threshold
@@ -1745,7 +1750,7 @@ module GermStats
         dist_ψ = LogNormal(μ_ψ_log, σ_ψ_log)
 
         # Signal
-        s_eq = c₀_cs ./ (K_cs .+ c₀_cs)
+        s_eq = c₀_cs ./ (K_cC .+ c₀_cs)
 
          function integrand(input)
             ξ, ψ = input
@@ -1760,7 +1765,7 @@ module GermStats
     end
 
 
-    function germ_response_inhibitor_dep_inducer_signal_2_factors_eq(t, ρₛ, dist_ξ, c₀_cs, K_cs, K_I, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4, abstol=1e-6)
+    function germ_response_inhibitor_dep_inducer_signal_2_factors_eq(t, ρₛ, dist_ξ, c₀_cs, K_cC, K_I, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4, abstol=1e-6)
         """
         Compute the equilibrium germination response
         for an inhibitor-dependent inducer signal and
@@ -1769,7 +1774,7 @@ module GermStats
             ρₛ - spore density in spores/um^3
             dist_ξ - distribution of spore radii (LogNormal)
             c₀_cs - initial concentration of carbon source in M
-            K_cs - half-saturation constant for the carbon source
+            K_cC - half-saturation constant for the carbon source
             K_I - half-saturation constant for the inhibitor
             n - Hill coefficient for the inhibitor
             μ_γ - mean inhibition threshold
@@ -1792,7 +1797,7 @@ module GermStats
         dist_ψ = LogNormal(μ_ψ_log, σ_ψ_log)
 
         # Signal
-        s_eq = c₀_cs ./ (K_cs .+ c₀_cs)
+        s_eq = c₀_cs ./ (K_cC .+ c₀_cs)
 
         function integrand(input)
             ξ, ψ = input
@@ -1809,7 +1814,7 @@ module GermStats
     end
 
 
-    function germ_response_inhibitor_dep_inducer_signal_2_factors_eq_c_ex(ρₛ, dist_ξ, c_ex, c₀_cs, K_cs, K_I, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4, abstol=1e-6)
+    function germ_response_inhibitor_dep_inducer_signal_2_factors_eq_c_ex(ρₛ, dist_ξ, c_ex, c₀_cs, K_cC, K_I, n, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4, abstol=1e-6)
         """
         Compute the equilibrium germination response
         for an inhibitor-dependent inducer signal and
@@ -1819,7 +1824,7 @@ module GermStats
             dist_ξ - distribution of spore radii (LogNormal)
             c_ex - external concentration of the inducer in M
             c₀_cs - initial concentration of carbon source in M
-            K_cs - half-saturation constant for the carbon source
+            K_cC - half-saturation constant for the carbon source
             K_I - half-saturation constant for the inhibitor
             n - Hill coefficient for the inhibitor
             μ_γ - mean inhibition threshold
@@ -1842,7 +1847,7 @@ module GermStats
         dist_ψ = LogNormal(μ_ψ_log, σ_ψ_log)
 
         # Signal
-        s_eq = c₀_cs ./ (K_cs .+ c₀_cs)
+        s_eq = c₀_cs ./ (K_cC .+ c₀_cs)
 
          function integrand(input)
             ξ, ψ = input
@@ -1859,7 +1864,7 @@ module GermStats
     end
 
 
-    function germ_response_independent_eq(ρₛ, dist_ξ, c₀_cs, K_cs, μ_γ, σ_γ, μ_ω, σ_ω; reltol=1e-4)
+    function germ_response_independent_eq(ρₛ, dist_ξ, c₀_cs, K_cC, μ_γ, σ_γ, μ_ω, σ_ω; reltol=1e-4)
         """
         Compute the equilibrium germination response
         for independent inhibition and induction.
@@ -1867,7 +1872,7 @@ module GermStats
             ρₛ - spore density in spores/um^3
             dist_ξ - distribution of spore radii (LogNormal)
             c₀_cs - initial concentration of carbon source in M
-            K_cs - half-saturation constant for the carbon source
+            K_cC - half-saturation constant for the carbon source
             μ_γ - mean inhibition threshold
             σ_γ - standard deviation of inhibition threshold
             μ_ω - mean induction threshold
@@ -1882,7 +1887,7 @@ module GermStats
         dist_ω = Normal(μ_ω, σ_ω)
 
         # Signal
-        s_eq = c₀_cs ./ (K_cs .+ c₀_cs)
+        s_eq = c₀_cs ./ (K_cC .+ c₀_cs)
         tail2 = cdf(dist_ω, s_eq)
 
         function integrand(ξ)
@@ -1896,7 +1901,7 @@ module GermStats
     end
 
 
-    function germ_response_independent_eq_c_ex(ρₛ, dist_ξ, c_ex, c₀_cs, K_cs, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4)
+    function germ_response_independent_eq_c_ex(ρₛ, dist_ξ, c_ex, c₀_cs, K_cC, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ; reltol=1e-4)
         """
         Compute the equilibrium germination response
         for independent inhibition and induction.
@@ -1905,7 +1910,7 @@ module GermStats
             dist_ξ - distribution of spore radii (LogNormal)
             c_ex - external concentration of the inducer in M
             c₀_cs - initial concentration of carbon source in M
-            K_cs - half-saturation constant for the carbon source
+            K_cC - half-saturation constant for the carbon source
             μ_γ - mean inhibition threshold
             σ_γ - standard deviation of inhibition threshold
             μ_ω - mean induction threshold
@@ -1925,7 +1930,7 @@ module GermStats
         dist_ψ = LogNormal(μ_ψ_log, σ_ψ_log)
 
         # Signal
-        s_eq = c₀_cs ./ (K_cs .+ c₀_cs)
+        s_eq = c₀_cs ./ (K_cC .+ c₀_cs)
         tail2 = cdf(dist_ω, s_eq)
 
         function integrand(inputs)
@@ -1947,7 +1952,7 @@ module GermStats
         """
         cinI, coutI, cinC = u
 
-        # denom = p.K_cs + cinC
+        # denom = p.K_cC + cinC
         # g = (denom * (1 + p.s_max)) * p.A / denom
         g = (1 + p.f_maxs[1] * cinC / (p.K_fs[1] + cinC)) * p.A
         rateI = g * p.Pₛ_I
@@ -1984,7 +1989,7 @@ module GermStats
     end
 
 
-    # function germ_response_feedback_perm(ode_func, sobol_pts, times, samples_A, samples_Vₛ, samples_V_out, samples_V_ps, c₀_cs, s_max, Pₛ_I, Pₛ_C, K_cs, μ_ψ, σ_ψ, μs_thresh, σs_thresh; ks=nothing)
+    # function germ_response_feedback_perm(ode_func, sobol_pts, times, samples_A, samples_Vₛ, samples_V_out, samples_V_ps, c₀_cs, s_max, Pₛ_I, Pₛ_C, K_cC, μ_ψ, σ_ψ, μs_thresh, σs_thresh; ks=nothing)
     function germ_response_feedback_perm(ode_func, sobol_pts, times, geom_samples, c₀_cs, f_maxs, Pₛ_I, Pₛ_C, K_fs, μ_ψ, σ_ψ, μs_thresh, σs_thresh; ks=nothing)
         """
         Generic function for computing the germination response
