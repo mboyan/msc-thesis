@@ -57,6 +57,11 @@ module GermStats
     export ode_inducer_dependent_perm!
     export ode_inhibitor_dependent_perm!
 
+    export signal_inducer
+    export signal_inducer_inhibitor
+    export signal_inhibitor
+    export signal_inhibitor_inducer
+
 
     function clamp_inplace!(arr, eps=1e-12)
         @inbounds for i in eachindex(arr)
@@ -104,7 +109,8 @@ module GermStats
                                 "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal",
                                 "special_inducer", "special_independent", "special_combined", "special_thresh", "special_signal",
                                 "feedback_inhibitor_inducer_perm", "feedback_combined_inducer_perm",
-                                "feedback_inducer_inhibitor_perm", "feedback_combined_inhibitor_perm"]
+                                "feedback_inducer_inhibitor_perm", "feedback_combined_inhibitor_perm",
+                                "feedback_inhibitor_inducer_perm_thresh"]
 
         # Determine number of nodes depending on the integral dimension (if not specified)
         if isnothing(n_nodes)
@@ -116,7 +122,8 @@ module GermStats
                 n_nodes = 10 # 3D integral
             elseif model_type in ["special_inducer", "special_combined", "special_thresh", "special_signal"]
                 n_nodes = 6 # 4D integral
-            elseif model_type in ["feedback_inhibitor_inducer_perm", "feedback_combined_inducer_perm", "feedback_inducer_inhibitor_perm", "feedback_combined_inhibitor_perm"]
+            elseif model_type in ["feedback_inhibitor_inducer_perm", "feedback_combined_inducer_perm", "feedback_inducer_inhibitor_perm", "feedback_combined_inhibitor_perm",
+                                "feedback_inhibitor_inducer_perm_thresh"]
                 n_nodes = 1024
             end
         end
@@ -194,28 +201,28 @@ module GermStats
             germ_response = [germ_response_independent_factors_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω]) for t in times]
             
         elseif model_type == "inhibitor"
-            germ_response = [germ_response_inducer_dep_inhibitor_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:k], params[:μ_γ], params[:σ_γ]) for t in times]
+            germ_response = [germ_response_inducer_dep_inhibitor_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:k_C], params[:μ_γ], params[:σ_γ]) for t in times]
             
         elseif model_type == "inhibitor_thresh"
-            germ_response = [germ_response_inducer_dep_inhibitor_thresh_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:k], params[:K_cC], params[:μ_γ], params[:σ_γ]) for t in times]
+            germ_response = [germ_response_inducer_dep_inhibitor_thresh_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:k_C], params[:K_cC], params[:μ_γ], params[:σ_γ]) for t in times]
             
         elseif model_type == "inhibitor_perm"
             germ_response = [germ_response_inducer_dep_inhibitor_perm_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:μ_γ], params[:σ_γ]) for t in times]
             
         elseif model_type == "inducer"
-            germ_response = [germ_response_inhibitor_dep_inducer_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:k], params[:K_cC], params[:K_I], params[:n], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
+            germ_response = [germ_response_inhibitor_dep_inducer_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:k_I], params[:K_cC], params[:K_I], params[:n], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
 
         elseif model_type == "inducer_thresh"
-            germ_response = [germ_response_inhibitor_dep_inducer_thresh_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:k], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
+            germ_response = [germ_response_inhibitor_dep_inducer_thresh_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:k_I], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
             
         elseif model_type == "inducer_signal"
             germ_response = [germ_response_inhibitor_dep_inducer_signal_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:K_I], params[:n], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
             
         elseif model_type == "combined_inhibitor"
-            germ_response = [germ_response_inducer_dep_inhibitor_2_factor_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:k], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω]) for t in times]
+            germ_response = [germ_response_inducer_dep_inhibitor_2_factor_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:k_C], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω]) for t in times]
             
         elseif model_type == "combined_inhibitor_thresh"
-            germ_response = [germ_response_inducer_dep_inhibitor_thresh_2_factor_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:k], params[:K_cC], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω]) for t in times]
+            germ_response = [germ_response_inducer_dep_inhibitor_thresh_2_factor_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:k_C], params[:K_cC], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω]) for t in times]
             
         elseif model_type == "combined_inhibitor_perm"
             germ_response = [germ_response_inducer_dep_inhibitor_perm_2_factor_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω]) for t in times]
@@ -224,37 +231,40 @@ module GermStats
             germ_response = [germ_response_inhibitor_dep_inducer_2_factor_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:K_I], params[:n], params[:k], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
             
         elseif model_type == "combined_inducer_thresh"
-            germ_response = [germ_response_inhibitor_dep_inducer_thresh_2_factor_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:k], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
+            germ_response = [germ_response_inhibitor_dep_inducer_thresh_2_factor_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:k_I], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
             
         elseif model_type == "combined_inducer_signal"
             germ_response = [germ_response_inhibitor_dep_inducer_signal_2_factor_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:K_I], params[:n], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
             
         elseif model_type == "special_inducer"
-            germ_response = [germ_response_inducer_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:K_I], params[:k], params[:n], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
+            germ_response = [germ_response_inducer_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:K_I], params[:k_I], params[:n], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
             
         elseif model_type == "special_independent"
             germ_response = [germ_response_independent_factors_var_perm_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_α], params[:σ_α]) for t in times]
             
         elseif model_type == "special_combined"
-            germ_response = [germ_response_inducer_2_factors_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:K_I], params[:k], params[:n], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
+            germ_response = [germ_response_inducer_2_factors_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:K_I], params[:k_I], params[:n], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
             
         elseif model_type == "special_thresh"
-            germ_response = [germ_response_inducer_thresh_2_factors_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:k], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
+            germ_response = [germ_response_inducer_thresh_2_factors_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:k_I], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
             
         elseif model_type == "special_signal"
             germ_response = [germ_response_inducer_signal_2_factors_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:K_I], params[:n], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
         
         elseif model_type == "feedback_inhibitor_inducer_perm"
-            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:s_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cC]], params[:μ_ψ], params[:σ_ψ], [params[:μ_γ]], [params[:σ_γ]])
+            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, nothing, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:s_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cC]], params[:μ_ψ], params[:σ_ψ], [params[:μ_γ]], [params[:σ_γ]])
             
         elseif model_type == "feedback_combined_inducer_perm"
-            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:s_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cC]], params[:μ_ψ], params[:σ_ψ], [params[:μ_γ], params[:μ_ω]], [params[:σ_γ], params[:σ_ω]])
+            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, nothing, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:s_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cC]], params[:μ_ψ], params[:σ_ψ], [params[:μ_γ], params[:μ_ω]], [params[:σ_γ], params[:σ_ω]])
             
         elseif model_type == "feedback_inducer_inhibitor_perm"
-            germ_response = germ_response_feedback_perm(ode_inhibitor_dependent_perm!, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:b_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cI]], params[:μ_ψ], params[:σ_ψ], [params[:μ_ω]], [params[:σ_ω]])
+            germ_response = germ_response_feedback_perm(ode_inhibitor_dependent_perm!, nothing, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:b_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cI]], params[:μ_ψ], params[:σ_ψ], [params[:μ_ω]], [params[:σ_ω]])
            
         elseif model_type == "feedback_combined_inhibitor_perm"
-            germ_response = germ_response_feedback_perm(ode_inhibitor_dependent_perm!, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:b_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cI]], params[:μ_ψ], params[:σ_ψ], [params[:μ_γ], params[:μ_ω]], [params[:σ_γ], params[:σ_ω]])
+            germ_response = germ_response_feedback_perm(ode_inhibitor_dependent_perm!, nothing, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:b_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cI]], params[:μ_ψ], params[:σ_ψ], [params[:μ_ω], params[:μ_γ]], [params[:σ_ω], params[:σ_γ]])
+           
+        elseif model_type == "feedback_inhibitor_inducer_perm_thresh"
+            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, signal_inducer, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:s_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cC]], params[:μ_ψ], params[:σ_ψ], [params[:μ_γ]], [params[:σ_γ]]; ks=[params[:k_C]])
            
         end
 
@@ -1950,7 +1960,7 @@ module GermStats
         ODE function for inducer-dependent
         cell wall permeability.
         """
-        cinI, coutI, cinC = u
+        cinI, cinC, coutI = u
 
         # denom = p.K_cC + cinC
         # g = (denom * (1 + p.s_max)) * p.A / denom
@@ -1962,8 +1972,8 @@ module GermStats
         diffC = cinC - p.c₀_cs
 
         du[1] = -(rateI / p.Vₛ) * diffI
-        du[2] = (rateI / p.V_out) * diffI
-        du[3] = -(rateC / p.V_ps) * diffC
+        du[2] = -(rateC / p.V_ps) * diffC
+        du[3] = (rateI / p.V_out) * diffI
     end
 
 
@@ -1972,7 +1982,7 @@ module GermStats
         ODE function for inhibitor-dependent
         cell wall permeability.
         """
-        cinI, coutI, cinC = u
+        cinC, cinI, coutI = u
 
         # denom = p.K_cI + cinI
         # g = (denom * (1 + p.λ)) * p.A / denom
@@ -1983,19 +1993,74 @@ module GermStats
         diffI = cinI - coutI
         diffC = cinC - p.c₀_cs
 
-        du[1] = -(rateI / p.Vₛ) * diffI
-        du[2] = (rateI / p.V_out) * diffI
-        du[3] = -(rateC / p.V_ps) * diffC
+        du[1] = -(rateC / p.V_ps) * diffC
+        du[2] = -(rateI / p.Vₛ) * diffI
+        du[3] = (rateI / p.V_out) * diffI
+    end
+
+
+    function signal_inhibitor(cinI, k, K_cI=1)
+        """
+        Converts inhibitor concentration
+        to a threshold shifting signal.
+        inputs:
+            cinI - inhibitor concentration (M)
+            k - scaling factor
+            K_cC - inhibitor half-saturation constant (M)
+        """
+        return k .* cinI
+    end
+
+
+    function signal_inducer(cinC, k, K_cC)
+        """
+        Converts inhibitor concentration
+        to a threshold shifting signal.
+            cinC - inducer concentration (M)
+            k - scaling factor
+            K_cC - inducer half-saturation constant (M)
+        """
+        # println(cinC)
+        # println(k)
+        # println(K_cC)
+        return k .* cinC ./ (cinC .+ K_cC)
+    end
+    
+    
+    function signal_inhibitor_inducer(cins, ks, K_fs)
+        """
+        Converts concentrations to threshold shifting
+        signals, with inhibitor first and inducer second.
+        inputs:
+            cins - inhibitor and inducer concentrations (M) [cinI, cinC]
+            ks - scaling factors
+            K_fs - half-saturation constants (M)
+        """
+        return [signal_inhibitor(cins[1], ks[1]), signal_inducer(cins[2], ks[2], K_fs[2])]
+    end
+
+
+    function signal_inducer_inhibitor(cins, ks, K_fs)
+        """
+        Converts concentrations to threshold shifting
+        signals, with inducer first and inhibitor second.
+        inputs:
+            cins - inhibitor and inducer concentrations (M) [cinC, cinI]
+            ks - scaling factors
+            K_fs - half-saturation constants (M)
+        """
+        return [signal_inducer(cins[2], ks[2], K_fs[2]), signal_inhibitor(cins[1], ks[1])]
     end
 
 
     # function germ_response_feedback_perm(ode_func, sobol_pts, times, samples_A, samples_Vₛ, samples_V_out, samples_V_ps, c₀_cs, s_max, Pₛ_I, Pₛ_C, K_cC, μ_ψ, σ_ψ, μs_thresh, σs_thresh; ks=nothing)
-    function germ_response_feedback_perm(ode_func, sobol_pts, times, geom_samples, c₀_cs, f_maxs, Pₛ_I, Pₛ_C, K_fs, μ_ψ, σ_ψ, μs_thresh, σs_thresh; ks=nothing)
+    function germ_response_feedback_perm(ode_func, signal_func, sobol_pts, times, geom_samples, c₀_cs, f_maxs, Pₛ_I, Pₛ_C, K_fs, μ_ψ, σ_ψ, μs_thresh, σs_thresh; ks=nothing)
         """
         Generic function for computing the germination response
         for inducer-dependent cell wall permeability
         inputs:
             ode_func - ODE function to integrate
+            signal func - signal conversion function
             sobol_pts - normalized Sobol samples
             times - integration time frames in seconds
             geom_samples - geometric samples corresponding to sobol pts [samples_A, samples_Vₛ, samples_V_out, samples_V_ps]
@@ -2057,11 +2122,21 @@ module GermStats
         # sols = solve(ep, Rosenbrock23(), EnsembleThreads(), trajectories=n_samples, saveat=[t])
 
         # Evaluate fraction germinated
-        c_in_t = [[[sol(t)[1+i*2] for sol in sols.u] for i in 0:(n_thresh - 1)] for t in times]
+        c_in_t = [[[sol(t)[1+i] for sol in sols.u] for i in 0:(n_thresh - 1)] for t in times] # [cinI, cinC] or [cinC, cinI] depending on ODEs
         if isnothing(ks)
             thresholds = samples_thresh
         else
-            thresholds = samples_thresh .* ks
+            println(size(c_in_t))
+            println(size(c_in_t[1]))
+            println(size(c_in_t[1][1]))
+            println(size(samples_thresh))
+            println(size([reduce(hcat, c_in_t[i])' for i in 1:length(times)][1][1]))
+            println(size(ks))
+            println(size(repeat(ks, inner=size(c_in_t))))
+            # println(size([signal_func.(c_in_t[i], ks[], K_fs) for i in 1:length(times)]))
+            # println(size([signal_func.(c, ks, K_fs) for c in c_in_t]))
+            println(size(reduce(hcat, [signal_func.(c, ks, K_fs) for c in c_in_t])'[1]))
+            thresholds = samples_thresh .+ reduce(hcat, [signal_func.(c, ks, K_fs) for c in c_in_t])'
         end
         germinated = [mean(prod(reduce(hcat, c_in_t[i])' .< thresholds, dims=1)) for i in 1:length(times)]
         

@@ -184,7 +184,8 @@ module DataUtils
                                 "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal",
                                 "special_inducer", "special_independent", "special_combined", "special_thresh", "special_signal",
                                 "feedback_inhibitor_inducer_perm", "feedback_combined_inducer_perm",
-                                "feedback_inducer_inhibitor_perm", "feedback_combined_inhibitor_perm"]
+                                "feedback_inducer_inhibitor_perm", "feedback_combined_inhibitor_perm",
+                                "feedback_inhibitor_inducer_perm_thresh"]
 
         # Reshape input
         densities_tile = repeat(densities, outer=[1, length(sources), length(times)])
@@ -201,7 +202,8 @@ module DataUtils
             n_nodes = 10 # 3D integral
         elseif model_type in ["special_inducer", "special_combined", "special_thresh", "special_signal"]
             n_nodes = 6 # 4D integral
-        elseif model_type in ["feedback_inhibitor_inducer_perm", "feedback_combined_inducer_perm", "feedback_inducer_inhibitor_perm", "feedback_combined_inhibitor_perm"]
+        elseif model_type in ["feedback_inhibitor_inducer_perm", "feedback_combined_inducer_perm", "feedback_inducer_inhibitor_perm", "feedback_combined_inhibitor_perm",
+                            "feedback_inhibitor_inducer_perm_thresh"]
             n_nodes = 1024
         end
         println("Number of nodes/samples: ", n_nodes)
@@ -304,11 +306,11 @@ module DataUtils
                     params[1], #Pₛ,
                     params[2], #Pₛ_cs,
                     params[3], #K_cC,
-                    exp(params[4]), #k,
+                    exp(params[4]), #k_C,
                     params[5], #μ_γ,
                     params[5] * exp(params[6]), # σ_γ = μ_γ * exp(δ_γ)
                 )
-                param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :k, :μ_γ, :δ_γ]
+                param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :k_C, :μ_γ, :δ_γ]
                 param_occurrences = [1, n_src, n_src, n_src, 1, 1]
 
             elseif model_type_split[2] == "thresh" # Inducer shifts inhibition threshold
@@ -323,12 +325,12 @@ module DataUtils
                     κ2,
                     params[1], #Pₛ
                     params[2], #Pₛ_cs
-                    exp(params[3]), #k
+                    exp(params[3]), #k_C
                     params[4], #K_cC
                     params[5], #μ_γ
                     params[5] * exp(params[6]) # σ_γ = μ_γ * exp(δ_γ)
                 )
-                param_keys = [:Pₛ, :Pₛ_cs, :k, :K_cC, :μ_γ, :δ_γ]
+                param_keys = [:Pₛ, :Pₛ_cs, :k_C, :K_cC, :μ_γ, :δ_γ]
                 param_occurrences = [1, n_src, n_src, n_src, 1, 1]
                 
             elseif model_type_split[2] == "perm" # Inducer modulates inhibitor permeability
@@ -366,7 +368,7 @@ module DataUtils
                     κ2,
                     params[1], #Pₛ
                     params[2], #Pₛ_cs
-                    exp(params[3]), #k
+                    exp(params[3]), #k_I
                     params[4], #K_cC
                     params[5], #K_I
                     params[6], #n
@@ -375,7 +377,7 @@ module DataUtils
                     params[9], #μ_ψ
                     params[9] * exp(params[10]) # σ_ψ = μ_ψ * exp(δ_ψ)
                 )
-                param_keys = [:Pₛ, :Pₛ_cs, :k, :K_cC, :K_I, :n, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
+                param_keys = [:Pₛ, :Pₛ_cs, :k_I, :K_cC, :K_I, :n, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
                 param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, n_src, n_src, 1, 1]
                 
             elseif model_type_split[2] == "thresh" # Inhibitor shifts induction threshold
@@ -391,13 +393,13 @@ module DataUtils
                     params[1], #Pₛ
                     params[2], #Pₛ_cs
                     params[3], #K_cC
-                    exp(params[4]), #k
+                    exp(params[4]), #k_I
                     params[5], #μ_ω
                     params[5] * exp(params[6]), # σ_ω = μ_ω * exp(δ_ω)
                     params[7], #μ_ψ
                     params[7] * exp(params[8]) # σ_ψ = μ_ψ * exp(δ_ψ)
                 )
-                param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :k, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
+                param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :k_I, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
                 param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, 1, 1]
                 
             elseif model_type_split[2] == "signal" # Inhibitor shifts induction threshold
@@ -442,13 +444,13 @@ module DataUtils
                         params[1], #Pₛ,
                         params[2], #Pₛ_cs,
                         params[3], #K_cC,
-                        exp(params[4]), #k,
+                        exp(params[4]), #k_C,
                         params[5], #μ_γ,
                         params[5] * exp(params[6]), # σ_γ = μ_γ * exp(δ_γ)
                         params[7], #μ_ω,
                         params[7] * exp(params[8]) # σ_ω = μ_ω * exp(δ_ω)
                     )
-                    param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :k, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
+                    param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :k_C, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
                     param_occurrences = [1, n_src, n_src, n_src, 1, 1, n_src, n_src]
 
                 elseif model_type_split[3] == "thresh"
@@ -463,14 +465,14 @@ module DataUtils
                         κ2,
                         params[1], #Pₛ
                         params[2], #Pₛ_cs
-                        exp(params[3]), #k
+                        exp(params[3]), #k_C
                         params[4], #K_cC
                         params[5], #μ_γ
                         params[5] * exp(params[6]), # σ_γ = μ_γ * exp(δ_γ)
                         params[7], #μ_ω
                         params[7] * exp(params[8]) # σ_ω = μ_ω * exp(δ_ω)
                     )
-                    param_keys = [:Pₛ, :Pₛ_cs, :k, :K_cC, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
+                    param_keys = [:Pₛ, :Pₛ_cs, :k_C, :K_cC, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
                     param_occurrences = [1, n_src, n_src, n_src, 1, 1, n_src, n_src]
 
                 elseif model_type_split[3] == "perm"
@@ -512,7 +514,7 @@ module DataUtils
                         params[3], #K_cC
                         params[4], #K_I
                         params[5], #n
-                        exp(params[6]), #k
+                        exp(params[6]), #k_I
                         params[7], #μ_γ
                         params[7] * exp(params[8]), # σ_γ = μ_γ * exp(δ_γ)
                         params[9], #μ_ω
@@ -520,7 +522,7 @@ module DataUtils
                         params[11], #μ_ψ
                         params[11] * exp(params[12]) # σ_ψ = μ_ψ * exp(δ_ψ)
                     )
-                    param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :K_I, :n, :k, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
+                    param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :K_I, :n, :k_I, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
                     param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1]
 
                 elseif model_type_split[3] == "thresh"
@@ -536,7 +538,7 @@ module DataUtils
                         params[1], #Pₛ
                         params[2], #Pₛ_cs
                         params[3], #K_cC
-                        exp(params[4]), #k
+                        exp(params[4]), #k_I
                         params[5], #μ_γ
                         params[5] * exp(params[6]), # σ_γ = μ_γ * exp(δ_γ)
                         params[7], #μ_ω
@@ -544,7 +546,7 @@ module DataUtils
                         params[9], #μ_ψ
                         params[9] * exp(params[10]) # σ_ψ = μ_ψ * exp(δ_ψ)
                     )
-                    param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :k, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
+                    param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :k_I, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
                     param_occurrences = [1, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1]
 
                 elseif model_type_split[3] == "signal"
@@ -591,7 +593,7 @@ module DataUtils
                     params[2], #Pₛ_cs
                     params[3], #K_cC
                     params[4], #K_I
-                    exp(params[5]), #k
+                    exp(params[5]), #k_I
                     params[6], #n
                     params[7], #μ_ω
                     params[7] * exp(params[8]), # σ_ω = μ_ω * exp(δ_ω)
@@ -600,7 +602,7 @@ module DataUtils
                     params[11], #μ_α
                     params[11] * exp(params[12]) # σ_α = μ_α * exp(δ_α)
                 )
-                param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :K_I, :k, :n, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ, :μ_α, :δ_α]
+                param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :K_I, :k_I, :n, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ, :μ_α, :δ_α]
                 param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, n_src, n_src, 1, 1, 1, 1]
 
             elseif model_type_split[2] == "independent"
@@ -640,7 +642,7 @@ module DataUtils
                     params[2], #Pₛ_cs
                     params[3], #K_cC
                     params[4], #K_I
-                    exp(params[5]), #k
+                    exp(params[5]), #k_I
                     params[6], #n
                     params[7], #μ_γ
                     params[7] * exp(params[8]), # σ_γ = μ_γ * exp(δ_γ)
@@ -651,7 +653,7 @@ module DataUtils
                     params[13], #μ_α
                     params[13] * exp(params[14]) # σ_α = μ_α * exp(δ_α)
                 )
-                param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :K_I, :k, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ, :μ_α, :δ_α]
+                param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :K_I, :k_I, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ, :μ_α, :δ_α]
                 param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1, 1, 1]
 
             elseif model_type_split[2] == "combined" && model_type_split[3] == "thresh"
@@ -667,7 +669,7 @@ module DataUtils
                     params[1], #Pₛ
                     params[2], #Pₛ_cs
                     params[3], #K_cC
-                    exp(params[4]), #k
+                    exp(params[4]), #k_I
                     params[5], #μ_γ
                     params[5] * exp(params[6]), # σ_γ = μ_γ * exp(δ_γ)
                     params[7], #μ_ω
@@ -677,7 +679,7 @@ module DataUtils
                     params[11], #μ_α
                     params[11] * exp(params[12]) # σ_α = μ_α * exp(δ_α)
                 )
-                param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :k, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ, :μ_α, :δ_α]
+                param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :k_I, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ, :μ_α, :δ_α]
                 param_occurrences = [1, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1, 1, 1]
 
             elseif model_type_split[2] == "combined" && model_type_split[3] == "signal"
@@ -710,10 +712,11 @@ module DataUtils
 
         elseif model_type_split[1] == "feedback"
             # FEEDBACK MODELS
-            if model_type_split[2] == "inhibitor" && model_type_split[3] == "inducer" && model_type_split[4] == "perm"
+            if model_type == "feedback_inhibitor_inducer_perm"
                 println("Model: inhibitor-dependent germination with inducer-dependent inhibitor/inducer permeability")
                 wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
                     Main.ode_inducer_dependent_perm!,
+                    nothing,
                     sobol_pts,
                     times,
                     [samples_A,
@@ -733,10 +736,11 @@ module DataUtils
                 param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ]
                 param_occurrences = [n_src, 1, n_src, n_src, 1, 1, 1, 1]
 
-            elseif model_type_split[2] == "combined" && model_type_split[3] == "inducer" && model_type_split[4] == "perm"
+            elseif model_type == "feedback_combined_inducer_perm"
                 println("Model: 2-factor germination with inducer-dependent inhibitor/inducer permeability")
                 wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
                     Main.ode_inducer_dependent_perm!,
+                    nothing,
                     sobol_pts,
                     times,
                     [samples_A,
@@ -756,10 +760,11 @@ module DataUtils
                 param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
                 param_occurrences = [n_src, 1, n_src, n_src, 1, 1, 1, 1, n_src, n_src]
             
-            elseif model_type_split[2] == "inducer" && model_type_split[3] == "inhibitor" && model_type_split[4] == "perm"
+            elseif model_type == "feedback_inducer_inhibitor_perm"
                 println("Model: Inducer-dependent germination with inhibitor-dependent inhibitor/inducer permeability")
                 wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
                     Main.ode_inhibitor_dependent_perm!,
+                    nothing,
                     sobol_pts,
                     times,
                     [samples_A,
@@ -779,10 +784,11 @@ module DataUtils
                 param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :μ_ψ, :δ_ψ, :μ_ω, :δ_ω]
                 param_occurrences = [1, 1, n_src, 1, 1, 1, n_src, n_src]
             
-            elseif model_type_split[2] == "combined" && model_type_split[3] == "inhibitor" && model_type_split[4] == "perm"
+            elseif model_type == "feedback_combined_inhibitor_perm"
                 println("Model: 2-factor germination with inhibitor-dependent inhibitor/inducer permeability")
                 wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
                     Main.ode_inhibitor_dependent_perm!,
+                    nothing,
                     sobol_pts,
                     times,
                     [samples_A,
@@ -801,6 +807,31 @@ module DataUtils
                 )
                 param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
                 param_occurrences = [1, 1, n_src, 1, 1, 1, 1, 1, n_src, n_src]
+            
+            elseif model_type == "feedback_inhibitor_inducer_perm_thresh"
+                println("Model: inhibitor-dependent germination with inducer-dependent permeability and inhibition threshold")
+                wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
+                    Main.ode_inducer_dependent_perm!,
+                    Main.signal_inducer,
+                    sobol_pts,
+                    times,
+                    [samples_A,
+                    samples_Vₛ,
+                    V_out,
+                    samples_V_ps],
+                    def_params[:c₀_cs],
+                    [params[1]], # s_max
+                    params[2], # Pₛ_I
+                    params[3], # Pₛ_C
+                    [params[4]], # K_cC
+                    params[5], # μ_ψ
+                    params[5] * exp(params[6]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                    [params[7]], # μ_γ
+                    [params[7] * exp(params[8])]; # σ_γ = μ_γ * exp(δ_γ)
+                    ks=[params[9]] # k_C
+                )
+                param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :k_C]
+                param_occurrences = [n_src, 1, n_src, n_src, 1, 1, 1, 1, n_src]
 
             end
             
@@ -905,7 +936,7 @@ module DataUtils
                 if key_split[1] == "δ"
                     key_new = Symbol(:σ_, key_split[2])
                     val = p_opt[param_starts[i - 1] + j - 1] * exp(p_opt[param_starts[i] + j - 1])
-                elseif key == :k
+                elseif (key == :k_I || key == :k_C)
                     println("Converting k to original scale")
                     key_new = key
                     val = exp(p_opt[param_starts[i] + j - 1])
@@ -987,14 +1018,14 @@ module DataUtils
             )
             param_keys = [:μ_γ, :δ_γ]
         elseif model_type in ["combined_inducer", "combined_inducer_ex"]
-            println("Model: Two-factor germination with inhibitor-dependent induction threshold")
+            println("Model: Two-factor germination with inhibitor-dependent induction threshold and signal")
             wrapper = (ρₛ, params) -> Main.germ_response_inhibitor_dep_inducer_2_factors_eq(
                 ρₛ,
                 dist_ξ,
                 def_params[:c₀_cs],
                 params[1], #K_cC
                 params[2], #K_I
-                exp(params[3]), #k
+                exp(params[3]), #k_I
                 params[4], #n
                 params[5], #μ_γ
                 params[5] * exp(params[6]), # σ_γ = μ_γ * exp(δ_γ)
@@ -1003,7 +1034,7 @@ module DataUtils
                 params[9], #μ_ψ
                 params[9] * exp(params[10]) # σ_ψ = μ_ψ * exp(δ_ψ)
             )
-            param_keys = [:K_cC, :K_I, :k, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
+            param_keys = [:K_cC, :K_I, :k_I, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
         elseif model_type in ["combined_inducer_thresh", "combined_inducer_thresh_ex"]
             println("Model: Two-factor germination with inhibitor-dependent induction threshold")
             wrapper = (ρₛ, params) -> Main.germ_response_inhibitor_dep_inducer_thresh_2_factors_eq(
@@ -1011,7 +1042,7 @@ module DataUtils
                 dist_ξ,
                 def_params[:c₀_cs],
                 params[1], #K_cC
-                exp(params[2]), #k
+                exp(params[2]), #k_I
                 params[3], #μ_γ
                 params[3] * exp(params[4]), # σ_γ = μ_γ * exp(δ_γ)
                 params[5], #μ_ω
@@ -1019,9 +1050,9 @@ module DataUtils
                 params[7], #μ_ψ
                 params[7] * exp(params[8]) # σ_ψ = μ_ψ * exp(δ_ψ)
             )
-            param_keys = [:K_cC, :k, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
+            param_keys = [:K_cC, :k_I, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
         elseif model_type in ["combined_inducer_signal", "combined_inducer_signal_ex"]
-            println("Model: Two-factor germination with inhibitor-dependent induction threshold")
+            println("Model: Two-factor germination with inhibitor-dependent induction signal")
             wrapper = (ρₛ, params) -> Main.germ_response_inhibitor_dep_inducer_signal_2_factors_eq(
                 ρₛ,
                 dist_ξ,
@@ -1072,7 +1103,7 @@ module DataUtils
                 def_params[:c₀_cs],
                 params[1], #K_cC
                 params[2], #K_I
-                exp(params[3]), #k
+                exp(params[3]), #k_I
                 params[4], #n
                 params[5], #μ_γ
                 params[5] * exp(params[6]), # σ_γ = μ_γ * exp(δ_γ)
@@ -1081,7 +1112,7 @@ module DataUtils
                 params[9], #μ_ψ
                 params[9] * exp(params[10]) # σ_ψ = μ_ψ * exp(δ_ψ)
             )
-            param_keys = [:K_cC, :K_I, :k, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
+            param_keys = [:K_cC, :K_I, :k_I, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
         elseif model_type == "combined_inducer_thresh_ex"
             println("Model: Two-factor germination with inhibitor-dependent induction threshold (exogenous inhibitor)")
             wrapper_ex = (c_ex, params) -> Main.germ_response_inhibitor_dep_inducer_thresh_2_factors_eq_c_ex(
@@ -1090,7 +1121,7 @@ module DataUtils
                 c_ex,
                 def_params[:c₀_cs],
                 params[1], #K_cC
-                exp(params[2]), #k
+                exp(params[2]), #k_I
                 params[3], #μ_γ
                 params[3] * exp(params[4]), # σ_γ = μ_γ * exp(δ_γ)
                 params[5], #μ_ω
@@ -1098,7 +1129,7 @@ module DataUtils
                 params[7], #μ_ψ
                 params[7] * exp(params[8]) # σ_ψ = μ_ψ * exp(δ_ψ)
             )
-            param_keys = [:K_cC, :k, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
+            param_keys = [:K_cC, :k_I, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
         elseif model_type == "combined_inducer_signal_ex"
             println("Model: Two-factor germination with inhibitor-dependent induction signal (exogenous inhibitor)")
             wrapper_ex = (c_ex, params) -> Main.germ_response_inhibitor_dep_inducer_signal_2_factors_eq_c_ex(
@@ -1215,7 +1246,7 @@ module DataUtils
                 println("Converting δ = $(p_opt[i]) to σ scale")
                 key_new = Symbol(:σ_, key_split[2])
                 val = p_opt[i - 1] * exp(p_opt[i])
-            elseif key == :k
+            elseif (key == :k_I || key == :k_C)
                 println("Converting k to original scale")
                 key_new = key
                 val = exp(p_opt[i])
