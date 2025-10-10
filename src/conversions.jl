@@ -34,6 +34,10 @@ module Conversions
     export compute_spore_concentration
     export generate_spore_positions
     export compute_ps_layer_volume
+    export flatten_recursive
+
+
+    flatten_recursive(x) = (x isa AbstractVector) ? vcat(map(flatten_recursive, x)...) : [x]
 
 
     function cm_to_um(cm)

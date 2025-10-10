@@ -13,6 +13,7 @@ module GermStats
     using ArgCheck
     using DifferentialEquations
     using QuasiMonteCarlo
+    using Parameters
 
     include("./conversions.jl")
     using .Conversions
@@ -57,10 +58,10 @@ module GermStats
     export ode_inducer_dependent_perm!
     export ode_inhibitor_dependent_perm!
 
-    export signal_inducer
-    export signal_inducer_inhibitor
-    export signal_inhibitor
-    export signal_inhibitor_inducer
+    export thresh_criterion_inhibitor
+    export thresh_criterion_inducer
+    export thresh_criterion_combined
+    export thresh_criterion_inhibitor_shift
 
 
     function clamp_inplace!(arr, eps=1e-12)
@@ -252,19 +253,19 @@ module GermStats
             germ_response = [germ_response_inducer_signal_2_factors_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:K_I], params[:n], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
         
         elseif model_type == "feedback_inhibitor_inducer_perm"
-            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, nothing, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:s_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cC]], params[:μ_ψ], params[:σ_ψ], [params[:μ_γ]], [params[:σ_γ]])
+            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, thresh_criterion_inhibitor, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:s_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cC]], params[:μ_ψ], params[:σ_ψ], [params[:μ_γ]], [params[:σ_γ]])
             
         elseif model_type == "feedback_combined_inducer_perm"
-            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, nothing, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:s_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cC]], params[:μ_ψ], params[:σ_ψ], [params[:μ_γ], params[:μ_ω]], [params[:σ_γ], params[:σ_ω]])
+            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, thresh_criterion_combined, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:s_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cC]], params[:μ_ψ], params[:σ_ψ], [params[:μ_γ], params[:μ_ω]], [params[:σ_γ], params[:σ_ω]])
             
         elseif model_type == "feedback_inducer_inhibitor_perm"
-            germ_response = germ_response_feedback_perm(ode_inhibitor_dependent_perm!, nothing, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:b_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cI]], params[:μ_ψ], params[:σ_ψ], [params[:μ_ω]], [params[:σ_ω]])
+            germ_response = germ_response_feedback_perm(ode_inhibitor_dependent_perm!, thresh_criterion_inducer, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:b_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cI]], params[:μ_ψ], params[:σ_ψ], [params[:μ_ω]], [params[:σ_ω]])
            
         elseif model_type == "feedback_combined_inhibitor_perm"
-            germ_response = germ_response_feedback_perm(ode_inhibitor_dependent_perm!, nothing, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:b_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cI]], params[:μ_ψ], params[:σ_ψ], [params[:μ_ω], params[:μ_γ]], [params[:σ_ω], params[:σ_γ]])
+            germ_response = germ_response_feedback_perm(ode_inhibitor_dependent_perm!, thresh_criterion_combined, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:b_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cI]], params[:μ_ψ], params[:σ_ψ], [params[:μ_γ], params[:μ_ω]], [params[:σ_γ], params[:σ_ω]])
            
         elseif model_type == "feedback_inhibitor_inducer_perm_thresh"
-            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, signal_inducer, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:s_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cC]], params[:μ_ψ], params[:σ_ψ], [params[:μ_γ]], [params[:σ_γ]]; ks=[params[:k_C]])
+            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, thresh_criterion_inhibitor_shift, sobol_pts, times, geom_samples, params[:c₀_cs], [params[:s_max]], params[:Pₛ], params[:Pₛ_cs], [params[:K_cC]], params[:μ_ψ], params[:σ_ψ], [params[:μ_γ]], [params[:σ_γ]]; ks=[params[:k_C]])
            
         end
 
@@ -1955,15 +1956,27 @@ module GermStats
     end
 
     # ===== FEEDBACK MODELS ===== #
-    function ode_inducer_dependent_perm!(du, u, p, t)
+
+    # ---- Predeclare a typed parameter struct ----
+    @with_kw struct PermParams
+        A::Float64
+        Vₛ::Float64
+        V_out::Float64
+        V_ps::Float64
+        Pₛ_I::Float64
+        Pₛ_C::Float64
+        K_fs::Vector{Float64}
+        f_maxs::Vector{Float64}
+        c₀_cs::Float64
+    end
+
+    function ode_inducer_dependent_perm!(du, u, p::PermParams, t)
         """
         ODE function for inducer-dependent
         cell wall permeability.
         """
         cinI, cinC, coutI = u
-
-        # denom = p.K_cC + cinC
-        # g = (denom * (1 + p.s_max)) * p.A / denom
+        
         g = (1 + p.f_maxs[1] * cinC / (p.K_fs[1] + cinC)) * p.A
         rateI = g * p.Pₛ_I
         rateC = g * p.Pₛ_C
@@ -1977,38 +1990,80 @@ module GermStats
     end
 
 
-    function ode_inhibitor_dependent_perm!(du, u, p, t)
+    function ode_inhibitor_dependent_perm!(du, u, p::PermParams, t)
         """
         ODE function for inhibitor-dependent
         cell wall permeability.
         """
-        cinC, cinI, coutI = u
-
-        # denom = p.K_cI + cinI
-        # g = (denom * (1 + p.λ)) * p.A / denom
+        cinI, cinC, coutI = u
+        
         g = (1 - p.f_maxs[1] * cinI / (p.K_fs[1] + cinI)) * p.A
         rateI = g * p.Pₛ_I
         rateC = g * p.Pₛ_C
 
         diffI = cinI - coutI
         diffC = cinC - p.c₀_cs
-
-        du[1] = -(rateC / p.V_ps) * diffC
-        du[2] = -(rateI / p.Vₛ) * diffI
+        
+        du[1] = -(rateI / p.Vₛ) * diffI
+        du[2] = -(rateC / p.V_ps) * diffC
         du[3] = (rateI / p.V_out) * diffI
     end
 
 
-    function signal_inhibitor(cinI, k, K_cI=1)
+    function thresh_criterion_inhibitor(cins, thresholds, ks=nothing, K_fs=nothing)
         """
-        Converts inhibitor concentration
-        to a threshold shifting signal.
+        Computes simple germination criterion
+        with regard to the inhibition threshold
         inputs:
-            cinI - inhibitor concentration (M)
-            k - scaling factor
-            K_cC - inhibitor half-saturation constant (M)
+            cins - inhibitor/inducer concentrations (M)
+            thresholds - inhibitor thresholds
+            ks - scaling factors
+            K_fs - inhibitor half-saturation constants (M)
         """
-        return k .* cinI
+        return cins[1, :] .< thresholds[1, :]
+    end
+
+
+    function thresh_criterion_inducer(cins, thresholds, ks=nothing, K_fs=nothing)
+        """
+        Computes simple germination criterion
+        with regard to the induction threshold
+        inputs:
+            cins - inhibitor/inducer concentrations (M)
+            thresholds - inducer thresholds
+            ks - scaling factors
+            K_fs - inhibitor half-saturation constants (M)
+        """
+        return cins[2, :] .> thresholds[1, :]
+    end
+
+
+    function thresh_criterion_combined(cins, thresholds, ks=nothing, K_fs=nothing)
+        """
+        Computes simple germination criterion
+        with regard to the induction and inhibition thresholds
+        inputs:
+            cins - inhibitor/inducer concentrations (M)
+            thresholds - inhibitor thresholds
+            ks - scaling factors
+            K_fs - inhibitor half-saturation constants (M)
+        """
+        return (cins[1, :] .< thresholds[1, :]) .* (cins[2, :] .> thresholds[2, :])
+    end
+
+
+    function thresh_criterion_inhibitor_shift(cins, thresholds, ks, K_fs)
+        """
+        Computes inhibitor-dependent germination criterion with
+        a threshold shifting signal defined by the inducer concentration.
+        inputs:
+            cins - inhibitor/inducer concentrations (M)
+            thresholds - inhibitor thresholds
+            ks - scaling factors
+            K_fs - inhibitor half-saturation constants (M)
+        """
+        thresh_bias_signal = ks[1] .* cins[2, :]  ./ (cins[2, :] .+ K_fs[1])
+        return cins[1, :] .< thresholds[1, :] .+ thresh_bias_signal
     end
 
 
@@ -2020,9 +2075,6 @@ module GermStats
             k - scaling factor
             K_cC - inducer half-saturation constant (M)
         """
-        # println(cinC)
-        # println(k)
-        # println(K_cC)
         return k .* cinC ./ (cinC .+ K_cC)
     end
     
@@ -2053,14 +2105,13 @@ module GermStats
     end
 
 
-    # function germ_response_feedback_perm(ode_func, sobol_pts, times, samples_A, samples_Vₛ, samples_V_out, samples_V_ps, c₀_cs, s_max, Pₛ_I, Pₛ_C, K_cC, μ_ψ, σ_ψ, μs_thresh, σs_thresh; ks=nothing)
-    function germ_response_feedback_perm(ode_func, signal_func, sobol_pts, times, geom_samples, c₀_cs, f_maxs, Pₛ_I, Pₛ_C, K_fs, μ_ψ, σ_ψ, μs_thresh, σs_thresh; ks=nothing)
+    function germ_response_feedback_perm(ode_func, thresh_func, sobol_pts, times, geom_samples, c₀_cs, f_maxs, Pₛ_I, Pₛ_C, K_fs, μ_ψ, σ_ψ, μs_thresh, σs_thresh; ks=nothing)
         """
         Generic function for computing the germination response
         for inducer-dependent cell wall permeability
         inputs:
             ode_func - ODE function to integrate
-            signal func - signal conversion function
+            thresh_func - threshold criterion function
             sobol_pts - normalized Sobol samples
             times - integration time frames in seconds
             geom_samples - geometric samples corresponding to sobol pts [samples_A, samples_Vₛ, samples_V_out, samples_V_ps]
@@ -2089,58 +2140,173 @@ module GermStats
         samples_ψ = clamp_inplace!(quantile(dist_ψ, sobol_pts[3,:]))
         
         n_thresh = length(μs_thresh)
-        samples_thresh = zeros(n_thresh, size(sobol_pts, 2))
-        for i in 1:n_thresh
+        n_samp = size(sobol_pts, 2)
+        n_times = length(times)
+
+        samples_thresh = Matrix{Float64}(undef, n_thresh, n_samp)
+        @inbounds for i in 1:n_thresh
             dist_thresh = Normal(μs_thresh[i], σs_thresh[i])
-            # samples_thresh[i, :] .= clamp_inplace!(quantile(dist_thresh, sobol_pts[3 + i,:]))
             samples_thresh[i, :] .= quantile(dist_thresh, sobol_pts[3 + i,:])
         end
 
         # Template problem
-        p_template = (A=samples_A[1], Vₛ=samples_Vₛ[1], V_out=samples_V_out[1], V_ps=samples_V_ps[1],
-                    Pₛ_I=Pₛ_I, Pₛ_C=Pₛ_C, K_fs=K_fs, f_maxs=f_maxs, c₀_cs=c₀_cs)
-        u0_template = [μ_ψ, 0.0, 0.0]
+        # p_template = (A=samples_A[1], Vₛ=samples_Vₛ[1], V_out=samples_V_out[1], V_ps=samples_V_ps[1],
+        #             Pₛ_I=Pₛ_I, Pₛ_C=Pₛ_C, K_fs=K_fs, f_maxs=f_maxs, c₀_cs=c₀_cs)
+        # u0_template = [μ_ψ, 0.0, 0.0]
+        # tspan = (0.0, maximum(times))
+        # prob = ODEProblem(ode_func, u0_template, tspan, p_template)
+        p0 = PermParams(
+            samples_A[1], samples_Vₛ[1], samples_V_out[1], samples_V_ps[1],
+            Pₛ_I, Pₛ_C, K_fs, f_maxs, c₀_cs
+        )
+        u0 = [μ_ψ, 0.0, 0.0]
         tspan = (0.0, maximum(times))
-        prob = ODEProblem(ode_func, u0_template, tspan, p_template)
+        prob = ODEProblem(ode_func, u0, tspan, p0)
 
         # Ensemble integration function
         function prob_func(prob, i, repeat)
-            # r = max(samples_ξ[i], 1e-9)
             
-            new_p = (A=samples_A[i], Vₛ=samples_Vₛ[i], V_out=samples_V_out[i], V_ps=samples_V_ps[i],
-                    Pₛ_I=Pₛ_I, Pₛ_C=Pₛ_C, K_fs=K_fs, f_maxs=f_maxs, c₀_cs=c₀_cs)
+            # new_p = (A=samples_A[i], Vₛ=samples_Vₛ[i], V_out=samples_V_out[i], V_ps=samples_V_ps[i],
+            #         Pₛ_I=Pₛ_I, Pₛ_C=Pₛ_C, K_fs=K_fs, f_maxs=f_maxs, c₀_cs=c₀_cs)
 
-            new_u0 = [samples_ψ[i], 0.0, 0.0]
-            remake(prob; u0 = new_u0, p = new_p)
+            # new_u0 = [samples_ψ[i], 0.0, 0.0]
+            p_new = PermParams(
+                samples_A[i], samples_Vₛ[i], samples_V_out[i], samples_V_ps[i],
+                Pₛ_I, Pₛ_C, K_fs, f_maxs, c₀_cs
+            )
+            remake(prob; u0 = [samples_ψ[i], 0.0, 0.0], p = p_new)
         end
 
         # Run ODE ensembles
         ep = EnsembleProblem(prob; prob_func=prob_func)
-        # sols = solve(ep, Tsit5(), EnsembleThreads(), trajectories=n_samples, saveat=[t])
-        # sols = solve(ep, Rodas5(), EnsembleThreads(), trajectories=n_samples, saveat=[t])
-        sols = solve(ep, AutoTsit5(Rosenbrock23()), EnsembleThreads(), trajectories=size(sobol_pts, 2), saveat=times, abstol=1e-6, reltol=1e-6)
-        # sols = solve(ep, Rosenbrock23(), EnsembleThreads(), trajectories=n_samples, saveat=[t])
+        sols = solve(ep, AutoTsit5(Rosenbrock23()), EnsembleThreads(), trajectories=n_samp, saveat=times, abstol=1e-6, reltol=1e-6)
 
         # Evaluate fraction germinated
-        c_in_t = [[[sol(t)[1+i] for sol in sols.u] for i in 0:(n_thresh - 1)] for t in times] # [cinI, cinC] or [cinC, cinI] depending on ODEs
-        if isnothing(ks)
-            thresholds = samples_thresh
-        else
-            println(size(c_in_t))
-            println(size(c_in_t[1]))
-            println(size(c_in_t[1][1]))
-            println(size(samples_thresh))
-            println(size([reduce(hcat, c_in_t[i])' for i in 1:length(times)][1][1]))
-            println(size(ks))
-            println(size(repeat(ks, inner=size(c_in_t))))
-            # println(size([signal_func.(c_in_t[i], ks[], K_fs) for i in 1:length(times)]))
-            # println(size([signal_func.(c, ks, K_fs) for c in c_in_t]))
-            println(size(reduce(hcat, [signal_func.(c, ks, K_fs) for c in c_in_t])'[1]))
-            thresholds = samples_thresh .+ reduce(hcat, [signal_func.(c, ks, K_fs) for c in c_in_t])'
+        # c_in_t = collect(Iterators.flatten([sol(t)[1:2] for sol in sols.u for t in times]))
+        # c_in_t = reshape(c_in_t, 2, n_times, length(sols.u))
+        # germinated = [mean(thresh_func(c_in_t[:, i, :], samples_thresh, ks, K_fs)) for i in 1:n_times]
+        n_times = length(times)
+        germinated = Vector{Float64}(undef, n_times)
+        c_in = Array{Float64}(undef, 2, n_samp)
+
+        @inbounds for (ti, t) in enumerate(times)
+            for i in 1:n_samp
+                u = sols[i](t)
+                c_in[1, i] = u[1]
+                c_in[2, i] = u[2]
+            end
+            gmask = thresh_func(c_in, samples_thresh, ks, K_fs)
+            germinated[ti] = mean(gmask)
         end
-        germinated = [mean(prod(reduce(hcat, c_in_t[i])' .< thresholds, dims=1)) for i in 1:length(times)]
         
         return germinated
     end
+
+
+    # =========================================================
+    # using OrdinaryDiffEq, QuasiMonteCarlo, Parameters, Statistics
+
+    # # ---- Predeclare a typed parameter struct ----
+    # @with_kw struct PermParams
+    #     A::Float64
+    #     Vₛ::Float64
+    #     V_out::Float64
+    #     V_ps::Float64
+    #     Pₛ_I::Float64
+    #     Pₛ_C::Float64
+    #     K_fs::Vector{Float64}
+    #     f_maxs::Vector{Float64}
+    #     c₀_cs::Float64
+    # end
+
+    # # ---- ODE definition remains unchanged but typed ----
+    # function ode_perm!(du, u, p::PermParams, t)
+    #     cinI, cinC, coutI = u
+
+    #     # Avoid division allocations
+    #     tmp_cC = cinC + 1e-12
+    #     g = (1 + p.f_maxs[1] * cinC / (p.K_fs[1] + tmp_cC)) * p.A
+    #     rateI = g * p.Pₛ_I
+    #     rateC = g * p.Pₛ_C
+
+    #     diffI = cinI - coutI
+    #     diffC = cinC - p.c₀_cs
+
+    #     @inbounds begin
+    #         du[1] = -(rateI / p.Vₛ) * diffI
+    #         du[2] = -(rateC / p.V_ps) * diffC
+    #         du[3] = (rateI / p.V_out) * diffI
+    #     end
+    #     return nothing
+    # end
+
+    # # ---- Optimized germination function ----
+    # function germ_response_feedback_perm(
+    #     ode_func, thresh_func, sobol_pts, times,
+    #     geom_samples, c₀_cs, f_maxs, Pₛ_I, Pₛ_C,
+    #     K_fs, μ_ψ, σ_ψ, μs_thresh, σs_thresh; ks=nothing,
+    #     abstol=1e-5, reltol=1e-5
+    # )
+    #     samples_A, samples_Vₛ, samples_V_out, samples_V_ps = geom_samples
+    #     n_samp = size(sobol_pts, 2)
+    #     n_thresh = length(μs_thresh)
+    #     n_times = length(times)
+
+    #     # --- Sample initial conditions and thresholds once ---
+    #     μ_ψ_log = log(μ_ψ^2 / sqrt(σ_ψ^2 + μ_ψ^2))
+    #     σ_ψ_log = sqrt(log(σ_ψ^2 / μ_ψ^2 + 1))
+    #     dist_ψ = LogNormal(μ_ψ_log, σ_ψ_log)
+    #     samples_ψ = quantile(dist_ψ, sobol_pts[3, :])
+
+    #     samples_thresh = Matrix{Float64}(undef, n_thresh, n_samp)
+    #     @inbounds for i in 1:n_thresh
+    #         dist_t = Normal(μs_thresh[i], σs_thresh[i])
+    #         samples_thresh[i, :] .= quantile(dist_t, sobol_pts[3 + i, :])
+    #     end
+
+    #     # --- Template ODE problem ---
+    #     p0 = PermParams(
+    #         samples_A[1], samples_Vₛ[1], samples_V_out[1], samples_V_ps[1],
+    #         Pₛ_I, Pₛ_C, K_fs, f_maxs, c₀_cs
+    #     )
+    #     u0 = [μ_ψ, 0.0, 0.0]
+    #     tspan = (0.0, maximum(times))
+    #     prob = ODEProblem(ode_func, u0, tspan, p0)
+
+    #     # --- Ensemble setup ---
+    #     function prob_func(prob, i, repeat)
+    #         p_new = PermParams(
+    #             samples_A[i], samples_Vₛ[i], samples_V_out[i], samples_V_ps[i],
+    #             Pₛ_I, Pₛ_C, K_fs, f_maxs, c₀_cs
+    #         )
+    #         remake(prob; u0 = [samples_ψ[i], 0.0, 0.0], p = p_new)
+    #     end
+
+    #     ep = EnsembleProblem(prob; prob_func)
+    #     sols = solve(ep, Tsit5(), EnsembleThreads();
+    #                 trajectories = n_samp,
+    #                 saveat = times,
+    #                 abstol = abstol,
+    #                 reltol = reltol)
+
+    #     # --- Evaluate germination fraction efficiently ---
+    #     n_times = length(times)
+    #     germinated = Vector{Float64}(undef, n_times)
+    #     c_in = Array{Float64}(undef, 2, n_samp)
+
+    #     @inbounds for (ti, t) in enumerate(times)
+    #         for i in 1:n_samp
+    #             u = sols[i](t)
+    #             c_in[1, i] = u[1]
+    #             c_in[2, i] = u[2]
+    #         end
+    #         gmask = thresh_func(c_in, samples_thresh, ks, K_fs)
+    #         germinated[ti] = mean(gmask)
+    #     end
+
+    #     return germinated
+    # end
+
+    # =========================================================
     
 end

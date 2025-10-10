@@ -716,7 +716,7 @@ module DataUtils
                 println("Model: inhibitor-dependent germination with inducer-dependent inhibitor/inducer permeability")
                 wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
                     Main.ode_inducer_dependent_perm!,
-                    nothing,
+                    Main.thresh_criterion_inhibitor,
                     sobol_pts,
                     times,
                     [samples_A,
@@ -740,7 +740,7 @@ module DataUtils
                 println("Model: 2-factor germination with inducer-dependent inhibitor/inducer permeability")
                 wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
                     Main.ode_inducer_dependent_perm!,
-                    nothing,
+                    Main.thresh_criterion_combined,
                     sobol_pts,
                     times,
                     [samples_A,
@@ -764,7 +764,7 @@ module DataUtils
                 println("Model: Inducer-dependent germination with inhibitor-dependent inhibitor/inducer permeability")
                 wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
                     Main.ode_inhibitor_dependent_perm!,
-                    nothing,
+                    Main.thresh_criterion_inducer,
                     sobol_pts,
                     times,
                     [samples_A,
@@ -788,7 +788,7 @@ module DataUtils
                 println("Model: 2-factor germination with inhibitor-dependent inhibitor/inducer permeability")
                 wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
                     Main.ode_inhibitor_dependent_perm!,
-                    nothing,
+                    Main.thresh_criterion_combined,
                     sobol_pts,
                     times,
                     [samples_A,
@@ -812,7 +812,7 @@ module DataUtils
                 println("Model: inhibitor-dependent germination with inducer-dependent permeability and inhibition threshold")
                 wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
                     Main.ode_inducer_dependent_perm!,
-                    Main.signal_inducer,
+                    Main.thresh_criterion_inhibitor_shift,
                     sobol_pts,
                     times,
                     [samples_A,
