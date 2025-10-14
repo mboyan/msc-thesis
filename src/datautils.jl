@@ -185,7 +185,8 @@ module DataUtils
                                 "special_inducer", "special_independent", "special_combined", "special_thresh", "special_signal",
                                 "feedback_inhibitor_inducer_perm", "feedback_combined_inducer_perm",
                                 "feedback_inducer_inhibitor_perm", "feedback_combined_inhibitor_perm",
-                                "feedback_inhibitor_inducer_perm_thresh"]
+                                "feedback_inhibitor_inducer_perm_thresh", "feedback_combined_inducer_perm_thresh",
+                                "feedback_inhibitor_inducer_perm_inhibitor_signal", "feedback_inducer_inducer_perm_inhibitor_signal", "feedback_combined_inducer_perm_inhibitor_signal"]
 
         # Reshape input
         densities_tile = repeat(densities, outer=[1, length(sources), length(times)])
@@ -203,7 +204,8 @@ module DataUtils
         elseif model_type in ["special_inducer", "special_combined", "special_thresh", "special_signal"]
             n_nodes = 6 # 4D integral
         elseif model_type in ["feedback_inhibitor_inducer_perm", "feedback_combined_inducer_perm", "feedback_inducer_inhibitor_perm", "feedback_combined_inhibitor_perm",
-                            "feedback_inhibitor_inducer_perm_thresh"]
+                            "feedback_inhibitor_inducer_perm_thresh", "feedback_combined_inducer_perm_thresh",
+                            "feedback_inhibitor_inducer_perm_inhibitor_signal", "feedback_inducer_inducer_perm_inhibitor_signal", "feedback_combined_inducer_perm_inhibitor_signal"]
             n_nodes = 1024
         end
         println("Number of nodes/samples: ", n_nodes)
@@ -727,7 +729,7 @@ module DataUtils
                     [params[1]], # s_max
                     params[2], # Pₛ_I
                     params[3], # Pₛ_C
-                    [params[4]], # K_cC
+                    [nothing, params[4]], # K_cC
                     params[5], # μ_ψ
                     params[5] * exp(params[6]), # σ_ψ = μ_ψ * exp(δ_ψ)
                     [params[7]], # μ_γ
@@ -751,7 +753,7 @@ module DataUtils
                     [params[1]], # s_max
                     params[2], # Pₛ_I
                     params[3], # Pₛ_C
-                    [params[4]], # K_cC
+                    [nothing, params[4]], # K_cC
                     params[5], # μ_ψ
                     params[5] * exp(params[6]), # σ_ψ = μ_ψ * exp(δ_ψ)
                     [params[7], params[9]], # [μ_γ, μ_ω]
@@ -775,7 +777,7 @@ module DataUtils
                     [params[1]], # b_max
                     params[2], # Pₛ_I
                     params[3], # Pₛ_C
-                    [params[4]], # K_cI
+                    [params[4], nothing], # K_cI
                     params[5], # μ_ψ
                     params[5] * exp(params[6]), # σ_ψ = μ_ψ * exp(δ_ψ)
                     [params[7]], # [μ_ω]
@@ -799,7 +801,7 @@ module DataUtils
                     [params[1]], # b_max
                     params[2], # Pₛ_I
                     params[3], # Pₛ_C
-                    [params[4]], # K_cI
+                    [params[4], nothing], # K_cI
                     params[5], # μ_ψ
                     params[5] * exp(params[6]), # σ_ψ = μ_ψ * exp(δ_ψ)
                     [params[7], params[9]], # [μ_γ, μ_ω]
@@ -809,7 +811,7 @@ module DataUtils
                 param_occurrences = [1, 1, n_src, 1, 1, 1, 1, 1, n_src, n_src]
             
             elseif model_type == "feedback_inhibitor_inducer_perm_thresh"
-                println("Model: inhibitor-dependent germination with inducer-dependent permeability and inhibition threshold")
+                println("Model: Inhibitor-dependent germination with inducer-dependent permeability and inhibition threshold")
                 wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
                     Main.ode_inducer_dependent_perm!,
                     Main.thresh_criterion_inhibitor_shift,
@@ -823,7 +825,7 @@ module DataUtils
                     [params[1]], # s_max
                     params[2], # Pₛ_I
                     params[3], # Pₛ_C
-                    [params[4]], # K_cC
+                    [nothing, params[4]], # K_cC
                     params[5], # μ_ψ
                     params[5] * exp(params[6]), # σ_ψ = μ_ψ * exp(δ_ψ)
                     [params[7]], # μ_γ
@@ -833,6 +835,106 @@ module DataUtils
                 param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :k_C]
                 param_occurrences = [n_src, 1, n_src, n_src, 1, 1, 1, 1, n_src]
 
+            elseif model_type == "feedback_combined_inducer_perm_thresh"
+                println("Model: 2-factor germination with inducer-dependent permeability and inhibition threshold")
+                wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
+                    Main.ode_inducer_dependent_perm!,
+                    Main.thresh_criterion_combined_inhibitor_shift,
+                    sobol_pts,
+                    times,
+                    [samples_A,
+                    samples_Vₛ,
+                    V_out,
+                    samples_V_ps],
+                    def_params[:c₀_cs],
+                    [params[1]], # s_max
+                    params[2], # Pₛ_I
+                    params[3], # Pₛ_C
+                    [nothing, params[4]], # K_cC
+                    params[5], # μ_ψ
+                    params[5] * exp(params[6]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                    [params[7], params[9]], # [μ_γ, μ_ω]
+                    [params[7] * exp(params[8]), params[9] * exp(params[10])]; # [σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)]
+                    ks=[params[11]] # k_C
+                )
+                param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :k_C]
+                param_occurrences = [n_src, 1, n_src, n_src, 1, 1, 1, 1, n_src, n_src, n_src]
+            
+            elseif model_type == "feedback_inhibitor_inducer_perm_inhibitor_signal"
+                println("Model: Inhibitor-dependent germination with inducer-dependent permeability and inhibitor-dependent induction signal")
+                wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
+                    Main.ode_inducer_dependent_perm_inhibitor_dependent_signal!,
+                    Main.thresh_criterion_inhibitor,
+                    sobol_pts,
+                    times,
+                    [samples_A,
+                    samples_Vₛ,
+                    V_out,
+                    samples_V_ps],
+                    def_params[:c₀_cs],
+                    [params[1]], # s_max
+                    params[2], # Pₛ_I
+                    params[3], # Pₛ_C
+                    [params[4], params[5]], # K_cI, K_cC
+                    params[6], # μ_ψ
+                    params[6] * exp(params[7]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                    [params[8]], # μ_γ
+                    [params[8] * exp(params[9])]; # σ_γ = μ_γ * exp(δ_γ)
+                    n=params[10] # n
+                )
+                param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :n]
+                param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src]
+
+            elseif model_type == "feedback_inducer_inducer_perm_inhibitor_signal"
+                println("Model: Inducer-dependent germination with inducer-dependent permeability and inhibitor-dependent induction signal")
+                wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
+                    Main.ode_inducer_dependent_perm_inhibitor_dependent_signal!,
+                    Main.thresh_criterion_inducer,
+                    sobol_pts,
+                    times,
+                    [samples_A,
+                    samples_Vₛ,
+                    V_out,
+                    samples_V_ps],
+                    def_params[:c₀_cs],
+                    [params[1]], # s_max
+                    params[2], # Pₛ_I
+                    params[3], # Pₛ_C
+                    [params[4], params[5]], # K_cI, K_cC
+                    params[6], # μ_ψ
+                    params[6] * exp(params[7]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                    [params[8]], # μ_ω
+                    [params[8] * exp(params[9])]; # σ_ω = μ_ω * exp(δ_ω)
+                    n=params[10] # n
+                )
+                param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_ω, :δ_ω, :n]
+                param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, n_src, n_src, n_src]
+                
+            elseif model_type == "feedback_combined_inducer_perm_inhibitor_signal"
+                println("Model: 2-factor germination with inducer-dependent permeability and inhibitor-dependent induction signal")
+                wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
+                    Main.ode_inducer_dependent_perm_inhibitor_dependent_signal!,
+                    Main.thresh_criterion_combined,
+                    sobol_pts,
+                    times,
+                    [samples_A,
+                    samples_Vₛ,
+                    V_out,
+                    samples_V_ps],
+                    def_params[:c₀_cs],
+                    [params[1]], # s_max
+                    params[2], # Pₛ_I
+                    params[3], # Pₛ_C
+                    [params[4], params[5]], # K_cI, K_cC
+                    params[6], # μ_ψ
+                    params[6] * exp(params[7]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                    [params[8], params[10]], # [μ_γ, μ_ω]
+                    [params[8] * exp(params[9]), params[10] * exp(params[11])]; # [σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)]
+                    n=params[12] # n
+                )
+                param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :n]
+                param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src, n_src, n_src]
+                
             end
             
         else
@@ -852,6 +954,13 @@ module DataUtils
             # Objective function
             input_tuples =  [tuple.(times_tile[i, :, :], inverse_mL_to_cubic_um.(densities_tile[i, :, :])) for i in 1:length(sources)]
             dantigny_data_flat = [collect(dantigny_data[i, :, :]) for i in 1:length(sources)]
+
+            # println(size(times_tile))
+            # println(size(densities_tile))
+            # println(size(input_tuples))
+            # println(size(dantigny_data))
+            # println(size(dantigny_data_flat))
+
             obj = params -> begin
                 err = 0.0
                 @inbounds for i in eachindex(sources)
@@ -875,6 +984,12 @@ module DataUtils
             # Objective function (feedback model)
             input_densities = inverse_mL_to_cubic_um.(densities)
             samples_V_out = 1 ./ input_densities .- samples_Vₛ'
+
+            params = zeros(length(keys(bounds_dict)))
+            for (i, key) in enumerate(keys(bounds_dict))
+                params[i] = mean(bounds_dict[key])
+            end
+
             obj = params -> begin
                 err = 0.0
                 @inbounds for i in eachindex(sources)

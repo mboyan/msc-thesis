@@ -999,7 +999,9 @@ __precompile__(false)
                                 "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal",
                                 "special_inhibitor", "special_inducer", "special_independent", "special_combined", "special_combined_thresh", "special_combined_signal",
                                 "feedback_inhibitor_inducer_perm", "feedback_combined_inducer_perm",
-                                "feedback_inducer_inhibitor_perm", "feedback_combined_inhibitor_perm"]
+                                "feedback_inducer_inhibitor_perm", "feedback_combined_inhibitor_perm",
+                                "feedback_inhibitor_inducer_perm_thresh", "feedback_combined_inducer_perm_thresh",
+                                "feedback_inhibitor_inducer_perm_inhibitor_signal", "feedback_inducer_inducer_perm_inhibitor_signal", "feedback_combined_inducer_perm_inhibitor_signal"]
 
         # Create figure and subfigures
         fig = figure(figsize=(4.5, 0.6 + 1.5*length(densities_data)))
@@ -1072,8 +1074,13 @@ __precompile__(false)
             "special_combined_signal" => "Combined model with inhibitor-dependent\ninduction signal (var. permeability), ",
             "feedback_inhibitor_inducer_perm" => "Inhibitor-dependent germination with\n inducer-dependent permeability",
             "feedback_combined_inducer_perm" => "2-factor germination with\n inducer-dependent permeability",
-            "feedback_inducer_inhibitor_perm" => "inducer-dependent germination with\n inhibitor-dependent permeability",
-            "feedback_combined_inhibitor_perm" => "2-factor germination with\n inhibitor-dependent permeability"
+            "feedback_inducer_inhibitor_perm" => "Inducer-dependent germination with\n inhibitor-dependent permeability",
+            "feedback_combined_inhibitor_perm" => "2-factor germination with\n inhibitor-dependent permeability",
+            "feedback_inhibitor_inducer_perm_thresh" => "Inhibitor-dependent germination with\ninducer-dependent permeability/threshold",
+            "feedback_combined_inducer_perm_thresh" => "2-factor germination with\ninducer-dependent permeability/threshold",
+            "feedback_inhibitor_inducer_perm_inhibitor_signal" => "Inhibitor-dependent germination with\ninducer-dep. permeability / inhibitor-dep. signal",
+            "feedback_inducer_inducer_perm_inhibitor_signal" => "Inducer-dependent germination with\ninducer-dep. permeability / inhibitor-dep. signal",
+            "feedback_combined_inducer_perm_inhibitor_signal" => "2-factor germination with\ninducer-dep. permeability / inhibitor-dep. signal"
         )
 
         plot_germination_data_fit(densities_data, p_maxs_data, density_range, germ_resp_final .* 100, sources_data, yerr=p_max_errs,
