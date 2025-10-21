@@ -182,6 +182,7 @@ module DataUtils
                                 "inducer", "inducer_thresh", "inducer_signal",
                                 "combined_inhibitor", "combined_inhibitor_thresh", "combined_inhibitor_perm",
                                 "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal",
+                                "inhibitor_thresh_inducer_signal", "combined_inhibitor_thresh_inducer_signal", # BC
                                 "special_inducer", "special_independent", "special_combined", "special_thresh", "special_signal",
                                 "feedback_inhibitor_inducer_perm", "feedback_combined_inducer_perm",
                                 "feedback_inducer_inhibitor_perm", "feedback_combined_inhibitor_perm",
@@ -201,7 +202,8 @@ module DataUtils
                             "combined_inhibitor", "combined_inhibitor_thresh", "combined_inhibitor_perm"]
             n_nodes = 36 # 2D integral
         elseif model_type in ["inducer", "inducer_thresh", "inducer_signal",
-                            "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal", "special_independent"]
+                            "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal", "special_independent",
+                            "inhibitor_thresh_inducer_signal", "combined_inhibitor_thresh_inducer_signal"]
             n_nodes = 10 # 3D integral
         elseif model_type in ["special_inducer", "special_combined", "special_thresh", "special_signal"]
             n_nodes = 6 # 4D integral
@@ -297,772 +299,774 @@ module DataUtils
             param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
             param_occurrences = [1, n_src, n_src, 1, 1, n_src, n_src]
 
-        elseif model_type_split[1] == "inhibitor"
+        # elseif model_type == "inhibitor" # Inducer shifts inhibition threshold and modulates inhibitor permeability
+        #         println("Model: inducer-modulated inhibitor (combined)")
+        #         wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_gh(
+        #             u, W,
+        #             inputs[1], #t
+        #             inputs[2], #ρₛ
+        #             def_params[:c₀_cs],
+        #             def_params[:d_hp],
+        #             ξ2,
+        #             κ2,
+        #             params[1], #Pₛ,
+        #             params[2], #Pₛ_cs,
+        #             params[3], #K_cC,
+        #             exp(params[4]), #k_C,
+        #             params[5], #μ_γ,
+        #             params[5] * exp(params[6]), # σ_γ = μ_γ * exp(δ_γ)
+        #         )
+        #         param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :k_C, :μ_γ, :δ_γ]
+        #         param_occurrences = [1, n_src, n_src, n_src, 1, 1]
 
-            if model_type == "inhibitor" # Inducer shifts inhibition threshold and modulates inhibitor permeability
-                println("Model: inducer-modulated inhibitor (combined)")
-                wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_gh(
-                    u, W,
-                    inputs[1], #t
-                    inputs[2], #ρₛ
-                    def_params[:c₀_cs],
-                    def_params[:d_hp],
-                    ξ2,
-                    κ2,
-                    params[1], #Pₛ,
-                    params[2], #Pₛ_cs,
-                    params[3], #K_cC,
-                    exp(params[4]), #k_C,
-                    params[5], #μ_γ,
-                    params[5] * exp(params[6]), # σ_γ = μ_γ * exp(δ_γ)
-                )
-                param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :k_C, :μ_γ, :δ_γ]
-                param_occurrences = [1, n_src, n_src, n_src, 1, 1]
-
-            elseif model_type_split[2] == "thresh" # Inducer shifts inhibition threshold
-                println("Model: inducer-modulated inhibitor (threshold)")
-                wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_thresh_gh(
-                    u, W,
-                    inputs[1], #t
-                    inputs[2], #ρₛ
-                    def_params[:c₀_cs],
-                    def_params[:d_hp],
-                    ξ2,
-                    κ2,
-                    params[1], #Pₛ
-                    params[2], #Pₛ_cs
-                    exp(params[3]), #k_C
-                    params[4], #K_cC
-                    params[5], #μ_γ
-                    params[5] * exp(params[6]) # σ_γ = μ_γ * exp(δ_γ)
-                )
-                param_keys = [:Pₛ, :Pₛ_cs, :k_C, :K_cC, :μ_γ, :δ_γ]
-                param_occurrences = [1, n_src, n_src, n_src, 1, 1]
+        elseif model_type == "inhibitor_thresh" # Inducer shifts inhibition threshold
+            println("Model: inducer-modulated inhibitor (threshold)")
+            wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_thresh_gh(
+                u, W,
+                inputs[1], #t
+                inputs[2], #ρₛ
+                def_params[:c₀_cs],
+                def_params[:d_hp],
+                ξ2,
+                κ2,
+                params[1], #Pₛ
+                params[2], #Pₛ_cs
+                exp(params[3]), #k_C
+                params[4], #K_cC
+                params[5], #μ_γ
+                params[5] * exp(params[6]) # σ_γ = μ_γ * exp(δ_γ)
+            )
+            param_keys = [:Pₛ, :Pₛ_cs, :k_C, :K_cC, :μ_γ, :δ_γ]
+            param_occurrences = [1, n_src, n_src, n_src, 1, 1]
+            
+            # elseif model_type_split[2] == "perm" # Inducer modulates inhibitor permeability
+            #     println("Model: inducer-modulated inhibitor (permeability)")
+            #     wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_perm_gh(
+            #         u, W,
+            #         inputs[1], #t
+            #         inputs[2], #ρₛ
+            #         def_params[:c₀_cs],
+            #         def_params[:d_hp],
+            #         ξ2,
+            #         κ2,
+            #         params[1], #Pₛ
+            #         params[2], #Pₛ_cs
+            #         params[3], #K_cC
+            #         params[4], #μ_γ
+            #         params[4] * exp(params[5]) # σ_γ = μ_γ * exp(δ_γ)
+            #     )
+            #     param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :μ_γ, :δ_γ]
+            #     param_occurrences = [1, n_src, n_src, 1, 1]
                 
-            elseif model_type_split[2] == "perm" # Inducer modulates inhibitor permeability
-                println("Model: inducer-modulated inhibitor (permeability)")
-                wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_perm_gh(
-                    u, W,
-                    inputs[1], #t
-                    inputs[2], #ρₛ
-                    def_params[:c₀_cs],
-                    def_params[:d_hp],
-                    ξ2,
-                    κ2,
-                    params[1], #Pₛ
-                    params[2], #Pₛ_cs
-                    params[3], #K_cC
-                    params[4], #μ_γ
-                    params[4] * exp(params[5]) # σ_γ = μ_γ * exp(δ_γ)
-                )
-                param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :μ_γ, :δ_γ]
-                param_occurrences = [1, n_src, n_src, 1, 1]
+            # end
+
+        elseif model_type == "inducer" # Inhibitor shifts induction threshold and modulates inducer signal strength
+            println("Model: inhibitor-modulated inducer (combined)")
+            wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_gh(
+                u, W3,
+                inputs[1], #t
+                inputs[2], #ρₛ
+                def_params[:c₀_cs],
+                def_params[:d_hp],
+                ξ2,
+                κ2,
+                params[1], #Pₛ
+                params[2], #Pₛ_cs
+                exp(params[3]), #k_I
+                params[4], #K_cC
+                params[5], #K_I
+                params[6], #n
+                params[7], #μ_ω
+                params[7] * exp(params[8]), # σ_ω = μ_ω * exp(δ_ω)
+                params[9], #μ_ψ
+                params[9] * exp(params[10]) # σ_ψ = μ_ψ * exp(δ_ψ)
+            )
+            param_keys = [:Pₛ, :Pₛ_cs, :k_I, :K_cC, :K_I, :n, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
+            param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, n_src, n_src, 1, 1]
                 
-            end
-
-        elseif model_type_split[1] == "inducer"
-
-            if model_type == "inducer" # Inhibitor shifts induction threshold and modulates inducer signal strength
-                println("Model: inhibitor-modulated inducer (combined)")
-                wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_gh(
-                    u, W3,
-                    inputs[1], #t
-                    inputs[2], #ρₛ
-                    def_params[:c₀_cs],
-                    def_params[:d_hp],
-                    ξ2,
-                    κ2,
-                    params[1], #Pₛ
-                    params[2], #Pₛ_cs
-                    exp(params[3]), #k_I
-                    params[4], #K_cC
-                    params[5], #K_I
-                    params[6], #n
-                    params[7], #μ_ω
-                    params[7] * exp(params[8]), # σ_ω = μ_ω * exp(δ_ω)
-                    params[9], #μ_ψ
-                    params[9] * exp(params[10]) # σ_ψ = μ_ψ * exp(δ_ψ)
-                )
-                param_keys = [:Pₛ, :Pₛ_cs, :k_I, :K_cC, :K_I, :n, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
-                param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, n_src, n_src, 1, 1]
-                
-            elseif model_type_split[2] == "thresh" # Inhibitor shifts induction threshold
-                println("Model: inhibitor-modulated inducer (threshold)")
-                wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_thresh_gh(
-                    u, W3,
-                    inputs[1], #t
-                    inputs[2], #ρₛ
-                    def_params[:c₀_cs],
-                    def_params[:d_hp],
-                    ξ2,
-                    κ2,
-                    params[1], #Pₛ
-                    params[2], #Pₛ_cs
-                    params[3], #K_cC
-                    exp(params[4]), #k_I
-                    params[5], #μ_ω
-                    params[5] * exp(params[6]), # σ_ω = μ_ω * exp(δ_ω)
-                    params[7], #μ_ψ
-                    params[7] * exp(params[8]) # σ_ψ = μ_ψ * exp(δ_ψ)
-                )
-                param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :k_I, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
-                param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, 1, 1]
-                
-            elseif model_type_split[2] == "signal" # Inhibitor shifts induction threshold
-                println("Model: inhibitor-modulated inducer (signal)")
-                wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_signal_gh(
-                    u, W3,
-                    inputs[1], #t
-                    inputs[2], #ρₛ
-                    def_params[:c₀_cs],
-                    def_params[:d_hp],
-                    ξ2,
-                    κ2,
-                    params[1], #Pₛ
-                    params[2], #Pₛ_cs
-                    params[3], #K_cC
-                    params[4], #K_I
-                    params[5], #n
-                    params[6], #μ_ω
-                    params[6] * exp(params[7]), # σ_ω = μ_ω * exp(δ_ω)
-                    params[8], #μ_ψ
-                    params[8] * exp(params[9]) # σ_ψ = μ_ψ * exp(δ_ψ)
-                )
-                param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :K_I, :n, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
-                param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, n_src, 1, 1]
-                
-            end
-
-        elseif model_type_split[1] == "combined" 
-
-            if model_type_split[2] == "inhibitor"
-
-                if model_type == "combined_inhibitor"
-                    println("Model: inducer-modulated inhibitor (combined)")
-                    wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_2_factor_gh(
-                        u, W,
-                        inputs[1], #t
-                        inputs[2], #ρₛ
-                        def_params[:c₀_cs],
-                        def_params[:d_hp],
-                        ξ2,
-                        κ2,
-                        params[1], #Pₛ,
-                        params[2], #Pₛ_cs,
-                        params[3], #K_cC,
-                        exp(params[4]), #k_C,
-                        params[5], #μ_γ,
-                        params[5] * exp(params[6]), # σ_γ = μ_γ * exp(δ_γ)
-                        params[7], #μ_ω,
-                        params[7] * exp(params[8]) # σ_ω = μ_ω * exp(δ_ω)
-                    )
-                    param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :k_C, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
-                    param_occurrences = [1, n_src, n_src, n_src, 1, 1, n_src, n_src]
-
-                elseif model_type_split[3] == "thresh"
-                    println("Model: inducer-modulated inhibitor (combined)")
-                    wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_thresh_2_factor_gh(
-                        u, W,
-                        inputs[1], #t
-                        inputs[2], #ρₛ
-                        def_params[:c₀_cs],
-                        def_params[:d_hp],
-                        ξ2,
-                        κ2,
-                        params[1], #Pₛ
-                        params[2], #Pₛ_cs
-                        exp(params[3]), #k_C
-                        params[4], #K_cC
-                        params[5], #μ_γ
-                        params[5] * exp(params[6]), # σ_γ = μ_γ * exp(δ_γ)
-                        params[7], #μ_ω
-                        params[7] * exp(params[8]) # σ_ω = μ_ω * exp(δ_ω)
-                    )
-                    param_keys = [:Pₛ, :Pₛ_cs, :k_C, :K_cC, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
-                    param_occurrences = [1, n_src, n_src, n_src, 1, 1, n_src, n_src]
-
-                elseif model_type_split[3] == "perm"
-                    println("Model: inducer-modulated inhibitor (release)")
-                    wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_perm_2_factor_gh(
-                        u, W,
-                        inputs[1], #t
-                        inputs[2], #ρₛ
-                        def_params[:c₀_cs],
-                        def_params[:d_hp],
-                        ξ2,
-                        κ2,
-                        params[1], #Pₛ
-                        params[2], #Pₛ_cs
-                        params[3], #K_cC
-                        params[4], #μ_γ
-                        params[4] * exp(params[5]), # σ_γ = μ_γ * exp(δ_γ)
-                        params[6], #μ_ω
-                        params[6] * exp(params[7]) # σ_ω = μ_ω * exp(δ_ω)
-                    )
-                    param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
-                    param_occurrences = [1, n_src, n_src, 1, 1, n_src, n_src]
-                end
-
-            elseif model_type_split[2] == "inducer" 
-
-                if model_type == "combined_inducer"
-                    println("Model: inhibitor-modulated inducer (combined)")
-                    wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_2_factor_gh(
-                        u, W3,
-                        inputs[1], #t
-                        inputs[2], #ρₛ
-                        def_params[:c₀_cs],
-                        def_params[:d_hp],
-                        ξ2,
-                        κ2,
-                        params[1], #Pₛ
-                        params[2], #Pₛ_cs
-                        params[3], #K_cC
-                        params[4], #K_I
-                        params[5], #n
-                        exp(params[6]), #k_I
-                        params[7], #μ_γ
-                        params[7] * exp(params[8]), # σ_γ = μ_γ * exp(δ_γ)
-                        params[9], #μ_ω
-                        params[9] * exp(params[10]), # σ_ω = μ_ω * exp(δ_ω)
-                        params[11], #μ_ψ
-                        params[11] * exp(params[12]) # σ_ψ = μ_ψ * exp(δ_ψ)
-                    )
-                    param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :K_I, :n, :k_I, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
-                    param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1]
-
-                elseif model_type_split[3] == "thresh"
-                    println("Model: inhibitor-modulated inducer (threshold)")
-                    wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_thresh_2_factor_gh(
-                        u, W3,
-                        inputs[1], #t
-                        inputs[2], #ρₛ
-                        def_params[:c₀_cs],
-                        def_params[:d_hp],
-                        ξ2,
-                        κ2,
-                        params[1], #Pₛ
-                        params[2], #Pₛ_cs
-                        params[3], #K_cC
-                        exp(params[4]), #k_I
-                        params[5], #μ_γ
-                        params[5] * exp(params[6]), # σ_γ = μ_γ * exp(δ_γ)
-                        params[7], #μ_ω
-                        params[7] * exp(params[8]), # σ_ω = μ_ω * exp(δ_ω)
-                        params[9], #μ_ψ
-                        params[9] * exp(params[10]) # σ_ψ = μ_ψ * exp(δ_ψ)
-                    )
-                    param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :k_I, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
-                    param_occurrences = [1, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1]
-
-                elseif model_type_split[3] == "signal"
-                    println("Model: inhibitor-modulated inducer (signal)")
-                    wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_signal_2_factor_gh(
-                        u, W3,
-                        inputs[1], #t
-                        inputs[2], #ρₛ
-                        def_params[:c₀_cs],
-                        def_params[:d_hp],
-                        ξ2,
-                        κ2,
-                        params[1], #Pₛ
-                        params[2], #Pₛ_cs
-                        params[3], #K_cC
-                        params[4], #K_I
-                        params[5], #n
-                        params[6], #μ_γ
-                        params[6] * exp(params[7]), # σ_γ = μ_γ * exp(δ_γ)
-                        params[8], #μ_ω
-                        params[8] * exp(params[9]), # σ_ω = μ_ω * exp(δ_ω)
-                        params[10], #μ_ψ
-                        params[10] * exp(params[11]) # σ_ψ = μ_ψ * exp(δ_ψ)
-                    )
-                    param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :K_I, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
-                    param_occurrences = [1, n_src, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1]
-
-                end
-            end
-
-        elseif model_type_split[1] == "special" 
-
-            if model_type_split[2] == "inducer"
-                println("Model: inhibitor-modulated inducer (combined) with varying permeability")
-                wrapper = (inputs, params) -> Main.germ_response_inducer_var_perm_gh(
-                    u, W4,
-                    inputs[1], #t
-                    inputs[2], #ρₛ
-                    def_params[:c₀_cs],
-                    def_params[:d_hp],
-                    ξ2,
-                    κ2,
-                    params[1], #Pₛ
-                    params[2], #Pₛ_cs
-                    params[3], #K_cC
-                    params[4], #K_I
-                    exp(params[5]), #k_I
-                    params[6], #n
-                    params[7], #μ_ω
-                    params[7] * exp(params[8]), # σ_ω = μ_ω * exp(δ_ω)
-                    params[9], #μ_ψ
-                    params[9] * exp(params[10]), # σ_ψ = μ_ψ * exp(δ_ψ)
-                    params[11], #μ_α
-                    params[11] * exp(params[12]) # σ_α = μ_α * exp(δ_α)
-                )
-                param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :K_I, :k_I, :n, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ, :μ_α, :δ_α]
-                param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, n_src, n_src, 1, 1, 1, 1]
-
-            elseif model_type_split[2] == "independent"
-                println("Model: independent factors with varying permeability")
-                wrapper = (inputs, params) -> Main.germ_response_independent_factors_var_perm_gh(
-                    u, W3,
-                    inputs[1], #t
-                    inputs[2], #ρₛ
-                    def_params[:c₀_cs],
-                    def_params[:d_hp],
-                    ξ2,
-                    κ2,
-                    params[1], #Pₛ
-                    params[2], #Pₛ_cs
-                    params[3], #K_cC
-                    params[4], #μ_γ
-                    params[4] * exp(params[5]), # σ_γ = μ_γ * exp(δ_γ)
-                    params[6], #μ_ω
-                    params[6] * exp(params[7]), # σ_ω = μ_ω * exp(δ_ω)
-                    params[8], #μ_α
-                    params[8] * exp(params[9]) # σ_α = μ_α * exp(δ_α)
-                )
-                param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_α, :δ_α]
-                param_occurrences = [1, n_src, n_src, 1, 1, n_src, n_src, 1, 1]
-
-            elseif model_type == "special_combined"
-                println("Model: 2-factor germination with inhibitor-modulated inducer (combined) and varying permeability")
-                wrapper = (inputs, params) -> Main.germ_response_inducer_2_factors_var_perm_gh(
-                    u, W4,
-                    inputs[1], #t
-                    inputs[2], #ρₛ
-                    def_params[:c₀_cs],
-                    def_params[:d_hp],
-                    ξ2,
-                    κ2,
-                    params[1], #Pₛ
-                    params[2], #Pₛ_cs
-                    params[3], #K_cC
-                    params[4], #K_I
-                    exp(params[5]), #k_I
-                    params[6], #n
-                    params[7], #μ_γ
-                    params[7] * exp(params[8]), # σ_γ = μ_γ * exp(δ_γ)
-                    params[9], #μ_ω
-                    params[9] * exp(params[10]), # σ_ω = μ_ω * exp(δ_ω)
-                    params[11], #μ_ψ
-                    params[11] * exp(params[12]), # σ_ψ = μ_ψ * exp(δ_ψ)
-                    params[13], #μ_α
-                    params[13] * exp(params[14]) # σ_α = μ_α * exp(δ_α)
-                )
-                param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :K_I, :k_I, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ, :μ_α, :δ_α]
-                param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1, 1, 1]
-
-            elseif model_type_split[2] == "combined" && model_type_split[3] == "thresh"
-                println("Model: 2-factor germination with inhibitor-modulated inducer (threshold) and varying permeability")
-                wrapper = (inputs, params) -> Main.germ_response_inducer_thresh_2_factors_var_perm_gh(
-                    u, W4,
-                    inputs[1], #t
-                    inputs[2], #ρₛ
-                    def_params[:c₀_cs],
-                    def_params[:d_hp],
-                    ξ2,
-                    κ2,
-                    params[1], #Pₛ
-                    params[2], #Pₛ_cs
-                    params[3], #K_cC
-                    exp(params[4]), #k_I
-                    params[5], #μ_γ
-                    params[5] * exp(params[6]), # σ_γ = μ_γ * exp(δ_γ)
-                    params[7], #μ_ω
-                    params[7] * exp(params[8]), # σ_ω = μ_ω * exp(δ_ω)
-                    params[9], #μ_ψ
-                    params[9] * exp(params[10]), # σ_ψ = μ_ψ * exp(δ_ψ)
-                    params[11], #μ_α
-                    params[11] * exp(params[12]) # σ_α = μ_α * exp(δ_α)
-                )
-                param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :k_I, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ, :μ_α, :δ_α]
-                param_occurrences = [1, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1, 1, 1]
-
-            elseif model_type_split[2] == "combined" && model_type_split[3] == "signal"
-                println("Model: 2-factor germination with inhibitor-modulated inducer (signal) and varying permeability")
-                wrapper = (inputs, params) -> Main.germ_response_inducer_signal_2_factors_var_perm_gh(
-                    u, W4,
-                    inputs[1], #t
-                    inputs[2], #ρₛ
-                    def_params[:c₀_cs],
-                    def_params[:d_hp],
-                    ξ2,
-                    κ2,
-                    params[1], #Pₛ
-                    params[2], #Pₛ_cs
-                    params[3], #K_cC
-                    params[4], #K_I
-                    params[5], #n
-                    params[6], #μ_γ
-                    params[6] * exp(params[7]), # σ_γ = μ_γ * exp(δ_γ)
-                    params[8], #μ_ω
-                    params[8] * exp(params[9]), # σ_ω = μ_ω * exp(δ_ω)
-                    params[10], #μ_ψ
-                    params[10] * exp(params[11]), # σ_ψ = μ_ψ * exp(δ_ψ)
-                    params[12], #μ_α
-                    params[12] * exp(params[13]) # σ_α = μ_α * exp(δ_α)
-                )
-                param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :K_I, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ, :μ_α, :δ_α]
-                param_occurrences = [1, n_src, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1, 1, 1]
-            end
-
-        elseif model_type_split[1] == "feedback"
-            # ===== FEEDBACK MODELS =====
-            if model_type == "feedback_inhibitor_inducer_perm"
-                println("Model: inhibitor-dependent germination with inducer-dependent inhibitor/inducer permeability")
-                wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
-                    Main.ode_inducer_dependent_perm!,
-                    Main.thresh_criterion_inhibitor,
-                    sobol_pts,
-                    times,
-                    [samples_A,
-                    samples_Vₛ,
-                    V_out,
-                    samples_V_ps],
-                    def_params[:c₀_cs],
-                    [params[1]], # s_max
-                    params[2], # Pₛ_I
-                    params[3], # Pₛ_C
-                    [nothing, params[4]], # K_cC
-                    params[5], # μ_ψ
-                    params[5] * exp(params[6]), # σ_ψ = μ_ψ * exp(δ_ψ)
-                    [params[7]], # μ_γ
-                    [params[7] * exp(params[8])] # σ_γ = μ_γ * exp(δ_γ)
-                )
-                param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ]
-                param_occurrences = [n_src, 1, n_src, n_src, 1, 1, 1, 1]
-
-            elseif model_type == "feedback_combined_inducer_perm"
-                println("Model: 2-factor germination with inducer-dependent inhibitor/inducer permeability")
-                wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
-                    Main.ode_inducer_dependent_perm!,
-                    Main.thresh_criterion_combined,
-                    sobol_pts,
-                    times,
-                    [samples_A,
-                    samples_Vₛ,
-                    V_out,
-                    samples_V_ps],
-                    def_params[:c₀_cs],
-                    [params[1]], # s_max
-                    params[2], # Pₛ_I
-                    params[3], # Pₛ_C
-                    [nothing, params[4]], # K_cC
-                    params[5], # μ_ψ
-                    params[5] * exp(params[6]), # σ_ψ = μ_ψ * exp(δ_ψ)
-                    [params[7], params[9]], # [μ_γ, μ_ω]
-                    [params[7] * exp(params[8]), params[9] * exp(params[10])] # [σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)]
-                )
-                param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
-                param_occurrences = [n_src, 1, n_src, n_src, 1, 1, 1, 1, n_src, n_src]
+        elseif model_type == "inducer_thresh" # Inhibitor shifts induction threshold
+            println("Model: inhibitor-modulated inducer (threshold)")
+            wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_thresh_gh(
+                u, W3,
+                inputs[1], #t
+                inputs[2], #ρₛ
+                def_params[:c₀_cs],
+                def_params[:d_hp],
+                ξ2,
+                κ2,
+                params[1], #Pₛ
+                params[2], #Pₛ_cs
+                params[3], #K_cC
+                exp(params[4]), #k_I
+                params[5], #μ_ω
+                params[5] * exp(params[6]), # σ_ω = μ_ω * exp(δ_ω)
+                params[7], #μ_ψ
+                params[7] * exp(params[8]) # σ_ψ = μ_ψ * exp(δ_ψ)
+            )
+            param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :k_I, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
+            param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, 1, 1]
             
-            elseif model_type == "feedback_inducer_inhibitor_perm"
-                println("Model: Inducer-dependent germination with inhibitor-dependent inhibitor/inducer permeability")
-                wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
-                    Main.ode_inhibitor_dependent_perm!,
-                    Main.thresh_criterion_inducer,
-                    sobol_pts,
-                    times,
-                    [samples_A,
-                    samples_Vₛ,
-                    V_out,
-                    samples_V_ps],
-                    def_params[:c₀_cs],
-                    [params[1]], # b_max
-                    params[2], # Pₛ_I
-                    params[3], # Pₛ_C
-                    [params[4], nothing], # K_cI
-                    params[5], # μ_ψ
-                    params[5] * exp(params[6]), # σ_ψ = μ_ψ * exp(δ_ψ)
-                    [params[7]], # [μ_ω]
-                    [params[7] * exp(params[8])] # [σ_ω = μ_ω * exp(δ_ω)]
-                )
-                param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :μ_ψ, :δ_ψ, :μ_ω, :δ_ω]
-                param_occurrences = [1, 1, n_src, 1, 1, 1, n_src, n_src]
-            
-            elseif model_type == "feedback_combined_inhibitor_perm"
-                println("Model: 2-factor germination with inhibitor-dependent inhibitor/inducer permeability")
-                wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
-                    Main.ode_inhibitor_dependent_perm!,
-                    Main.thresh_criterion_combined,
-                    sobol_pts,
-                    times,
-                    [samples_A,
-                    samples_Vₛ,
-                    V_out,
-                    samples_V_ps],
-                    def_params[:c₀_cs],
-                    [params[1]], # b_max
-                    params[2], # Pₛ_I
-                    params[3], # Pₛ_C
-                    [params[4], nothing], # K_cI
-                    params[5], # μ_ψ
-                    params[5] * exp(params[6]), # σ_ψ = μ_ψ * exp(δ_ψ)
-                    [params[7], params[9]], # [μ_γ, μ_ω]
-                    [params[7] * exp(params[8]), params[9] * exp(params[10])] # [σ_ω = μ_ω * exp(δ_ω)]
-                )
-                param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
-                param_occurrences = [1, 1, n_src, 1, 1, 1, 1, 1, n_src, n_src]
-            
-            elseif model_type == "feedback_inhibitor_inducer_perm_thresh"
-                println("Model: Inhibitor-dependent germination with inducer-dependent permeability and inhibition threshold")
-                wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
-                    Main.ode_inducer_dependent_perm!,
-                    Main.thresh_criterion_inhibitor_shift,
-                    sobol_pts,
-                    times,
-                    [samples_A,
-                    samples_Vₛ,
-                    V_out,
-                    samples_V_ps],
-                    def_params[:c₀_cs],
-                    [params[1]], # s_max
-                    params[2], # Pₛ_I
-                    params[3], # Pₛ_C
-                    [nothing, params[4]], # K_cC
-                    params[5], # μ_ψ
-                    params[5] * exp(params[6]), # σ_ψ = μ_ψ * exp(δ_ψ)
-                    [params[7]], # μ_γ
-                    [params[7] * exp(params[8])]; # σ_γ = μ_γ * exp(δ_γ)
-                    ks=[params[9]] # k_C
-                )
-                param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :k_C]
-                param_occurrences = [n_src, 1, n_src, n_src, 1, 1, 1, 1, n_src]
+        elseif model_type == "inducer_signal" # Inhibitor shifts induction threshold
+            println("Model: inhibitor-modulated inducer (signal)")
+            wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_signal_gh(
+                u, W3,
+                inputs[1], #t
+                inputs[2], #ρₛ
+                def_params[:c₀_cs],
+                def_params[:d_hp],
+                ξ2,
+                κ2,
+                params[1], #Pₛ
+                params[2], #Pₛ_cs
+                params[3], #K_cC
+                params[4], #K_I
+                params[5], #n
+                params[6], #μ_ω
+                params[6] * exp(params[7]), # σ_ω = μ_ω * exp(δ_ω)
+                params[8], #μ_ψ
+                params[8] * exp(params[9]) # σ_ψ = μ_ψ * exp(δ_ψ)
+            )
+            param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :K_I, :n, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
+            param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, n_src, 1, 1]
 
-            elseif model_type == "feedback_combined_inducer_perm_thresh"
-                println("Model: 2-factor germination with inducer-dependent permeability and inhibition threshold")
-                wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
-                    Main.ode_inducer_dependent_perm!,
-                    Main.thresh_criterion_combined_inhibitor_shift,
-                    sobol_pts,
-                    times,
-                    [samples_A,
-                    samples_Vₛ,
-                    V_out,
-                    samples_V_ps],
-                    def_params[:c₀_cs],
-                    [params[1]], # s_max
-                    params[2], # Pₛ_I
-                    params[3], # Pₛ_C
-                    [nothing, params[4]], # K_cC
-                    params[5], # μ_ψ
-                    params[5] * exp(params[6]), # σ_ψ = μ_ψ * exp(δ_ψ)
-                    [params[7], params[9]], # [μ_γ, μ_ω]
-                    [params[7] * exp(params[8]), params[9] * exp(params[10])]; # [σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)]
-                    ks=[params[11]] # k_C
-                )
-                param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :k_C]
-                param_occurrences = [n_src, 1, n_src, n_src, 1, 1, 1, 1, n_src, n_src, n_src]
-            
-            elseif model_type == "feedback_inhibitor_inducer_perm_inhibitor_signal"
-                println("Model: Inhibitor-dependent germination with inducer-dependent permeability and inhibitor-dependent induction signal")
-                wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
-                    Main.ode_inducer_dependent_perm_inhibitor_dependent_signal!,
-                    Main.thresh_criterion_inhibitor,
-                    sobol_pts,
-                    times,
-                    [samples_A,
-                    samples_Vₛ,
-                    V_out,
-                    samples_V_ps],
-                    def_params[:c₀_cs],
-                    [params[1]], # s_max
-                    params[2], # Pₛ_I
-                    params[3], # Pₛ_C
-                    [params[4], params[5]], # K_cI, K_cC
-                    params[6], # μ_ψ
-                    params[6] * exp(params[7]), # σ_ψ = μ_ψ * exp(δ_ψ)
-                    [params[8]], # μ_γ
-                    [params[8] * exp(params[9])]; # σ_γ = μ_γ * exp(δ_γ)
-                    n=params[10] # n
-                )
-                param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :n]
-                param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src]
+        elseif model_type == "combined_inhibitor"
+            println("Model: inducer-modulated inhibitor (combined)")
+            wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_2_factor_gh(
+                u, W,
+                inputs[1], #t
+                inputs[2], #ρₛ
+                def_params[:c₀_cs],
+                def_params[:d_hp],
+                ξ2,
+                κ2,
+                params[1], #Pₛ,
+                params[2], #Pₛ_cs,
+                params[3], #K_cC,
+                exp(params[4]), #k_C,
+                params[5], #μ_γ,
+                params[5] * exp(params[6]), # σ_γ = μ_γ * exp(δ_γ)
+                params[7], #μ_ω,
+                params[7] * exp(params[8]) # σ_ω = μ_ω * exp(δ_ω)
+            )
+            param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :k_C, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
+            param_occurrences = [1, n_src, n_src, n_src, 1, 1, n_src, n_src]
 
-            elseif model_type == "feedback_inducer_inducer_perm_inhibitor_signal"
-                println("Model: Inducer-dependent germination with inducer-dependent permeability and inhibitor-dependent induction signal")
-                wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
-                    Main.ode_inducer_dependent_perm_inhibitor_dependent_signal!,
-                    Main.thresh_criterion_inducer,
-                    sobol_pts,
-                    times,
-                    [samples_A,
-                    samples_Vₛ,
-                    V_out,
-                    samples_V_ps],
-                    def_params[:c₀_cs],
-                    [params[1]], # s_max
-                    params[2], # Pₛ_I
-                    params[3], # Pₛ_C
-                    [params[4], params[5]], # K_cI, K_cC
-                    params[6], # μ_ψ
-                    params[6] * exp(params[7]), # σ_ψ = μ_ψ * exp(δ_ψ)
-                    [params[8]], # μ_ω
-                    [params[8] * exp(params[9])]; # σ_ω = μ_ω * exp(δ_ω)
-                    n=params[10] # n
-                )
-                param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_ω, :δ_ω, :n]
-                param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, n_src, n_src, n_src]
-                
-            elseif model_type == "feedback_combined_inducer_perm_inhibitor_signal"
-                println("Model: 2-factor germination with inducer-dependent permeability and inhibitor-dependent induction signal")
-                wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
-                    Main.ode_inducer_dependent_perm_inhibitor_dependent_signal!,
-                    Main.thresh_criterion_combined,
-                    sobol_pts,
-                    times,
-                    [samples_A,
-                    samples_Vₛ,
-                    V_out,
-                    samples_V_ps],
-                    def_params[:c₀_cs],
-                    [params[1]], # s_max
-                    params[2], # Pₛ_I
-                    params[3], # Pₛ_C
-                    [params[4], params[5]], # K_cI, K_cC
-                    params[6], # μ_ψ
-                    params[6] * exp(params[7]), # σ_ψ = μ_ψ * exp(δ_ψ)
-                    [params[8], params[10]], # [μ_γ, μ_ω]
-                    [params[8] * exp(params[9]), params[10] * exp(params[11])]; # [σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)]
-                    n=params[12] # n
-                )
-                param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :n]
-                param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src, n_src, n_src]
-                
-            elseif model_type == "feedback_inhibitor_inhibitor_inducer_perm"
-                println("Model: Inhibitor-dependent germination with inhibitor- and inducer-dependent inhibitor/inducer permeability")
-                wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
-                    Main.ode_inducer_and_inhibitor_dependent_perm!,
-                    Main.thresh_criterion_inhibitor,
-                    sobol_pts,
-                    times,
-                    [samples_A,
-                    samples_Vₛ,
-                    V_out,
-                    samples_V_ps],
-                    def_params[:c₀_cs],
-                    [params[1], params[2]], # b_max, s_max
-                    params[3], # Pₛ_I
-                    params[4], # Pₛ_C
-                    [params[5], params[6]], # K_cI, K_cC
-                    params[7], # μ_ψ
-                    params[7] * exp(params[8]), # σ_ψ = μ_ψ * exp(δ_ψ)
-                    [params[9]], # μ_γ
-                    [params[9] * exp(params[10])] # σ_γ = μ_γ * exp(δ_γ)
-                )
-                param_keys = [:b_max, :s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ]
-                param_occurrences = [1, n_src, 1, n_src, 1, n_src, 1, 1, 1, 1]
-            
-            elseif model_type == "feedback_inducer_inhibitor_inducer_perm"
-                println("Model: Inducer-dependent germination with inhibitor- and inducer-dependent inhibitor/inducer permeability")
-                wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
-                    Main.ode_inducer_and_inhibitor_dependent_perm!,
-                    Main.thresh_criterion_inducer,
-                    sobol_pts,
-                    times,
-                    [samples_A,
-                    samples_Vₛ,
-                    V_out,
-                    samples_V_ps],
-                    def_params[:c₀_cs],
-                    [params[1], params[2]], # b_max, s_max
-                    params[3], # Pₛ_I
-                    params[4], # Pₛ_C
-                    [params[5], params[6]], # K_cI, K_cC
-                    params[7], # μ_ψ
-                    params[7] * exp(params[8]), # σ_ψ = μ_ψ * exp(δ_ψ)
-                    [params[9]], # μ_ω
-                    [params[9] * exp(params[10])] # σ_ω = μ_ω * exp(δ_ω)
-                )
-                param_keys = [:b_max, :s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_ω, :δ_ω]
-                param_occurrences = [1, n_src, 1, n_src, 1, n_src, 1, 1, n_src, n_src]
-            
-            elseif model_type == "feedback_combined_inhibitor_inducer_perm"
-                println("Model: 2-factor germination with inhibitor- and inducer-dependent inhibitor/inducer permeability")
-                wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
-                    Main.ode_inducer_and_inhibitor_dependent_perm!,
-                    Main.thresh_criterion_inducer,
-                    sobol_pts,
-                    times,
-                    [samples_A,
-                    samples_Vₛ,
-                    V_out,
-                    samples_V_ps],
-                    def_params[:c₀_cs],
-                    [params[1], params[2]], # b_max, s_max
-                    params[3], # Pₛ_I
-                    params[4], # Pₛ_C
-                    [params[5], params[6]], # K_cI, K_cC
-                    params[7], # μ_ψ
-                    params[7] * exp(params[8]), # σ_ψ = μ_ψ * exp(δ_ψ)
-                    [params[9], params[11]], # μ_γ, μ_ω
-                    [params[9] * exp(params[10]), params[11] * exp(params[12])] # σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)
-                )
-                param_keys = [:b_max, :s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
-                param_occurrences = [1, n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src, n_src]
-            
-            elseif model_type == "feedback_inducer_inhibitor_thresh_inducer_perm"
-                println("Model: Inducer-dependent germination with inhibitor-dependent induction threshold and inducer-dependent inhibitor/inducer permeability")
-                wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
-                    Main.ode_inducer_dependent_perm!,
-                    Main.thresh_criterion_inducer_shift,
-                    sobol_pts,
-                    times,
-                    [samples_A,
-                    samples_Vₛ,
-                    V_out,
-                    samples_V_ps],
-                    def_params[:c₀_cs],
-                    [params[1]], # s_max
-                    params[2], # Pₛ_I
-                    params[3], # Pₛ_C
-                    [params[4], params[5]], # K_cI, K_cC
-                    params[6], # μ_ψ
-                    params[6] * exp(params[7]), # σ_ψ = μ_ψ * exp(δ_ψ)
-                    [params[8]], # μ_ω
-                    [params[8] * exp(params[9])]; # σ_ω = μ_ω * exp(δ_ω)
-                    ks=[params[10]] # k_I
-                )
-                param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_ω, :δ_ω, :k_I]
-                param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, n_src, n_src, 1]
+        elseif model_type == "combined_inhibitor_thresh"
+            println("Model: inducer-modulated inhibitor (combined)")
+            wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_thresh_2_factor_gh(
+                u, W,
+                inputs[1], #t
+                inputs[2], #ρₛ
+                def_params[:c₀_cs],
+                def_params[:d_hp],
+                ξ2,
+                κ2,
+                params[1], #Pₛ
+                params[2], #Pₛ_cs
+                exp(params[3]), #k_C
+                params[4], #K_cC
+                params[5], #μ_γ
+                params[5] * exp(params[6]), # σ_γ = μ_γ * exp(δ_γ)
+                params[7], #μ_ω
+                params[7] * exp(params[8]) # σ_ω = μ_ω * exp(δ_ω)
+            )
+            param_keys = [:Pₛ, :Pₛ_cs, :k_C, :K_cC, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
+            param_occurrences = [1, n_src, n_src, n_src, 1, 1, n_src, n_src]
 
-            elseif model_type == "feedback_combined_inhibitor_thresh_inducer_perm"
-                println("Model: 2-factor germination with inhibitor-dependent induction threshold and inducer-dependent inhibitor/inducer permeability")
-                wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
-                    Main.ode_inducer_dependent_perm!,
-                    Main.thresh_criterion_combined_inducer_shift,
-                    sobol_pts,
-                    times,
-                    [samples_A,
-                    samples_Vₛ,
-                    V_out,
-                    samples_V_ps],
-                    def_params[:c₀_cs],
-                    [params[1]], # s_max
-                    params[2], # Pₛ_I
-                    params[3], # Pₛ_C
-                    [params[4], params[5]], # K_cI, K_cC
-                    params[6], # μ_ψ
-                    params[6] * exp(params[7]), # σ_ψ = μ_ψ * exp(δ_ψ)
-                    [params[8], params[10]], # μ_ω
-                    [params[8] * exp(params[9]), params[10] * exp(params[11])]; # σ_ω = μ_ω * exp(δ_ω)
-                    ks=[params[12]] # k_I
-                )
-                param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :k_I]
-                param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src, n_src, 1]
+            # elseif model_type_split[3] == "perm"
+            #     println("Model: inducer-modulated inhibitor (release)")
+            #     wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_perm_2_factor_gh(
+            #         u, W,
+            #         inputs[1], #t
+            #         inputs[2], #ρₛ
+            #         def_params[:c₀_cs],
+            #         def_params[:d_hp],
+            #         ξ2,
+            #         κ2,
+            #         params[1], #Pₛ
+            #         params[2], #Pₛ_cs
+            #         params[3], #K_cC
+            #         params[4], #μ_γ
+            #         params[4] * exp(params[5]), # σ_γ = μ_γ * exp(δ_γ)
+            #         params[6], #μ_ω
+            #         params[6] * exp(params[7]) # σ_ω = μ_ω * exp(δ_ω)
+            #     )
+            #     param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
+            #     param_occurrences = [1, n_src, n_src, 1, 1, n_src, n_src]
+            # end
 
-            end
+        elseif model_type == "combined_inducer"
+            println("Model: inhibitor-modulated inducer (combined)")
+            wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_2_factor_gh(
+                u, W3,
+                inputs[1], #t
+                inputs[2], #ρₛ
+                def_params[:c₀_cs],
+                def_params[:d_hp],
+                ξ2,
+                κ2,
+                params[1], #Pₛ
+                params[2], #Pₛ_cs
+                params[3], #K_cC
+                params[4], #K_I
+                params[5], #n
+                exp(params[6]), #k_I
+                params[7], #μ_γ
+                params[7] * exp(params[8]), # σ_γ = μ_γ * exp(δ_γ)
+                params[9], #μ_ω
+                params[9] * exp(params[10]), # σ_ω = μ_ω * exp(δ_ω)
+                params[11], #μ_ψ
+                params[11] * exp(params[12]) # σ_ψ = μ_ψ * exp(δ_ψ)
+            )
+            param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :K_I, :n, :k_I, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
+            param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1]
+
+        elseif model_type == "combined_inducer_thresh"
+            println("Model: inhibitor-modulated inducer (threshold)")
+            wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_thresh_2_factor_gh(
+                u, W3,
+                inputs[1], #t
+                inputs[2], #ρₛ
+                def_params[:c₀_cs],
+                def_params[:d_hp],
+                ξ2,
+                κ2,
+                params[1], #Pₛ
+                params[2], #Pₛ_cs
+                params[3], #K_cC
+                exp(params[4]), #k_I
+                params[5], #μ_γ
+                params[5] * exp(params[6]), # σ_γ = μ_γ * exp(δ_γ)
+                params[7], #μ_ω
+                params[7] * exp(params[8]), # σ_ω = μ_ω * exp(δ_ω)
+                params[9], #μ_ψ
+                params[9] * exp(params[10]) # σ_ψ = μ_ψ * exp(δ_ψ)
+            )
+            param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :k_I, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
+            param_occurrences = [1, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1]
+
+        elseif model_type_split[3] == "combined_inducer_signal"
+            println("Model: inhibitor-modulated inducer (signal)")
+            wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_signal_2_factor_gh(
+                u, W3,
+                inputs[1], #t
+                inputs[2], #ρₛ
+                def_params[:c₀_cs],
+                def_params[:d_hp],
+                ξ2,
+                κ2,
+                params[1], #Pₛ
+                params[2], #Pₛ_cs
+                params[3], #K_cC
+                params[4], #K_I
+                params[5], #n
+                params[6], #μ_γ
+                params[6] * exp(params[7]), # σ_γ = μ_γ * exp(δ_γ)
+                params[8], #μ_ω
+                params[8] * exp(params[9]), # σ_ω = μ_ω * exp(δ_ω)
+                params[10], #μ_ψ
+                params[10] * exp(params[11]) # σ_ψ = μ_ψ * exp(δ_ψ)
+            )
+            param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :K_I, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
+            param_occurrences = [1, n_src, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1]
+
+        elseif model_type == "special_inducer"
+            println("Model: inhibitor-modulated inducer (combined) with varying permeability")
+            wrapper = (inputs, params) -> Main.germ_response_inducer_var_perm_gh(
+                u, W4,
+                inputs[1], #t
+                inputs[2], #ρₛ
+                def_params[:c₀_cs],
+                def_params[:d_hp],
+                ξ2,
+                κ2,
+                params[1], #Pₛ
+                params[2], #Pₛ_cs
+                params[3], #K_cC
+                params[4], #K_I
+                exp(params[5]), #k_I
+                params[6], #n
+                params[7], #μ_ω
+                params[7] * exp(params[8]), # σ_ω = μ_ω * exp(δ_ω)
+                params[9], #μ_ψ
+                params[9] * exp(params[10]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                params[11], #μ_α
+                params[11] * exp(params[12]) # σ_α = μ_α * exp(δ_α)
+            )
+            param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :K_I, :k_I, :n, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ, :μ_α, :δ_α]
+            param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, n_src, n_src, 1, 1, 1, 1]
+
+        elseif model_type == "special_independent"
+            println("Model: independent factors with varying permeability")
+            wrapper = (inputs, params) -> Main.germ_response_independent_factors_var_perm_gh(
+                u, W3,
+                inputs[1], #t
+                inputs[2], #ρₛ
+                def_params[:c₀_cs],
+                def_params[:d_hp],
+                ξ2,
+                κ2,
+                params[1], #Pₛ
+                params[2], #Pₛ_cs
+                params[3], #K_cC
+                params[4], #μ_γ
+                params[4] * exp(params[5]), # σ_γ = μ_γ * exp(δ_γ)
+                params[6], #μ_ω
+                params[6] * exp(params[7]), # σ_ω = μ_ω * exp(δ_ω)
+                params[8], #μ_α
+                params[8] * exp(params[9]) # σ_α = μ_α * exp(δ_α)
+            )
+            param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_α, :δ_α]
+            param_occurrences = [1, n_src, n_src, 1, 1, n_src, n_src, 1, 1]
+
+        elseif model_type == "special_combined"
+            println("Model: 2-factor germination with inhibitor-modulated inducer (combined) and varying permeability")
+            wrapper = (inputs, params) -> Main.germ_response_inducer_2_factors_var_perm_gh(
+                u, W4,
+                inputs[1], #t
+                inputs[2], #ρₛ
+                def_params[:c₀_cs],
+                def_params[:d_hp],
+                ξ2,
+                κ2,
+                params[1], #Pₛ
+                params[2], #Pₛ_cs
+                params[3], #K_cC
+                params[4], #K_I
+                exp(params[5]), #k_I
+                params[6], #n
+                params[7], #μ_γ
+                params[7] * exp(params[8]), # σ_γ = μ_γ * exp(δ_γ)
+                params[9], #μ_ω
+                params[9] * exp(params[10]), # σ_ω = μ_ω * exp(δ_ω)
+                params[11], #μ_ψ
+                params[11] * exp(params[12]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                params[13], #μ_α
+                params[13] * exp(params[14]) # σ_α = μ_α * exp(δ_α)
+            )
+            param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :K_I, :k_I, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ, :μ_α, :δ_α]
+            param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1, 1, 1]
+
+        elseif model_type == "special_combined_thresh"
+            println("Model: 2-factor germination with inhibitor-modulated inducer (threshold) and varying permeability")
+            wrapper = (inputs, params) -> Main.germ_response_inducer_thresh_2_factors_var_perm_gh(
+                u, W4,
+                inputs[1], #t
+                inputs[2], #ρₛ
+                def_params[:c₀_cs],
+                def_params[:d_hp],
+                ξ2,
+                κ2,
+                params[1], #Pₛ
+                params[2], #Pₛ_cs
+                params[3], #K_cC
+                exp(params[4]), #k_I
+                params[5], #μ_γ
+                params[5] * exp(params[6]), # σ_γ = μ_γ * exp(δ_γ)
+                params[7], #μ_ω
+                params[7] * exp(params[8]), # σ_ω = μ_ω * exp(δ_ω)
+                params[9], #μ_ψ
+                params[9] * exp(params[10]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                params[11], #μ_α
+                params[11] * exp(params[12]) # σ_α = μ_α * exp(δ_α)
+            )
+            param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :k_I, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ, :μ_α, :δ_α]
+            param_occurrences = [1, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1, 1, 1]
+
+        elseif model_type == "special_combined_signal"
+            println("Model: 2-factor germination with inhibitor-modulated inducer (signal) and varying permeability")
+            wrapper = (inputs, params) -> Main.germ_response_inducer_signal_2_factors_var_perm_gh(
+                u, W4,
+                inputs[1], #t
+                inputs[2], #ρₛ
+                def_params[:c₀_cs],
+                def_params[:d_hp],
+                ξ2,
+                κ2,
+                params[1], #Pₛ
+                params[2], #Pₛ_cs
+                params[3], #K_cC
+                params[4], #K_I
+                params[5], #n
+                params[6], #μ_γ
+                params[6] * exp(params[7]), # σ_γ = μ_γ * exp(δ_γ)
+                params[8], #μ_ω
+                params[8] * exp(params[9]), # σ_ω = μ_ω * exp(δ_ω)
+                params[10], #μ_ψ
+                params[10] * exp(params[11]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                params[12], #μ_α
+                params[12] * exp(params[13]) # σ_α = μ_α * exp(δ_α)
+            )
+            param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :K_I, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ, :μ_α, :δ_α]
+            param_occurrences = [1, n_src, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1, 1, 1]
+        
+            # ==================== FEEDBACK MODELS ========================
+        elseif model_type == "feedback_inhibitor_inducer_perm"
+            println("Model: inhibitor-dependent germination with inducer-dependent inhibitor/inducer permeability")
+            wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
+                Main.ode_inducer_dependent_perm!,
+                Main.thresh_criterion_inhibitor,
+                sobol_pts,
+                times,
+                [samples_A,
+                samples_Vₛ,
+                V_out,
+                samples_V_ps],
+                def_params[:c₀_cs],
+                [params[1]], # s_max
+                params[2], # Pₛ_I
+                params[3], # Pₛ_C
+                [nothing, params[4]], # K_cC
+                params[5], # μ_ψ
+                params[5] * exp(params[6]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                [params[7]], # μ_γ
+                [params[7] * exp(params[8])] # σ_γ = μ_γ * exp(δ_γ)
+            )
+            param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ]
+            param_occurrences = [n_src, 1, n_src, n_src, 1, 1, 1, 1]
+
+        elseif model_type == "feedback_combined_inducer_perm"
+            println("Model: 2-factor germination with inducer-dependent inhibitor/inducer permeability")
+            wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
+                Main.ode_inducer_dependent_perm!,
+                Main.thresh_criterion_combined,
+                sobol_pts,
+                times,
+                [samples_A,
+                samples_Vₛ,
+                V_out,
+                samples_V_ps],
+                def_params[:c₀_cs],
+                [params[1]], # s_max
+                params[2], # Pₛ_I
+                params[3], # Pₛ_C
+                [nothing, params[4]], # K_cC
+                params[5], # μ_ψ
+                params[5] * exp(params[6]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                [params[7], params[9]], # [μ_γ, μ_ω]
+                [params[7] * exp(params[8]), params[9] * exp(params[10])] # [σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)]
+            )
+            param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
+            param_occurrences = [n_src, 1, n_src, n_src, 1, 1, 1, 1, n_src, n_src]
+        
+        elseif model_type == "feedback_inducer_inhibitor_perm"
+            println("Model: Inducer-dependent germination with inhibitor-dependent inhibitor/inducer permeability")
+            wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
+                Main.ode_inhibitor_dependent_perm!,
+                Main.thresh_criterion_inducer,
+                sobol_pts,
+                times,
+                [samples_A,
+                samples_Vₛ,
+                V_out,
+                samples_V_ps],
+                def_params[:c₀_cs],
+                [params[1]], # b_max
+                params[2], # Pₛ_I
+                params[3], # Pₛ_C
+                [params[4], nothing], # K_cI
+                params[5], # μ_ψ
+                params[5] * exp(params[6]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                [params[7]], # [μ_ω]
+                [params[7] * exp(params[8])] # [σ_ω = μ_ω * exp(δ_ω)]
+            )
+            param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :μ_ψ, :δ_ψ, :μ_ω, :δ_ω]
+            param_occurrences = [1, 1, n_src, 1, 1, 1, n_src, n_src]
+        
+        elseif model_type == "feedback_combined_inhibitor_perm"
+            println("Model: 2-factor germination with inhibitor-dependent inhibitor/inducer permeability")
+            wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
+                Main.ode_inhibitor_dependent_perm!,
+                Main.thresh_criterion_combined,
+                sobol_pts,
+                times,
+                [samples_A,
+                samples_Vₛ,
+                V_out,
+                samples_V_ps],
+                def_params[:c₀_cs],
+                [params[1]], # b_max
+                params[2], # Pₛ_I
+                params[3], # Pₛ_C
+                [params[4], nothing], # K_cI
+                params[5], # μ_ψ
+                params[5] * exp(params[6]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                [params[7], params[9]], # [μ_γ, μ_ω]
+                [params[7] * exp(params[8]), params[9] * exp(params[10])] # [σ_ω = μ_ω * exp(δ_ω)]
+            )
+            param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
+            param_occurrences = [1, 1, n_src, 1, 1, 1, 1, 1, n_src, n_src]
+        
+        elseif model_type == "feedback_inhibitor_inducer_perm_thresh"
+            println("Model: Inhibitor-dependent germination with inducer-dependent permeability and inhibition threshold")
+            wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
+                Main.ode_inducer_dependent_perm!,
+                Main.thresh_criterion_inhibitor_shift,
+                sobol_pts,
+                times,
+                [samples_A,
+                samples_Vₛ,
+                V_out,
+                samples_V_ps],
+                def_params[:c₀_cs],
+                [params[1]], # s_max
+                params[2], # Pₛ_I
+                params[3], # Pₛ_C
+                [nothing, params[4]], # K_cC
+                params[5], # μ_ψ
+                params[5] * exp(params[6]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                [params[7]], # μ_γ
+                [params[7] * exp(params[8])]; # σ_γ = μ_γ * exp(δ_γ)
+                ks=[params[9]] # k_C
+            )
+            param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :k_C]
+            param_occurrences = [n_src, 1, n_src, n_src, 1, 1, 1, 1, n_src]
+
+        elseif model_type == "feedback_combined_inducer_perm_thresh"
+            println("Model: 2-factor germination with inducer-dependent permeability and inhibition threshold")
+            wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
+                Main.ode_inducer_dependent_perm!,
+                Main.thresh_criterion_combined_inhibitor_shift,
+                sobol_pts,
+                times,
+                [samples_A,
+                samples_Vₛ,
+                V_out,
+                samples_V_ps],
+                def_params[:c₀_cs],
+                [params[1]], # s_max
+                params[2], # Pₛ_I
+                params[3], # Pₛ_C
+                [nothing, params[4]], # K_cC
+                params[5], # μ_ψ
+                params[5] * exp(params[6]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                [params[7], params[9]], # [μ_γ, μ_ω]
+                [params[7] * exp(params[8]), params[9] * exp(params[10])]; # [σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)]
+                ks=[params[11]] # k_C
+            )
+            param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :k_C]
+            param_occurrences = [n_src, 1, n_src, n_src, 1, 1, 1, 1, n_src, n_src, n_src]
+        
+        elseif model_type == "feedback_inhibitor_inducer_perm_inhibitor_signal"
+            println("Model: Inhibitor-dependent germination with inducer-dependent permeability and inhibitor-dependent induction signal")
+            wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
+                Main.ode_inducer_dependent_perm_inhibitor_dependent_signal!,
+                Main.thresh_criterion_inhibitor,
+                sobol_pts,
+                times,
+                [samples_A,
+                samples_Vₛ,
+                V_out,
+                samples_V_ps],
+                def_params[:c₀_cs],
+                [params[1]], # s_max
+                params[2], # Pₛ_I
+                params[3], # Pₛ_C
+                [params[4], params[5]], # K_cI, K_cC
+                params[6], # μ_ψ
+                params[6] * exp(params[7]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                [params[8]], # μ_γ
+                [params[8] * exp(params[9])]; # σ_γ = μ_γ * exp(δ_γ)
+                n=params[10] # n
+            )
+            param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :n]
+            param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src]
+
+        elseif model_type == "feedback_inducer_inducer_perm_inhibitor_signal"
+            println("Model: Inducer-dependent germination with inducer-dependent permeability and inhibitor-dependent induction signal")
+            wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
+                Main.ode_inducer_dependent_perm_inhibitor_dependent_signal!,
+                Main.thresh_criterion_inducer,
+                sobol_pts,
+                times,
+                [samples_A,
+                samples_Vₛ,
+                V_out,
+                samples_V_ps],
+                def_params[:c₀_cs],
+                [params[1]], # s_max
+                params[2], # Pₛ_I
+                params[3], # Pₛ_C
+                [params[4], params[5]], # K_cI, K_cC
+                params[6], # μ_ψ
+                params[6] * exp(params[7]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                [params[8]], # μ_ω
+                [params[8] * exp(params[9])]; # σ_ω = μ_ω * exp(δ_ω)
+                n=params[10] # n
+            )
+            param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_ω, :δ_ω, :n]
+            param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, n_src, n_src, n_src]
             
+        elseif model_type == "feedback_combined_inducer_perm_inhibitor_signal"
+            println("Model: 2-factor germination with inducer-dependent permeability and inhibitor-dependent induction signal")
+            wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
+                Main.ode_inducer_dependent_perm_inhibitor_dependent_signal!,
+                Main.thresh_criterion_combined,
+                sobol_pts,
+                times,
+                [samples_A,
+                samples_Vₛ,
+                V_out,
+                samples_V_ps],
+                def_params[:c₀_cs],
+                [params[1]], # s_max
+                params[2], # Pₛ_I
+                params[3], # Pₛ_C
+                [params[4], params[5]], # K_cI, K_cC
+                params[6], # μ_ψ
+                params[6] * exp(params[7]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                [params[8], params[10]], # [μ_γ, μ_ω]
+                [params[8] * exp(params[9]), params[10] * exp(params[11])]; # [σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)]
+                n=params[12] # n
+            )
+            param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :n]
+            param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src, n_src, n_src]
+            
+        elseif model_type == "feedback_inhibitor_inhibitor_inducer_perm"
+            println("Model: Inhibitor-dependent germination with inhibitor- and inducer-dependent inhibitor/inducer permeability")
+            wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
+                Main.ode_inducer_and_inhibitor_dependent_perm!,
+                Main.thresh_criterion_inhibitor,
+                sobol_pts,
+                times,
+                [samples_A,
+                samples_Vₛ,
+                V_out,
+                samples_V_ps],
+                def_params[:c₀_cs],
+                [params[1], params[2]], # b_max, s_max
+                params[3], # Pₛ_I
+                params[4], # Pₛ_C
+                [params[5], params[6]], # K_cI, K_cC
+                params[7], # μ_ψ
+                params[7] * exp(params[8]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                [params[9]], # μ_γ
+                [params[9] * exp(params[10])] # σ_γ = μ_γ * exp(δ_γ)
+            )
+            param_keys = [:b_max, :s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ]
+            param_occurrences = [1, n_src, 1, n_src, 1, n_src, 1, 1, 1, 1]
+        
+        elseif model_type == "feedback_inducer_inhibitor_inducer_perm"
+            println("Model: Inducer-dependent germination with inhibitor- and inducer-dependent inhibitor/inducer permeability")
+            wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
+                Main.ode_inducer_and_inhibitor_dependent_perm!,
+                Main.thresh_criterion_inducer,
+                sobol_pts,
+                times,
+                [samples_A,
+                samples_Vₛ,
+                V_out,
+                samples_V_ps],
+                def_params[:c₀_cs],
+                [params[1], params[2]], # b_max, s_max
+                params[3], # Pₛ_I
+                params[4], # Pₛ_C
+                [params[5], params[6]], # K_cI, K_cC
+                params[7], # μ_ψ
+                params[7] * exp(params[8]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                [params[9]], # μ_ω
+                [params[9] * exp(params[10])] # σ_ω = μ_ω * exp(δ_ω)
+            )
+            param_keys = [:b_max, :s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_ω, :δ_ω]
+            param_occurrences = [1, n_src, 1, n_src, 1, n_src, 1, 1, n_src, n_src]
+        
+        elseif model_type == "feedback_combined_inhibitor_inducer_perm"
+            println("Model: 2-factor germination with inhibitor- and inducer-dependent inhibitor/inducer permeability")
+            wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
+                Main.ode_inducer_and_inhibitor_dependent_perm!,
+                Main.thresh_criterion_inducer,
+                sobol_pts,
+                times,
+                [samples_A,
+                samples_Vₛ,
+                V_out,
+                samples_V_ps],
+                def_params[:c₀_cs],
+                [params[1], params[2]], # b_max, s_max
+                params[3], # Pₛ_I
+                params[4], # Pₛ_C
+                [params[5], params[6]], # K_cI, K_cC
+                params[7], # μ_ψ
+                params[7] * exp(params[8]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                [params[9], params[11]], # μ_γ, μ_ω
+                [params[9] * exp(params[10]), params[11] * exp(params[12])] # σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)
+            )
+            param_keys = [:b_max, :s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
+            param_occurrences = [1, n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src, n_src]
+        
+        elseif model_type == "feedback_inducer_inhibitor_thresh_inducer_perm"
+            println("Model: Inducer-dependent germination with inhibitor-dependent induction threshold and inducer-dependent inhibitor/inducer permeability")
+            wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
+                Main.ode_inducer_dependent_perm!,
+                Main.thresh_criterion_inducer_shift,
+                sobol_pts,
+                times,
+                [samples_A,
+                samples_Vₛ,
+                V_out,
+                samples_V_ps],
+                def_params[:c₀_cs],
+                [params[1]], # s_max
+                params[2], # Pₛ_I
+                params[3], # Pₛ_C
+                [params[4], params[5]], # K_cI, K_cC
+                params[6], # μ_ψ
+                params[6] * exp(params[7]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                [params[8]], # μ_ω
+                [params[8] * exp(params[9])]; # σ_ω = μ_ω * exp(δ_ω)
+                ks=[params[10]] # k_I
+            )
+            param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_ω, :δ_ω, :k_I]
+            param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, n_src, n_src, 1]
+
+        elseif model_type == "feedback_combined_inhibitor_thresh_inducer_perm"
+            println("Model: 2-factor germination with inhibitor-dependent induction threshold and inducer-dependent inhibitor/inducer permeability")
+            wrapper = (V_out, params) -> Main.germ_response_feedback_perm(
+                Main.ode_inducer_dependent_perm!,
+                Main.thresh_criterion_combined_inducer_shift,
+                sobol_pts,
+                times,
+                [samples_A,
+                samples_Vₛ,
+                V_out,
+                samples_V_ps],
+                def_params[:c₀_cs],
+                [params[1]], # s_max
+                params[2], # Pₛ_I
+                params[3], # Pₛ_C
+                [params[4], params[5]], # K_cI, K_cC
+                params[6], # μ_ψ
+                params[6] * exp(params[7]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                [params[8], params[10]], # μ_ω
+                [params[8] * exp(params[9]), params[10] * exp(params[11])]; # σ_ω = μ_ω * exp(δ_ω)
+                ks=[params[12]] # k_I
+            )
+            param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :k_I]
+            param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src, n_src, 1]
+            
+        elseif model_type == "inhibitor_thresh_inducer_signal"
+            println()
+            wrapper = (inputs, params) -> Main.germ_response_inh_dep_ind_signal_ind_dep_inh_thresh_gh(
+                u, W3,
+                inputs[1], #t
+                inputs[2], #ρₛ
+                def_params[:c₀_cs],
+                def_params[:d_hp],
+                ξ2,
+                κ2,
+                params[1], #Pₛ
+                params[2], #Pₛ_cs
+                exp(params[3]), #k_C
+                params[4], #K_cC
+                params[5], #K_I
+                params[6], #n
+                params[7], #μ_γ
+                params[7] * exp(params[8]), #σ_γ
+                params[9], #μ_ψ
+                params[9] * exp(params[10]) #σ_ψ
+            )
+            param_keys = [:Pₛ, :Pₛ_cs, :k_C, :K_cC, :K_I, :n, :μ_γ, :δ_γ, :μ_ψ, :δ_ψ]
+            param_occurrences = [1, n_src, n_src, n_src, 1, n_src, 1, 1, 1, 1]
         else
             error("Model type not recognized.")
         end

@@ -39,6 +39,7 @@ module GermStats
     export germ_response_inducer_thresh_2_factors_var_perm_gh
     export germ_response_inducer_signal_2_factors_var_perm_gh
     export germ_response_inducer_2_factors_var_perm_gh
+    export germ_response_inh_dep_ind_signal_ind_dep_inh_thresh_gh
 
     export germ_response_inducer_dep_inhibitor_eq
     export germ_response_inducer_dep_inhibitor_eq_c_ex
@@ -96,7 +97,7 @@ module GermStats
     end
 
     # ===== GAUSS-HERMITE APPROXIMATIONS =====
-    function compute_germination_response(model_type, times, ρₛ, params; n_nodes=nothing)
+    function compute_germination_response(model_type, times, ρₛ, prms; n_nodes=nothing)
         """
         Generic wrapper function to compute the germination response.
         inputs:
@@ -104,7 +105,7 @@ module GermStats
             times (Vector{Float64}): time points to compute the germination response
             ρₛ (float) - spore density in spores/μm^3
             n_nodes (int) - number of Gauss-Hermite nodes to use
-            params (Dict) - additional parameters for the germination response function
+            prms (Dict) - additional parameters for the germination response function
             n_nodes (int) - number of Gauss-Hermite nodes to use
         """
 
@@ -144,7 +145,7 @@ module GermStats
 
         gh_integral = false
         if split(model_type, "_")[1] == "feedback"
-            if (haskey(params, :μ_γ) && haskey(params, :μ_ω))
+            if (haskey(prms, :μ_γ) && haskey(prms, :μ_ω))
                 sample_dim = 5
             else
                 sample_dim = 4
@@ -165,15 +166,15 @@ module GermStats
         end
 
         # Unpack means and stds and weight samples
-        μ_ξ = params[:μ_ξ]
-        σ_ξ = params[:σ_ξ]
+        μ_ξ = prms[:μ_ξ]
+        σ_ξ = prms[:σ_ξ]
         μ_ξ_log = log(μ_ξ^2 / sqrt(σ_ξ^2 + μ_ξ^2))
         σ_ξ_log = sqrt(log(σ_ξ^2 / μ_ξ^2 + 1))
         if gh_integral ξ = exp.(μ_ξ_log .+ σ_ξ_log .* u) end
 
-        if haskey(params, :μ_κ)
-            μ_κ = params[:μ_κ]
-            σ_κ = params[:σ_κ]
+        if haskey(prms, :μ_κ)
+            μ_κ = prms[:μ_κ]
+            σ_κ = prms[:σ_κ]
             μ_κ_log = log(μ_κ^2 / sqrt(σ_κ^2 + μ_κ^2))
             σ_κ_log = sqrt(log(σ_κ^2 / μ_κ^2 + 1))
             if gh_integral
@@ -206,165 +207,166 @@ module GermStats
             samples_AV = compute_spore_area_and_volume_from_dia.(2 .* samples_ξ)
             samples_A, samples_Vₛ = (getindex.(samples_AV, 1), getindex.(samples_AV, 2)) # (map(x -> x[1], samples_AV), map(x -> x[2], samples_AV))
             samples_V_out = 1.0/ρₛ .- samples_Vₛ
-            samples_V_ps = compute_ps_layer_volume.(samples_ξ, params[:d_hp], samples_κ)
+            samples_V_ps = compute_ps_layer_volume.(samples_ξ, prms[:d_hp], samples_κ)
 
             geom_samples = [samples_A, samples_Vₛ, samples_V_out, samples_V_ps]
         end
 
         # Compute the germination response
         if model_type == "independent" # 0
-            germ_response = [germ_response_independent_factors_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω]) for t in times]
+            germ_response = [germ_response_independent_factors_gh(u, W, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω]) for t in times]
             
         elseif model_type == "inhibitor"
-            germ_response = [germ_response_inducer_dep_inhibitor_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:k_C], params[:μ_γ], params[:σ_γ]) for t in times]
+            germ_response = [germ_response_inducer_dep_inhibitor_gh(u, W, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:k_C], prms[:μ_γ], prms[:σ_γ]) for t in times]
             
         elseif model_type == "inhibitor_thresh" # B
-            germ_response = [germ_response_inducer_dep_inhibitor_thresh_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:k_C], params[:K_cC], params[:μ_γ], params[:σ_γ]) for t in times]
+            germ_response = [germ_response_inducer_dep_inhibitor_thresh_gh(u, W, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:k_C], prms[:K_cC], prms[:μ_γ], prms[:σ_γ]) for t in times]
             
         elseif model_type == "inhibitor_perm"
-            germ_response = [germ_response_inducer_dep_inhibitor_perm_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:μ_γ], params[:σ_γ]) for t in times]
+            germ_response = [germ_response_inducer_dep_inhibitor_perm_gh(u, W, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:μ_γ], prms[:σ_γ]) for t in times]
             
         elseif model_type == "inducer" # CE
-            germ_response = [germ_response_inhibitor_dep_inducer_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:k_I], params[:K_cC], params[:K_I], params[:n], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
+            germ_response = [germ_response_inhibitor_dep_inducer_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:k_I], prms[:K_cC], prms[:K_I], prms[:n], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
 
         elseif model_type == "inducer_thresh" # E
-            germ_response = [germ_response_inhibitor_dep_inducer_thresh_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:k_I], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
+            germ_response = [germ_response_inhibitor_dep_inducer_thresh_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:k_I], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
             
         elseif model_type == "inducer_signal" # C
-            germ_response = [germ_response_inhibitor_dep_inducer_signal_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:K_I], params[:n], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
+            germ_response = [germ_response_inhibitor_dep_inducer_signal_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:K_I], prms[:n], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
             
         elseif model_type == "combined_inhibitor"
-            germ_response = [germ_response_inducer_dep_inhibitor_2_factor_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:k_C], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω]) for t in times]
+            germ_response = [germ_response_inducer_dep_inhibitor_2_factor_gh(u, W, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:k_C], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω]) for t in times]
             
         elseif model_type == "combined_inhibitor_thresh" # B
-            germ_response = [germ_response_inducer_dep_inhibitor_thresh_2_factor_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:k_C], params[:K_cC], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω]) for t in times]
+            germ_response = [germ_response_inducer_dep_inhibitor_thresh_2_factor_gh(u, W, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:k_C], prms[:K_cC], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω]) for t in times]
             
         elseif model_type == "combined_inhibitor_perm"
-            germ_response = [germ_response_inducer_dep_inhibitor_perm_2_factor_gh(u, W, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω]) for t in times]
+            germ_response = [germ_response_inducer_dep_inhibitor_perm_2_factor_gh(u, W, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω]) for t in times]
             
         elseif model_type == "combined_inducer" # CE
-            germ_response = [germ_response_inhibitor_dep_inducer_2_factor_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:K_I], params[:n], params[:k], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
+            germ_response = [germ_response_inhibitor_dep_inducer_2_factor_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:K_I], prms[:n], prms[:k_I], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
             
         elseif model_type == "combined_inducer_thresh" # E
-            germ_response = [germ_response_inhibitor_dep_inducer_thresh_2_factor_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:k_I], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
+            germ_response = [germ_response_inhibitor_dep_inducer_thresh_2_factor_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:k_I], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
             
         elseif model_type == "combined_inducer_signal" # C
-            germ_response = [germ_response_inhibitor_dep_inducer_signal_2_factor_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:K_I], params[:n], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ]) for t in times]
+            germ_response = [germ_response_inhibitor_dep_inducer_signal_2_factor_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:K_I], prms[:n], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
             
         elseif model_type == "special_inducer"
-            germ_response = [germ_response_inducer_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:K_I], params[:k_I], params[:n], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
+            germ_response = [germ_response_inducer_var_perm_gh(u, W4, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:K_I], prms[:k_I], prms[:n], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ], prms[:μ_α], prms[:σ_α]) for t in times]
             
         elseif model_type == "special_independent"
-            germ_response = [germ_response_independent_factors_var_perm_gh(u, W3, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_α], params[:σ_α]) for t in times]
+            germ_response = [germ_response_independent_factors_var_perm_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_α], prms[:σ_α]) for t in times]
             
         elseif model_type == "special_combined"
-            germ_response = [germ_response_inducer_2_factors_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:K_I], params[:k_I], params[:n], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
+            germ_response = [germ_response_inducer_2_factors_var_perm_gh(u, W4, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:K_I], prms[:k_I], prms[:n], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ], prms[:μ_α], prms[:σ_α]) for t in times]
             
         elseif model_type == "special_thresh"
-            germ_response = [germ_response_inducer_thresh_2_factors_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:k_I], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
+            germ_response = [germ_response_inducer_thresh_2_factors_var_perm_gh(u, W4, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:k_I], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ], prms[:μ_α], prms[:σ_α]) for t in times]
             
         elseif model_type == "special_signal"
-            germ_response = [germ_response_inducer_signal_2_factors_var_perm_gh(u, W4, t, ρₛ, params[:c₀_cs], params[:d_hp], ξ2, κ2, params[:Pₛ], params[:Pₛ_cs], params[:K_cC], params[:K_I], params[:n], params[:μ_γ], params[:σ_γ], params[:μ_ω], params[:σ_ω], params[:μ_ψ], params[:σ_ψ], params[:μ_α], params[:σ_α]) for t in times]
+            germ_response = [germ_response_inducer_signal_2_factors_var_perm_gh(u, W4, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:K_I], prms[:n], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ], prms[:μ_α], prms[:σ_α]) for t in times]
         
         elseif model_type == "feedback_inhibitor_inducer_perm" # A
-            f_maxs = [params[:s_max]]
-            K_fs = [nothing, params[:K_cC]]
-            thresh_means = [params[:μ_γ]]
-            thresh_sds = [params[:σ_γ]]
-            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, thresh_criterion_inhibitor, sobol_pts, times, geom_samples, params[:c₀_cs], f_maxs, params[:Pₛ], params[:Pₛ_cs], K_fs, params[:μ_ψ], params[:σ_ψ], thresh_means, thresh_sds)
+            f_maxs = [prms[:s_max]]
+            K_fs = [nothing, prms[:K_cC]]
+            thresh_means = [prms[:μ_γ]]
+            thresh_sds = [prms[:σ_γ]]
+            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, thresh_criterion_inhibitor, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds)
             
         elseif model_type == "feedback_combined_inducer_perm" # A
-            f_maxs = [params[:s_max]]
-            K_fs = [nothing, params[:K_cC]]
-            thresh_means = [params[:μ_γ], params[:μ_ω]]
-            thresh_sds = [params[:σ_γ], params[:σ_ω]]
-            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, thresh_criterion_combined, sobol_pts, times, geom_samples, params[:c₀_cs], f_maxs, params[:Pₛ], params[:Pₛ_cs], K_fs, params[:μ_ψ], params[:σ_ψ], thresh_means, thresh_sds)
+            f_maxs = [prms[:s_max]]
+            K_fs = [nothing, prms[:K_cC]]
+            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, thresh_criterion_combined, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds)
             
         elseif model_type == "feedback_inducer_inhibitor_perm" # D
-            f_maxs = [params[:b_max]]
-            K_fs = [params[:K_cI], nothing]
-            thresh_means = [params[:μ_ω]]
-            thresh_sds = [params[:σ_ω]]
-            germ_response = germ_response_feedback_perm(ode_inhibitor_dependent_perm!, thresh_criterion_inducer, sobol_pts, times, geom_samples, params[:c₀_cs], f_maxs, params[:Pₛ], params[:Pₛ_cs], K_fs, params[:μ_ψ], params[:σ_ψ], thresh_means, thresh_sds)
+            f_maxs = [prms[:b_max]]
+            K_fs = [prms[:K_cI], nothing]
+            thresh_means = [prms[:μ_ω]]
+            thresh_sds = [prms[:σ_ω]]
+            germ_response = germ_response_feedback_perm(ode_inhibitor_dependent_perm!, thresh_criterion_inducer, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds)
            
         elseif model_type == "feedback_combined_inhibitor_perm" # D
-            f_maxs = [params[:b_max]]
-            K_fs = [params[:K_cI], nothing]
-            thresh_means = [params[:μ_γ], params[:μ_ω]]
-            thresh_sds = [params[:σ_γ], params[:σ_ω]]
-            germ_response = germ_response_feedback_perm(ode_inhibitor_dependent_perm!, thresh_criterion_combined, sobol_pts, times, geom_samples, params[:c₀_cs], f_maxs, params[:Pₛ], params[:Pₛ_cs], K_fs, params[:μ_ψ], params[:σ_ψ], thresh_means, thresh_sds)
+            f_maxs = [prms[:b_max]]
+            K_fs = [prms[:K_cI], nothing]
+            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            germ_response = germ_response_feedback_perm(ode_inhibitor_dependent_perm!, thresh_criterion_combined, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds)
            
         elseif model_type == "feedback_inhibitor_inducer_perm_thresh" # AB
-            f_maxs = [params[:s_max]]
-            K_fs = [nothing, params[:K_cC]]
-            thresh_means = [params[:μ_γ]]
-            thresh_sds = [params[:σ_γ]]
-            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, thresh_criterion_inhibitor_shift, sobol_pts, times, geom_samples, params[:c₀_cs], f_maxs, params[:Pₛ], params[:Pₛ_cs], K_fs, params[:μ_ψ], params[:σ_ψ], thresh_means, thresh_sds; ks=[params[:k_C]])
+            f_maxs = [prms[:s_max]]
+            K_fs = [nothing, prms[:K_cC]]
+            thresh_means = [prms[:μ_γ]]
+            thresh_sds = [prms[:σ_γ]]
+            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, thresh_criterion_inhibitor_shift, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_C]])
            
         elseif model_type == "feedback_combined_inducer_perm_thresh" # AB
-            f_maxs = [params[:s_max]]
-            K_fs = [nothing, params[:K_cC]]
-            thresh_means = [params[:μ_γ], params[:μ_ω]]
-            thresh_sds = [params[:σ_γ], params[:σ_ω]]
-            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, thresh_criterion_combined_inhibitor_shift, sobol_pts, times, geom_samples, params[:c₀_cs], f_maxs, params[:Pₛ], params[:Pₛ_cs], K_fs, params[:μ_ψ], params[:σ_ψ], thresh_means, thesh_sds; ks=[params[:k_C]])
+            f_maxs = [prms[:s_max]]
+            K_fs = [nothing, prms[:K_cC]]
+            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, thresh_criterion_combined_inhibitor_shift, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thesh_sds; ks=[prms[:k_C]])
            
         elseif model_type == "feedback_inhibitor_inducer_perm_inhibitor_signal" # AC
-            f_maxs = [params[:s_max]]
-            K_fs = [params[:K_cI], params[:K_cC]]
-            thresh_means = [params[:μ_γ]]
-            thresh_sds = [params[:σ_γ]]
-            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm_inhibitor_dependent_signal!, thresh_criterion_inhibitor, sobol_pts, times, geom_samples, params[:c₀_cs], f_maxs, params[:Pₛ], params[:Pₛ_cs], K_fs, params[:μ_ψ], params[:σ_ψ], thresh_means, thresh_sds; n=params[:n])
+            f_maxs = [prms[:s_max]]
+            K_fs = [prms[:K_cI], prms[:K_cC]]
+            thresh_means = [prms[:μ_γ]]
+            thresh_sds = [prms[:σ_γ]]
+            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm_inhibitor_dependent_signal!, thresh_criterion_inhibitor, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; n=prms[:n])
 
         elseif model_type == "feedback_inducer_inducer_perm_inhibitor_signal" # AC
-            f_maxs = [params[:s_max]]
-            K_fs = [params[:K_cI], params[:K_cC]]
-            thresh_means = [params[:μ_ω]]
-            thresh_sds = [params[:σ_ω]]
-            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm_inhibitor_dependent_signal!, thresh_criterion_inducer, sobol_pts, times, geom_samples, params[:c₀_cs], f_maxs, params[:Pₛ], params[:Pₛ_cs], K_fs, params[:μ_ψ], params[:σ_ψ], thresh_means, thresh_sds; n=params[:n])
+            f_maxs = [prms[:s_max]]
+            K_fs = [prms[:K_cI], prms[:K_cC]]
+            thresh_means = [prms[:μ_ω]]
+            thresh_sds = [prms[:σ_ω]]
+            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm_inhibitor_dependent_signal!, thresh_criterion_inducer, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; n=prms[:n])
         
         elseif model_type == "feedback_combined_inducer_perm_inhibitor_signal" # AC
-            f_maxs = [params[:s_max]]
-            K_fs = [params[:K_cI], params[:K_cC]]
-            thresh_means = [params[:μ_γ], params[:μ_ω]]
-            thresh_sds = [params[:σ_γ], params[:σ_ω]]
-            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm_inhibitor_dependent_signal!, thresh_criterion_combined, sobol_pts, times, geom_samples, params[:c₀_cs], f_maxs, params[:Pₛ], params[:Pₛ_cs], K_fs, params[:μ_ψ], params[:σ_ψ], thresh_means, thresh_sds; n=params[:n])
+            f_maxs = [prms[:s_max]]
+            K_fs = [prms[:K_cI], prms[:K_cC]]
+            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm_inhibitor_dependent_signal!, thresh_criterion_combined, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; n=prms[:n])
         
         elseif model_type == "feedback_inhibitor_inhibitor_inducer_perm" # AD
-            f_maxs = [params[:b_max], params[:s_max]]
-            K_fs = [params[:K_cI], params[:K_cC]]
-            thresh_means = [params[:μ_γ]]
-            thresh_sds = [params[:σ_γ]]
-            germ_response = germ_response_feedback_perm(ode_inducer_and_inhibitor_dependent_perm!, thresh_criterion_inhibitor, sobol_pts, times, geom_samples, params[:c₀_cs], f_maxs, params[:Pₛ], params[:Pₛ_cs], K_fs, params[:μ_ψ], params[:σ_ψ], thresh_means, thresh_sds)
+            f_maxs = [prms[:b_max], prms[:s_max]]
+            K_fs = [prms[:K_cI], prms[:K_cC]]
+            thresh_means = [prms[:μ_γ]]
+            thresh_sds = [prms[:σ_γ]]
+            germ_response = germ_response_feedback_perm(ode_inducer_and_inhibitor_dependent_perm!, thresh_criterion_inhibitor, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds)
             
         elseif model_type == "feedback_inducer_inhibitor_inducer_perm" # AD
-            f_maxs = [params[:b_max], params[:s_max]]
-            K_fs = [params[:K_cI], params[:K_cC]]
-            thresh_means = [params[:μ_ω]]
-            thresh_sds = [params[:σ_ω]]
-            germ_response = germ_response_feedback_perm(ode_inducer_and_inhibitor_dependent_perm!, thresh_criterion_inducer, sobol_pts, times, geom_samples, params[:c₀_cs], f_maxs, params[:Pₛ], params[:Pₛ_cs], K_fs, params[:μ_ψ], params[:σ_ψ], thresh_means, thresh_sds)
+            f_maxs = [prms[:b_max], prms[:s_max]]
+            K_fs = [prms[:K_cI], prms[:K_cC]]
+            thresh_means = [prms[:μ_ω]]
+            thresh_sds = [prms[:σ_ω]]
+            germ_response = germ_response_feedback_perm(ode_inducer_and_inhibitor_dependent_perm!, thresh_criterion_inducer, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds)
             
         elseif model_type == "feedback_combined_inhibitor_inducer_perm" # AD
-            f_maxs = [params[:b_max], params[:s_max]]
-            K_fs = [params[:K_cI], params[:K_cC]]
-            thresh_means = [params[:μ_γ], params[:μ_ω]]
-            thresh_sds = [params[:σ_γ], params[:σ_ω]]
-            germ_response = germ_response_feedback_perm(ode_inducer_and_inhibitor_dependent_perm!, thresh_criterion_combined, sobol_pts, times, geom_samples, params[:c₀_cs], f_maxs, params[:Pₛ], params[:Pₛ_cs], K_fs, params[:μ_ψ], params[:σ_ψ], thresh_means, thresh_sds)
+            f_maxs = [prms[:b_max], prms[:s_max]]
+            K_fs = [prms[:K_cI], prms[:K_cC]]
+            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            germ_response = germ_response_feedback_perm(ode_inducer_and_inhibitor_dependent_perm!, thresh_criterion_combined, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds)
             
         elseif model_type == "feedback_inducer_inhibitor_thresh_inducer_perm" # AE
-            f_maxs = [params[:s_max]]
-            K_fs = [params[:K_cI], params[:K_cC]]
-            thresh_means = [params[:μ_ω]]
-            thresh_sds = [params[:σ_ω]]
-            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, thresh_criterion_inducer_shift, sobol_pts, times, geom_samples, params[:c₀_cs], f_maxs, params[:Pₛ], params[:Pₛ_cs], K_fs, params[:μ_ψ], params[:σ_ψ], thresh_means, thresh_sds, ks=[params[:k_I]])
+            f_maxs = [prms[:s_max]]
+            K_fs = [prms[:K_cI], prms[:K_cC]]
+            thresh_means = [prms[:μ_ω]]
+            thresh_sds = [prms[:σ_ω]]
+            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, thresh_criterion_inducer_shift, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds, ks=[prms[:k_I]])
             
         elseif model_type == "feedback_combined_inhibitor_thresh_inducer_perm" # AE
-            f_maxs = [params[:s_max]]
-            K_fs = [params[:K_cI], params[:K_cC]]
-            thresh_means = [params[:μ_γ], params[:μ_ω]]
-            thresh_sds = [params[:σ_γ], params[:σ_ω]]
-            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, thresh_criterion_combined_inducer_shift, sobol_pts, times, geom_samples, params[:c₀_cs], f_maxs, params[:Pₛ], params[:Pₛ_cs], K_fs, params[:μ_ψ], params[:σ_ψ], thresh_means, thresh_sds, ks=[params[:k_I]])
+            f_maxs = [prms[:s_max]]
+            K_fs = [prms[:K_cI], prms[:K_cC]]
+            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            germ_response = germ_response_feedback_perm(ode_inducer_dependent_perm!, thresh_criterion_combined_inducer_shift, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds, ks=[prms[:k_I]])
             
         elseif model_type == "inhibitor_thresh_inducer_signal" # BC
+            germ_response = [germ_response_inh_dep_ind_signal_ind_dep_inh_thresh_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:k_C], prms[:K_cC], prms[:K_I], prms[:n], prms[:μ_γ], prms[:σ_γ], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
             
         end
 
@@ -372,11 +374,10 @@ module GermStats
     end
 
 
-    function calc_beta(ξ, V, A, Pₛ, ρₛ, t)
+    function calc_beta(V, A, Pₛ, ρₛ, t)
         """
         Compute the relative decrease in inhibitor concentration.
         inputs:
-            ξ - spore radius in μm
             V - spore volume in μm^3
             A - spore surface area in μm^2
             Pₛ - permeation constant for the inhibitor in μm/s
@@ -394,13 +395,10 @@ module GermStats
     end
 
 
-    function calc_s(ξ, d_hp, κ, c₀_cs, t, Pₛ_cs, A, V_cw, K_cC)
+    function calc_s(c₀_cs, t, Pₛ_cs, A, V_cw, K_cC)
         """
         Compute the induction signal strength.
         inputs:
-            ξ - spore radius in μm
-            d_hp - thickness of the hydrophobin layer in μm
-            κ - cell wall thickness in μm
             c₀_cs - initial concentration of carbon source in M
             t - time in seconds
             Pₛ_cs - permeation constant for the carbon source in μm/s
@@ -439,6 +437,67 @@ module GermStats
     end
 
 
+    function normal_distributions(μs, σs)
+        """
+        Construct normal distributions for
+        a collection of means and standard deviations.
+        inputs:
+            μs - means
+            σs - standard deviations
+        outputs:
+            dists - distributions
+        """
+        
+        return [Normal(μs[i], σs[i]) for i in eachindex(μs)]
+    end
+
+
+    function calc_signals(ξ, d_hp, κ, c₀_cs, ρₛ, Pₛ, Pₛ_cs, K_cC, t)
+        """
+        Compute inhibitory and inductive signals
+        via geometric variables.
+        inputs:
+            ξ - spore radius in μm
+            d_hp - thickness of the hydrophobin layer in μm
+            κ - cell wall thickness in μm
+            c₀_cs - initial concentration of the carbon source
+            ρₛ - spore density in spores/μm^3
+            Pₛ - permeation constant for the inhibitor in μm/s
+            Pₛ_cs - permeation constant for the carbon source in μm/s
+            K_cC - half-saturation constant for the carbon source
+            t - time in seconds
+        outputs:
+            β - relative inhibitor concentration decrease
+            s - inducing signal strength
+        """
+
+        V, A, V_cw = calc_geom_variables(ξ, d_hp, κ)
+        β = calc_beta(V, A, Pₛ, ρₛ, t)
+        s = calc_s(c₀_cs, t, Pₛ_cs, A, V_cw, K_cC)
+
+        return β, s
+    end
+
+
+    function lognormal_samples(μ, σ, u)
+        """
+        Compute lognormally distributed samples
+        of the initial inhibitor concentration.
+        inputs:
+            μ_ψ - normal mean
+            σ_ψ - normal standard deviation
+            u - transformed Gauss-Hermite nodes
+        outputs:
+            ψ - lognormal samples
+        """
+
+        μ_log = log(μ^2 / sqrt(σ^2 + μ^2))
+        σ_log = sqrt(log(σ^2 / μ^2 + 1))
+        
+        return exp.(μ_log .+ σ_log .* u)
+    end
+
+
     function germ_response_independent_factors_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cC, μ_γ, σ_γ, μ_ω, σ_ω)
         """
         Compute the germination response for independent
@@ -465,25 +524,10 @@ module GermStats
         """
 
         # Distributions
-        dist_γ = Normal(μ_γ, σ_γ)
-        dist_ω = Normal(μ_ω, σ_ω)
+        dist_γ, dist_ω = normal_distributions([μ_γ, μ_ω], [σ_γ, σ_ω])
 
-        # Geometric variables
-        # V = 4/3 * π .* ξ.^3
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
-        V, A, V_cw = calc_geom_variables(ξ, d_hp, κ)
-
-        # Inhibitor
-        # τ = V ./ (Pₛ * A)
-        # ϕ = ρₛ .* V
-        # β = ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ)))
-        β = calc_beta(ξ, V, A, Pₛ, ρₛ, t)
-
-        # Inducer
-        # c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        # s = c_cs ./ (K_cC .+ c_cs)
-        s = calc_s(ξ, d_hp, κ, c₀_cs, t, Pₛ_cs, A, V_cw, K_cC)
+        # Signals
+        β, s = calc_signals(ξ, d_hp, κ, c₀_cs, ρₛ, Pₛ, Pₛ_cs, K_cC, t)
         
         tail = cdf.(dist_ω, s) .* (1 .- cdf.(dist_γ, β))
         
@@ -519,22 +563,8 @@ module GermStats
         # Distributions
         dist_γ = Normal(μ_γ, σ_γ)
 
-        # Geometric variables
-        # V = 4/3 * π .* ξ.^3
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
-        V, A, V_cw = calc_geom_variables(ξ, d_hp, κ)
-
-        # Inhibitor
-        # τ = V ./ (Pₛ * A)
-        # ϕ = ρₛ .* V
-        # β = ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ)))
-        β = calc_beta(ξ, V, A, Pₛ, ρₛ, t)
-
-        # Inducer
-        # c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        # s = c_cs ./ (K_cC .+ c_cs)
-        s = calc_s(ξ, d_hp, κ, c₀_cs, t, Pₛ_cs, A, V_cs, K_cC)
+        # Signals
+        β, s = calc_signals(ξ, d_hp, κ, c₀_cs, ρₛ, Pₛ, Pₛ_cs, K_cC, t)
 
         tail = 1 .- cdf.(dist_γ, β .- k .* s)
 
@@ -660,29 +690,13 @@ module GermStats
         """
 
         # Transform to log-normal
-        μ_ψ_log = log(μ_ψ^2 / sqrt(σ_ψ^2 + μ_ψ^2))
-        σ_ψ_log = sqrt(log(σ_ψ^2 / μ_ψ^2 + 1))
-        ψ = exp.(μ_ψ_log .+ σ_ψ_log .* u)
+        ψ = lognormal_samples(μ_ψ, σ_ψ, u)
 
         # Distributions
         dist_ω = Normal(μ_ω, σ_ω)
 
-        # Geometric variables
-        # V = 4/3 * π .* ξ.^3
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
-        V, A, V_cw = calc_geom_variables(ξ, d_hp, κ)
-
-        # Inducer
-        # c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        # s = c_cs ./ (K_cC .+ c_cs)
-        s = calc_s(ξ, d_hp, κ, c₀_cs, t, Pₛ_cs, A, V_cw, K_cC)
-
-        # Inhibitor
-        # τ = V ./ (Pₛ * A)
-        # ϕ = ρₛ .* V
-        # β = (ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ))))
-        β = calc_beta(ξ, V, A, Pₛ, ρₛ, t)
+        # Signals
+        β, s = calc_signals(ξ, d_hp, κ, c₀_cs, ρₛ, Pₛ, Pₛ_cs, K_cC, t)
 
         # Reshape
         n_nodes = size(u, 1)
@@ -727,32 +741,13 @@ module GermStats
         """
 
         # Transform to log-normal
-        μ_ψ_log = log(μ_ψ^2 / sqrt(σ_ψ^2 + μ_ψ^2))
-        σ_ψ_log = sqrt(log(σ_ψ^2 / μ_ψ^2 + 1))
-        ψ = exp.(μ_ψ_log .+ σ_ψ_log .* u)
+        ψ = lognormal_samples(μ_ψ, σ_ψ, u)
 
         # Distributions
         dist_ω = Normal(μ_ω, σ_ω)
 
-        # Geometric variables
-        # V = 4/3 * π .* ξ.^3
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
-        V, A, V_cw = calc_geom_variables(ξ, d_hp, κ)
-
-        # Inducer
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
-        # c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        # s = c_cs ./ (K_cC .+ c_cs)
-        s = calc_s(ξ, d_hp, κ, c₀_cs, t, Pₛ_cs, A, V_cw, K_cC)
-
-        # Inhibitor
-        # V = 4/3 * π .* ξ.^3
-        # τ = V ./ (Pₛ * A)
-        # ϕ = ρₛ .* V
-        # β = ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ)))
-        β = calc_beta(ξ, V, A, Pₛ, ρₛ, t)
+        # Signals
+        β, s = calc_signals(ξ, d_hp, κ, c₀_cs, ρₛ, Pₛ, Pₛ_cs, K_cC, t)
 
         # Reshape
         n_nodes = size(u, 1)
@@ -800,32 +795,13 @@ module GermStats
         """
 
         # Transform to log-normal
-        μ_ψ_log = log(μ_ψ^2 / sqrt(σ_ψ^2 + μ_ψ^2))
-        σ_ψ_log = sqrt(log(σ_ψ^2 / μ_ψ^2 + 1))
-        ψ = exp.(μ_ψ_log .+ σ_ψ_log .* u)
+        ψ = lognormal_samples(μ_ψ, σ_ψ, u)
 
         # Distributions
         dist_ω = Normal(μ_ω, σ_ω)
 
-        # Geometric variables
-        # V = 4/3 * π .* ξ.^3
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
-        V, A, V_cw = calc_geom_variables(ξ, d_hp, κ)
-
-        # Inducer
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
-        # c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        # s = c_cs ./ (K_cC .+ c_cs)
-        s = calc_s(ξ, d_hp, κ, c₀_cs, t, Pₛ_cs, A, V_cw, K_cC)
-
-        # Inhibitor
-        # V = 4/3 * π .* ξ.^3
-        # τ = V ./ (Pₛ * A)
-        # ϕ = ρₛ .* V
-        # β = ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ)))
-        β = calc_beta(ξ, V, A, Pₛ, ρₛ, t)
+        # Signals
+        β, s = calc_signals(ξ, d_hp, κ, c₀_cs, ρₛ, Pₛ, Pₛ_cs, K_cC, t)
 
         # Reshape
         n_nodes = size(u, 1)
@@ -843,7 +819,7 @@ module GermStats
     end
 
     # !!!!!!!!!!!!!!!!!!!!!!WIP!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    function germ_response_inh_dep_ind_signal_ind_dep_inh_thresh_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, k, K_cC, K_I, n, μ_γ, σ_γ, μ_ψ, σ_ψ)
+    function germ_response_inh_dep_ind_signal_ind_dep_inh_thresh_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, k_C, K_cC, K_I, n, μ_γ, σ_γ, μ_ψ, σ_ψ)
         """
         Compute the germination response for an inhibitor-dependent
         induction signal and an inducer-dependent inhibition threshold
@@ -863,7 +839,7 @@ module GermStats
             K_cC - half-saturation constant for the carbon source
             K_I - half-saturation constant for the inhibitor
             n - Hill coefficient for the inhibitor
-            k - inducer strength over inhibition threshold
+            k_C - inducer strength over inhibition threshold
             μ_γ - mean inhibition threshold
             σ_γ - standard deviation of inhibition threshold
             μ_ψ - mean initial concentration
@@ -873,32 +849,13 @@ module GermStats
         """
 
         # Transform to log-normal
-        μ_ψ_log = log(μ_ψ^2 / sqrt(σ_ψ^2 + μ_ψ^2))
-        σ_ψ_log = sqrt(log(σ_ψ^2 / μ_ψ^2 + 1))
-        ψ = exp.(μ_ψ_log .+ σ_ψ_log .* u)
+        ψ = lognormal_samples(μ_ψ, σ_ψ, u)
 
         # Distributions
         dist_γ = Normal(μ_γ, σ_γ)
 
-        # Geometric variables
-        # V = 4/3 * π .* ξ.^3
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
-        V, A, V_cw = calc_geom_variables(ξ, d_hp, κ)
-
-        # Inducer
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
-        # c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        # s = c_cs ./ (K_cC .+ c_cs)
-        s = calc_s(ξ, d_hp, κ, c₀_cs, t, Pₛ_cs, A, V_cw, K_cC)
-
-        # Inhibitor
-        # V = 4/3 * π .* ξ.^3
-        # τ = V ./ (Pₛ * A)
-        # ϕ = ρₛ .* V
-        # β = ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ)))
-        β = calc_beta(ξ, V, A, Pₛ, ρₛ, t)
+        # Signals
+        β, s = calc_signals(ξ, d_hp, κ, c₀_cs, ρₛ, Pₛ, Pₛ_cs, K_cC, t)
 
         # Reshape
         n_nodes = size(u, 1)
@@ -910,7 +867,7 @@ module GermStats
         c_in = ψ .* β
         s_mod = s ./ (1 .+ (c_in ./ K_I).^n)
 
-        tail = cdf.(dist_γ, β .- k .* s_mod)
+        tail = 1. .- cdf.(dist_γ, β .- k_C .* s_mod)
 
         return sum(W3 .* tail)
     end
@@ -944,28 +901,10 @@ module GermStats
         """
 
         # Distributions
-        dist_γ = Normal(μ_γ, σ_γ)
-        dist_ω = Normal(μ_ω, σ_ω)
+        dist_γ, dist_ω = normal_distributions([μ_γ, μ_ω], [σ_γ, σ_ω])
 
-        # Geometric variables
-        # V = 4/3 * π .* ξ.^3
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
-        V, A, V_cw = calc_geom_variables(ξ, d_hp, κ)
-
-        # Inhibitor
-        # V = 4/3 * π .* ξ.^3
-        # A = 4 * π .* ξ.^2
-        # τ = V ./ (Pₛ * A)
-        # ϕ = ρₛ .* V
-        # β = ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ)))
-        β = calc_beta(ξ, V, A, Pₛ, ρₛ, t)
-
-        # Inducer
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
-        # c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        # s = c_cs ./ (K_cC .+ c_cs)
-        s = calc_s(ξ, d_hp, κ, c₀_cs, t, Pₛ_cs, A, V_cw, K_cC)
+        # Signals
+        β, s = calc_signals(ξ, d_hp, κ, c₀_cs, ρₛ, Pₛ, Pₛ_cs, K_cC, t)
 
         tail = (1 .- cdf.(dist_γ, β .- k .* s)) .* cdf.(dist_ω, s)
 
@@ -1000,28 +939,10 @@ module GermStats
         """
 
         # Distributions
-        dist_γ = Normal(μ_γ, σ_γ)
-        dist_ω = Normal(μ_ω, σ_ω)
+        dist_γ, dist_ω = normal_distributions([μ_γ, μ_ω], [σ_γ, σ_ω])
 
-        # Geometric variables
-        # V = 4/3 * π .* ξ.^3
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
-        V, A, V_cw = calc_geom_variables(ξ, d_hp, κ)
-
-        # Inducer
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
-        # c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        # s = c_cs ./ (K_cC .+ c_cs)
-        s = calc_s(ξ, d_hp, κ, c₀_cs, t, Pₛ_cs, A, V_cw, K_cC)
-
-        # Inhibitor
-        # V = 4/3 * π .* ξ.^3
-        # τ = V ./ (s .* Pₛ .* A)
-        # ϕ = ρₛ .* V
-        # β = ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ)))
-        β = calc_beta(ξ, V, A, Pₛ, ρₛ, t)
+        # Signals
+        β, s = calc_signals(ξ, d_hp, κ, c₀_cs, ρₛ, Pₛ, Pₛ_cs, K_cC, t)
 
         tail = (1 .- cdf.(dist_γ, β)) .* cdf.(dist_ω, s)
 
@@ -1057,28 +978,10 @@ module GermStats
         """
 
         # Distributions
-        dist_γ = Normal(μ_γ, σ_γ)
-        dist_ω = Normal(μ_ω, σ_ω)
+        dist_γ, dist_ω = normal_distributions([μ_γ, μ_ω], [σ_γ, σ_ω])
 
-        # Geometric variables
-        # V = 4/3 * π .* ξ.^3
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
-        V, A, V_cw = calc_geom_variables(ξ, d_hp, κ)
-
-        # Inducer
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
-        # c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        # s = c_cs ./ (K_cC .+ c_cs)
-        s = calc_s(ξ, d_hp, κ, c₀_cs, t, Pₛ_cs, A, V_cw, K_cC)
-
-        # Inhibitor
-        # V = 4/3 * π .* ξ.^3
-        # τ = V ./ (s .* Pₛ .* A)
-        # ϕ = ρₛ .* V
-        # β = ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ)))
-        β = calc_beta(ξ, V, A, Pₛ, ρₛ, t)
+        # Signals
+        β, s = calc_signals(ξ, d_hp, κ, c₀_cs, ρₛ, Pₛ, Pₛ_cs, K_cC, t)
 
         tail = (1 .- cdf.(dist_γ, β .- k .* s)) .* cdf.(dist_ω, s)
 
@@ -1116,33 +1019,13 @@ module GermStats
         """
 
         # Transform to log-normal
-        μ_ψ_log = log(μ_ψ^2 / sqrt(σ_ψ^2 + μ_ψ^2))
-        σ_ψ_log = sqrt(log(σ_ψ^2 / μ_ψ^2 + 1))
-        ψ = exp.(μ_ψ_log .+ σ_ψ_log .* u)
+        ψ = lognormal_samples(μ_ψ, σ_ψ, u)
 
         # Distributions
-        dist_γ = Normal(μ_γ, σ_γ)
-        dist_ω = Normal(μ_ω, σ_ω)
+        dist_γ, dist_ω = normal_distributions([μ_γ, μ_ω], [σ_γ, σ_ω])
 
-        # Geometric variables
-        # V = 4/3 * π .* ξ.^3
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
-        V, A, V_cw = calc_geom_variables(ξ, d_hp, κ)
-
-        # Inducer
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
-        # c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        # s = c_cs ./ (K_cC .+ c_cs)
-        s = calc_s(ξ, d_hp, κ, c₀_cs, t, Pₛ_cs, A, V_cw, K_cC)
-
-        # Inhibitor
-        # V = 4/3 * π .* ξ.^3
-        # τ = V ./ (Pₛ * A)
-        # ϕ = ρₛ .* V
-        # β = (ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ))))
-        β = calc_beta(ξ, V, A, Pₛ, ρₛ, t)
+        # Signals
+        β, s = calc_signals(ξ, d_hp, κ, c₀_cs, ρₛ, Pₛ, Pₛ_cs, K_cC, t)
 
         # Inhibition CDF
         tail_γ = 1 .- cdf.(dist_γ, β)
@@ -1193,33 +1076,13 @@ module GermStats
         """
 
         # Transform to log-normal
-        μ_ψ_log = log(μ_ψ^2 / sqrt(σ_ψ^2 + μ_ψ^2))
-        σ_ψ_log = sqrt(log(σ_ψ^2 / μ_ψ^2 + 1))
-        ψ = exp.(μ_ψ_log .+ σ_ψ_log .* u)
+        ψ = lognormal_samples(μ_ψ, σ_ψ, u)
 
         # Distributions
-        dist_γ = Normal(μ_γ, σ_γ)
-        dist_ω = Normal(μ_ω, σ_ω)
+        dist_γ, dist_ω = normal_distributions([μ_γ, μ_ω], [σ_γ, σ_ω])
 
-        # Geometric variables
-        # V = 4/3 * π .* ξ.^3
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
-        V, A, V_cw = calc_geom_variables(ξ, d_hp, κ)
-
-        # Inducer
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
-        # c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        # s = c_cs ./ (K_cC .+ c_cs)
-        s = calc_s(ξ, d_hp, κ, c₀_cs, t, Pₛ_cs, A, V_cw, K_cC)
-
-        # Inhibitor
-        # V = 4/3 * π .* ξ.^3
-        # τ = V ./ (Pₛ * A)
-        # ϕ = ρₛ .* V
-        # β = (ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ))))
-        β = calc_beta(ξ, V, A, Pₛ, ρₛ, t)
+        # Signals
+        β, s = calc_signals(ξ, d_hp, κ, c₀_cs, ρₛ, Pₛ, Pₛ_cs, K_cC, t)
 
         # Inhibition CDF
         tail_γ = 1 .- cdf.(dist_γ, β)
@@ -1273,33 +1136,13 @@ module GermStats
         """
 
         # Transform to log-normal
-        μ_ψ_log = log(μ_ψ^2 / sqrt(σ_ψ^2 + μ_ψ^2))
-        σ_ψ_log = sqrt(log(σ_ψ^2 / μ_ψ^2 + 1))
-        ψ = exp.(μ_ψ_log .+ σ_ψ_log .* u)
+        ψ = lognormal_samples(μ_ψ, σ_ψ, u)
 
         # Distributions
-        dist_γ = Normal(μ_γ, σ_γ)
-        dist_ω = Normal(μ_ω, σ_ω)
+        dist_γ, dist_ω = normal_distributions([μ_γ, μ_ω], [σ_γ, σ_ω])
 
-        # Geometric variables
-        # V = 4/3 * π .* ξ.^3
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
-        V, A, V_cw = calc_geom_variables(ξ, d_hp, κ)
-
-        # Inducer
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
-        # c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        # s = c_cs ./ (K_cC .+ c_cs)
-        s = calc_s(ξ, d_hp, κ, c₀_cs, t, Pₛ_cs, A, V_cw, K_cC)
-
-        # Inhibitor
-        # V = 4/3 * π .* ξ.^3
-        # τ = V ./ (Pₛ * A)
-        # ϕ = ρₛ .* V
-        # β = (ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ))))
-        β = calc_beta(ξ, V, A, Pₛ, ρₛ, t)
+        # Signals
+        β, s = calc_signals(ξ, d_hp, κ, c₀_cs, ρₛ, Pₛ, Pₛ_cs, K_cC, t)
 
         # Inhibition CDF
         tail_γ = 1 .- cdf.(dist_γ, β)
@@ -1351,12 +1194,8 @@ module GermStats
         """
 
         # Transform to log-normal
-        μ_ψ_log = log(μ_ψ^2 / sqrt(σ_ψ^2 + μ_ψ^2))
-        σ_ψ_log = sqrt(log(σ_ψ^2 / μ_ψ^2 + 1))
-        ψ = exp.(μ_ψ_log .+ σ_ψ_log .* u)
-        μ_α_log = log(μ_α^2 / sqrt(σ_α^2 + μ_α^2))
-        σ_α_log = sqrt(log(σ_α^2 / μ_α^2 + 1))
-        α = exp.(μ_α_log .+ σ_α_log .* u)
+        ψ = lognormal_samples(μ_ψ, σ_ψ, u)
+        α = lognormal_samples(μ_α, σ_α, u)
 
         # Distributions
         dist_ω = Normal(μ_ω, σ_ω)
@@ -1366,15 +1205,7 @@ module GermStats
         Pₛ_cs = Pₛ_cs .* α
 
         # Geometric variables
-        # V = 4/3 * π .* ξ.^3
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         V, A, V_cw = calc_geom_variables(ξ, d_hp, κ)
-
-        # Cell wall and spore volumes
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
-        # V = 4/3 * π .* ξ.^3
 
         # Reshape
         n_nodes = size(u, 1)
@@ -1387,15 +1218,10 @@ module GermStats
         Pₛ_cs = permutedims(Pₛ_cs, (2, 3, 1))
         
         # Inducer
-        # c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        # s = c_cs ./ (K_cC .+ c_cs)
-        s = calc_s(ξ, d_hp, κ, c₀_cs, t, Pₛ_cs, A, V_cw, K_cC)
+        s = calc_s(c₀_cs, t, Pₛ_cs, A, V_cw, K_cC)
 
         # Inhibitor
-        # τ = V ./ (Pₛ .* A)
-        # ϕ = ρₛ .* V
-        # β = (ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ))))
-        β = calc_beta(ξ, V, A, Pₛ, ρₛ, t)
+        β = calc_beta(V, A, Pₛ, ρₛ, t)
 
         # Reshape
         β = repeat(β, 1, 1, 1, n_nodes)
@@ -1443,12 +1269,8 @@ module GermStats
         """
 
         # Transform to log-normal
-        μ_ψ_log = log(μ_ψ^2 / sqrt(σ_ψ^2 + μ_ψ^2))
-        σ_ψ_log = sqrt(log(σ_ψ^2 / μ_ψ^2 + 1))
-        ψ = exp.(μ_ψ_log .+ σ_ψ_log .* u)
-        μ_α_log = log(μ_α^2 / sqrt(σ_α^2 + μ_α^2))
-        σ_α_log = sqrt(log(σ_α^2 / μ_α^2 + 1))
-        α = exp.(μ_α_log .+ σ_α_log .* u)
+        ψ = lognormal_samples(μ_ψ, σ_ψ, u)
+        α = lognormal_samples(μ_α, σ_α, u)
 
         # Distributions
         dist_ω = Normal(μ_ω, σ_ω)
@@ -1458,15 +1280,7 @@ module GermStats
         Pₛ_cs = Pₛ_cs .* α
 
         # Geometric variables
-        # V = 4/3 * π .* ξ.^3
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         V, A, V_cw = calc_geom_variables(ξ, d_hp, κ)
-
-        # Cell wall and spore volumes
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
-        # V = 4/3 * π .* ξ.^3
 
         # Reshape
         n_nodes = size(u, 1)
@@ -1479,15 +1293,10 @@ module GermStats
         Pₛ_cs = permutedims(Pₛ_cs, (2, 3, 1))
         
         # Inducer
-        # c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        # s = c_cs ./ (K_cC .+ c_cs)
-        s = calc_s(ξ, d_hp, κ, c₀_cs, t, Pₛ_cs, A, V_cw, K_cC)
+        s = calc_s(c₀_cs, t, Pₛ_cs, A, V_cw, K_cC)
 
         # Inhibitor
-        # τ = V ./ (Pₛ .* A)
-        # ϕ = ρₛ .* V
-        # β = (ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ))))
-        β = calc_beta(ξ, V, A, Pₛ, ρₛ, t)
+        β = calc_beta(V, A, Pₛ, ρₛ, t)
 
         # Reshape
         β = repeat(β, 1, 1, 1, n_nodes)
@@ -1533,26 +1342,13 @@ module GermStats
         """
 
         # Transform to log-normal
-        μ_α_log = log(μ_α^2 / sqrt(σ_α^2 + μ_α^2))
-        σ_α_log = sqrt(log(σ_α^2 / μ_α^2 + 1))
-        α = exp.(μ_α_log .+ σ_α_log .* u)
+        α = lognormal_samples(μ_α, σ_α, u)
 
         # Distributions
-        dist_γ = Normal(μ_γ, σ_γ)
-        dist_ω = Normal(μ_ω, σ_ω)
+        dist_γ, dist_ω = normal_distributions([μ_γ, μ_ω], [σ_γ, σ_ω])
 
         # Geometric variables
-        # V = 4/3 * π .* ξ.^3
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         V, A, V_cw = calc_geom_variables(ξ, d_hp, κ)
-
-        # Spore volume and surface area
-        # V = 4/3 * π .* ξ.^3
-        # A = 4 * π .* ξ.^2
-
-        # Cell wall volume
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
 
         # Modulate permeation
         Pₛ = Pₛ .* α
@@ -1566,16 +1362,12 @@ module GermStats
         Pₛ = permutedims(Pₛ, (2, 3, 1))
         Pₛ_cs = repeat(Pₛ_cs, 1, n_nodes, n_nodes)
         Pₛ_cs = permutedims(Pₛ_cs, (2, 3, 1))
-
-        # τ = V ./ (Pₛ .* A)
-        # ϕ = ρₛ .* V
-        # β = ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ)))
-        β = calc_beta(ξ, V, A, Pₛ, ρₛ, t)
+        
+        # Inhibitor
+        β = calc_beta(V, A, Pₛ, ρₛ, t)
 
         # Inducer
-        # c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        # s = c_cs ./ (K_cC .+ c_cs)
-        s = calc_s(ξ, d_hp, κ, c₀_cs, t, Pₛ_cs, A, V_cw, K_cC)
+        s = calc_s(c₀_cs, t, Pₛ_cs, A, V_cw, K_cC)
         
         tail = cdf.(dist_ω, s) .* (1 .- cdf.(dist_γ, β))
         
@@ -1615,31 +1407,18 @@ module GermStats
         """
 
         # Transform to log-normal
-        μ_ψ_log = log(μ_ψ^2 / sqrt(σ_ψ^2 + μ_ψ^2))
-        σ_ψ_log = sqrt(log(σ_ψ^2 / μ_ψ^2 + 1))
-        ψ = exp.(μ_ψ_log .+ σ_ψ_log .* u)
-        μ_α_log = log(μ_α^2 / sqrt(σ_α^2 + μ_α^2))
-        σ_α_log = sqrt(log(σ_α^2 / μ_α^2 + 1))
-        α = exp.(μ_α_log .+ σ_α_log .* u)
+        ψ = lognormal_samples(μ_ψ, σ_ψ, u)
+        α = lognormal_samples(μ_α, σ_α, u)
 
         # Distributions
-        dist_γ = Normal(μ_γ, σ_γ)
-        dist_ω = Normal(μ_ω, σ_ω)
+        dist_γ, dist_ω = normal_distributions([μ_γ, μ_ω], [σ_γ, σ_ω])
 
         # Modulate permeation
         Pₛ = Pₛ .* α
         Pₛ_cs = Pₛ_cs .* α
 
         # Geometric variables
-        # V = 4/3 * π .* ξ.^3
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         V, A, V_cw = calc_geom_variables(ξ, d_hp, κ)
-
-        # Cell wall and spore volumes
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
-        # V = 4/3 * π .* ξ.^3
 
         # Reshape
         n_nodes = size(u, 1)
@@ -1652,15 +1431,10 @@ module GermStats
         Pₛ_cs = permutedims(Pₛ_cs, (2, 3, 1))
         
         # Inducer
-        # c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        # s = c_cs ./ (K_cC .+ c_cs)
-        s = calc_s(ξ, d_hp, κ, c₀_cs, t, Pₛ_cs, A, V_cw, K_cC)
+        s = calc_s(c₀_cs, t, Pₛ_cs, A, V_cw, K_cC)
 
         # Inhibitor
-        # τ = V ./ (Pₛ .* A)
-        # ϕ = ρₛ .* V
-        # β = (ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ))))
-        β = calc_beta(ξ, V, A, Pₛ, ρₛ, t)
+        β = calc_beta(V, A, Pₛ, ρₛ, t)
 
         # Reshape
         β = repeat(β, 1, 1, 1, n_nodes)
@@ -1709,31 +1483,18 @@ module GermStats
         """
 
         # Transform to log-normal
-        μ_ψ_log = log(μ_ψ^2 / sqrt(σ_ψ^2 + μ_ψ^2))
-        σ_ψ_log = sqrt(log(σ_ψ^2 / μ_ψ^2 + 1))
-        ψ = exp.(μ_ψ_log .+ σ_ψ_log .* u)
-        μ_α_log = log(μ_α^2 / sqrt(σ_α^2 + μ_α^2))
-        σ_α_log = sqrt(log(σ_α^2 / μ_α^2 + 1))
-        α = exp.(μ_α_log .+ σ_α_log .* u)
+        ψ = lognormal_samples(μ_ψ, σ_ψ, u)
+        α = lognormal_samples(μ_α, σ_α, u)
 
         # Distributions
-        dist_γ = Normal(μ_γ, σ_γ)
-        dist_ω = Normal(μ_ω, σ_ω)
+        dist_γ, dist_ω = normal_distributions([μ_γ, μ_ω], [σ_γ, σ_ω])
 
         # Modulate permeation
         Pₛ = Pₛ .* α
         Pₛ_cs = Pₛ_cs .* α
 
         # Geometric variables
-        # V = 4/3 * π .* ξ.^3
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         V, A, V_cw = calc_geom_variables(ξ, d_hp, κ)
-
-        # Cell wall and spore volumes
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
-        # V = 4/3 * π .* ξ.^3
 
         # Reshape
         n_nodes = size(u, 1)
@@ -1746,15 +1507,10 @@ module GermStats
         Pₛ_cs = permutedims(Pₛ_cs, (2, 3, 1))
         
         # Inducer
-        # c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        # s = c_cs ./ (K_cC .+ c_cs)
-        s = calc_s(ξ, d_hp, κ, c₀_cs, t, Pₛ_cs, A, V_cw, K_cC)
+        s = calc_s(c₀_cs, t, Pₛ_cs, A, V_cw, K_cC)
 
         # Inhibitor
-        # τ = V ./ (Pₛ .* A)
-        # ϕ = ρₛ .* V
-        # β = (ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ))))
-        β = calc_beta(ξ, V, A, Pₛ, ρₛ, t)
+        β = calc_beta(V, A, Pₛ, ρₛ, t)
 
         # Reshape
         β = repeat(β, 1, 1, 1, n_nodes)
@@ -1805,31 +1561,18 @@ module GermStats
         """
 
         # Transform to log-normal
-        μ_ψ_log = log(μ_ψ^2 / sqrt(σ_ψ^2 + μ_ψ^2))
-        σ_ψ_log = sqrt(log(σ_ψ^2 / μ_ψ^2 + 1))
-        ψ = exp.(μ_ψ_log .+ σ_ψ_log .* u)
-        μ_α_log = log(μ_α^2 / sqrt(σ_α^2 + μ_α^2))
-        σ_α_log = sqrt(log(σ_α^2 / μ_α^2 + 1))
-        α = exp.(μ_α_log .+ σ_α_log .* u)
+        ψ = lognormal_samples(μ_ψ, σ_ψ, u)
+        α = lognormal_samples(μ_α, σ_α, u)
 
         # Distributions
-        dist_γ = Normal(μ_γ, σ_γ)
-        dist_ω = Normal(μ_ω, σ_ω)
+        dist_γ, dist_ω = normal_distributions([μ_γ, μ_ω], [σ_γ, σ_ω])
 
         # Modulate permeation
         Pₛ = Pₛ .* α
         Pₛ_cs = Pₛ_cs .* α
 
         # Geometric variables
-        # V = 4/3 * π .* ξ.^3
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
         V, A, V_cw = calc_geom_variables(ξ, d_hp, κ)
-
-        # Cell wall and spore volumes
-        # A = 4 * π .* ξ.^2
-        # V_cw = compute_ps_layer_volume(ξ, d_hp, κ)
-        # V = 4/3 * π .* ξ.^3
 
         # Reshape
         n_nodes = size(u, 1)
@@ -1842,15 +1585,10 @@ module GermStats
         Pₛ_cs = permutedims(Pₛ_cs, (2, 3, 1))
         
         # Inducer
-        # c_cs = inducer_concentration.(c₀_cs, t, Pₛ_cs, A, V_cw)
-        # s = c_cs ./ (K_cC .+ c_cs)
-        s = calc_s(ξ, d_hp, κ, c₀_cs, t, Pₛ_cs, A, V_cw, K_cC)
+        s = calc_s(c₀_cs, t, Pₛ_cs, A, V_cw, K_cC)
 
         # Inhibitor
-        # τ = V ./ (Pₛ .* A)
-        # ϕ = ρₛ .* V
-        # β = (ϕ .+ (1 .- ϕ) .* exp.(-t ./ (τ .* (1 .- ϕ))))
-        β = calc_beta(ξ, V, A, Pₛ, ρₛ, t)
+        β = calc_beta(V, A, Pₛ, ρₛ, t)
 
         # Reshape
         β = repeat(β, 1, 1, 1, n_nodes)
@@ -2501,44 +2239,6 @@ module GermStats
         thresh_bias_signal = ks[1] .* cins[1, :]  ./ (cins[1, :] .+ K_fs[1])
         return (cins[1, :] .< thresholds[1, :] .+ thresh_bias_signal) .* (cins[2, :] ./ (cins[2, :] .+ K_fs[2]) .> thresholds[2, :] .+ thresh_bias_signal)
     end
-    
-    
-    # function signal_inducer(cinC, k, K_cC)
-    #     """
-    #     Converts inhibitor concentration
-    #     to a threshold shifting signal.
-    #         cinC - inducer concentration (M)
-    #         k - scaling factor
-    #         K_cC - inducer half-saturation constant (M)
-    #     """
-    #     return k .* cinC ./ (cinC .+ K_cC)
-    # end
-    
-    
-    # function signal_inhibitor_inducer(cins, ks, K_fs)
-    #     """
-    #     Converts concentrations to threshold shifting
-    #     signals, with inhibitor first and inducer second.
-    #     inputs:
-    #         cins - inhibitor and inducer concentrations (M) [cinI, cinC]
-    #         ks - scaling factors
-    #         K_fs - half-saturation constants (M)
-    #     """
-    #     return [signal_inhibitor(cins[1], ks[1]), signal_inducer(cins[2], ks[2], K_fs[2])]
-    # end
-
-
-    # function signal_inducer_inhibitor(cins, ks, K_fs)
-    #     """
-    #     Converts concentrations to threshold shifting
-    #     signals, with inducer first and inhibitor second.
-    #     inputs:
-    #         cins - inhibitor and inducer concentrations (M) [cinC, cinI]
-    #         ks - scaling factors
-    #         K_fs - half-saturation constants (M)
-    #     """
-    #     return [signal_inducer(cins[2], ks[2], K_fs[2]), signal_inhibitor(cins[1], ks[1])]
-    # end
 
 
     function germ_response_feedback_perm(ode_func, thresh_func, sobol_pts, times, geom_samples, c₀_cs, f_maxs, Pₛ_I, Pₛ_C, K_fs, μ_ψ, σ_ψ, μs_thresh, σs_thresh; ks=nothing, n=nothing)
