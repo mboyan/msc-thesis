@@ -1,5 +1,10 @@
 # Notes
 
+## Update of Assumptions
+- Closed-form solution models - solved using GH, else solved by MC;
+- Half-saturation constant of inducer is the same in affecting the inhibition threshold and in producing a germination signal - this is because **the inhibition threshold is considered shifted as a by-product of the inducing trigger** (in the case of 2-factor germination);
+- Cell wall porosity - insignificant variance (?);
+
 ## Deliverables
 - Sensitivity analysis - global vs. local, algorithm, Julia package?
 - Consider experimental data variances in model fitting
