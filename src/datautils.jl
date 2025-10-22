@@ -1045,7 +1045,7 @@ module DataUtils
             param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src, n_src, 1]
             
         elseif model_type == "inhibitor_thresh_inducer_signal"
-            println()
+            println("Model: Inhibitor-dependent germination with inducer-dependent inhibition threshold and inhibitor-dependent induction signal")
             wrapper = (inputs, params) -> Main.germ_response_inh_dep_ind_signal_ind_dep_inh_thresh_gh(
                 u, W3,
                 inputs[1], #t
@@ -1067,6 +1067,33 @@ module DataUtils
             )
             param_keys = [:Pₛ, :Pₛ_cs, :k_C, :K_cC, :K_I, :n, :μ_γ, :δ_γ, :μ_ψ, :δ_ψ]
             param_occurrences = [1, n_src, n_src, n_src, 1, n_src, 1, 1, 1, 1]
+
+        elseif model_type == "combined_inhibitor_thresh_inducer_signal"
+            println("Model: 2-factor germination with inducer-dependent inhibition threshold and inhibitor-dependent induction signal")
+            wrapper = (inputs, params) -> Main.germ_response_inh_dep_ind_signal_ind_dep_inh_thresh_2_factor_gh(
+                u, W3,
+                inputs[1], #t
+                inputs[2], #ρₛ
+                def_params[:c₀_cs],
+                def_params[:d_hp],
+                ξ2,
+                κ2,
+                params[1], #Pₛ
+                params[2], #Pₛ_cs
+                exp(params[3]), #k_C
+                params[4], #K_cC
+                params[5], #K_I
+                params[6], #n
+                params[7], #μ_γ
+                params[7] * exp(params[8]), #σ_γ
+                params[9], #μ_ω
+                params[9] * exp(params[10]), #σ_ω
+                params[11], #μ_ψ
+                params[11] * exp(params[12]) #σ_ψ
+            )
+            param_keys = [:Pₛ, :Pₛ_cs, :k_C, :K_cC, :K_I, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
+            param_occurrences = [1, n_src, n_src, n_src, 1, n_src, 1, 1, n_src, n_src, 1, 1]
+            
         else
             error("Model type not recognized.")
         end

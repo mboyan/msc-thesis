@@ -1089,7 +1089,8 @@ __precompile__(false)
             "feedback_combined_inhibitor_inducer_perm" => "2-factor germination with\ninhibitor+inducer-dependent permeability, ",
             "feedback_inducer_inhibitor_thresh_inducer_perm" => "Inducer-dependent germination with\ninhibitor-dep. thresh., inducer-dep. perm., ",
             "feedback_combined_inhibitor_thresh_inducer_perm" => "2-factor germination with\ninhibitor-dep. thresh., inducer-dep. perm., ",
-            "inhibitor_thresh_inducer_signal" => "Inhibitor-dependent germination with\ninhibitor-dep. signal, inducer-dep. thresh"
+            "inhibitor_thresh_inducer_signal" => "Inhibitor-dependent germination with\ninhibitor-dep. signal, inducer-dep. thresh, ", 
+            "combined_inhibitor_thresh_inducer_signal" => "2-factor germination with\ninhibitor-dep. signal, inducer-dep. thresh, "
         )
 
         plot_germination_data_fit(densities_data, p_maxs_data, density_range, germ_resp_final .* 100, sources_data, yerr=p_max_errs,
