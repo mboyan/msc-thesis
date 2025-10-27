@@ -1010,7 +1010,11 @@ __precompile__(false)
                                 "feedback_inducer_inhibitor_perm_signal", "feedback_combined_inhibitor_perm_signal",
                                 "feedback_inducer_inhibitor_perm_thresh", "feedback_combined_inhibitor_perm_thresh",
                                 "feedback_inhibitor_inducer_perm_thresh_inhibitor_signal", "feedback_combined_inducer_perm_thresh_inhibitor_signal",
-                                "feedback_inhibitor_inducer_perm_thresh_inhibitor_perm", "feedback_combined_inducer_perm_thresh_inhibitor_perm", "feedback_combined_inducer_perm_thresh_inhibitor_thresh"]
+                                "feedback_inhibitor_inducer_perm_thresh_inhibitor_perm", "feedback_combined_inducer_perm_thresh_inhibitor_perm", "feedback_combined_inducer_perm_thresh_inhibitor_thresh",
+                                "feedback_inhibitor_inhibitor_inducer_perm_inhibitor_signal", "feedback_inducer_inhibitor_inducer_perm_inhibitor_signal", "feedback_combined_inhibitor_inducer_perm_inhibitor_signal",
+                                "feedback_inducer_inducer_perm_inhibitor_thresh_signal", "feedback_combined_inducer_perm_inhibitor_thresh_signal",
+                                "feedback_inhibitor_inhibitor_inducer_perm_inhibitor_thresh", "feedback_combined_inhibitor_inducer_perm_inhibitor_thresh",
+                                "feedback_inhibitor_inducer_thresh_inhibitor_perm_signal", "feedback_combined_inducer_thresh_inhibitor_perm_signal"]
 
         # Create figure and subfigures
         fig = figure(figsize=(4.5, 0.6 + 1.5*length(densities_data)))
@@ -1108,7 +1112,16 @@ __precompile__(false)
             "feedback_combined_inducer_perm_thresh_inhibitor_signal" => "2-factor germination with\ninducer-dep. perm./thresh., inhibitor-dep. signal, ",
             "feedback_inhibitor_inducer_perm_thresh_inhibitor_perm" => "Inhibitor-dependent germination with\ninducer-dep. perm./thresh., inhibitor-dep. perm., ",
             "feedback_combined_inducer_perm_thresh_inhibitor_perm" => "2-factor germination with\ninducer-dep. perm./thresh., inhibitor-dep. perm., ",
-            "feedback_combined_inducer_perm_thresh_inhibitor_thresh" => "2-factor germination with\ninducer-dep. pern./thresh., inhibitor-dep. thresh, "
+            "feedback_combined_inducer_perm_thresh_inhibitor_thresh" => "2-factor germination with\ninducer-dep. pern./thresh., inhibitor-dep. thresh, ",
+            "feedback_inhibitor_inhibitor_inducer_perm_inhibitor_signal" => "Inhibitor-dependent germination with\ninhibitor/inducer-dep. perm, inhibitor-dep. signal, ",
+            "feedback_inducer_inhibitor_inducer_perm_inhibitor_signal" => "Inducer-dependent germination with\ninhibitor/inducer-dep. perm, inhibitor-dep. signal, ",
+            "feedback_combined_inhibitor_inducer_perm_inhibitor_signal" => "2-factor germination with\ninhibitor/inducer-dep. perm, inhibitor-dep. signal, ",
+            "feedback_inducer_inducer_perm_inhibitor_thresh_signal" => "Inducer-dependent germination with\ninducer-dep. perm., inhbitor-dep. thresh/signal, ",
+            "feedback_combined_inducer_perm_inhibitor_thresh_signal" => "2-factor germination with\ninducer-dep. perm., inhbitor-dep. thresh/signal, ",
+            "feedback_inhibitor_inhibitor_inducer_perm_inhibitor_thresh" => "Inhibitor-dependent germination with\ninhibitor/inducer-dep. perm, inhibitor-dep thresh., ",
+            "feedback_combined_inhibitor_inducer_perm_inhibitor_thresh" => "2-factor germination with\ninhibitor/inducer-dep. perm, inhibitor-dep thresh., ",
+            "feedback_inhibitor_inducer_thresh_inhibitor_perm_signal" => "Inhibitor-dependent germination with\ninducer-dep. thresh. and inhibitor-dep. perm./signal, ",
+            "feedback_combined_inducer_thresh_inhibitor_perm_signal" => "2-factor germination with\ninducer-dep. thresh. and inhibitor-dep. perm./signal, "
         )
 
         plot_germination_data_fit(densities_data, p_maxs_data, density_range, germ_resp_final .* 100, sources_data, yerr=p_max_errs,
