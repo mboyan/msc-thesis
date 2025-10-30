@@ -83,6 +83,42 @@ module GermStats
     export thresh_criterion_combined_inhibitor_shift_inducer_signal_shift
 
 
+    # const DEBUG_MODE = false
+    global PARAMS_BUFFER = []
+    
+    # Macro for printing code line in debug mode
+    macro print_line(expr)
+        line_str = string(__source__.line)
+        code_str = string(expr)
+        return quote
+            global LINE_BUFFER = $code_str  # save code line in a variable as string
+            # println("Executing at line $line_str: ", code_line)
+            result = $(esc(expr))  # execute the original expression
+            result     # return result
+        end
+    end
+
+    macro note_param(expr)
+        # global PARAMS_BUFFER
+        code_str = string(expr)
+        
+        return quote
+            
+            substrings = split($code_str, r", | \[")
+            for substring in substrings
+                if startswith(substring, "prms[:")
+                    global PARAMS_BUFFER
+                    end_idx = findfirst(==(']'), substring)
+                    safe_end = prevind(substring, end_idx)
+                    push!(PARAMS_BUFFER, Symbol(SubString(substring, 7, safe_end)))
+                end
+            end
+            result = $(esc(expr))  # execute the original expression
+            result     # return result
+        end
+    end
+
+
     function load_model_collection()
         """
         Loads the entire collection of germination models,
@@ -189,7 +225,7 @@ module GermStats
     end
 
     # ===== GAUSS-HERMITE APPROXIMATIONS =====
-    function compute_germination_response(model_type, times, ρₛ, prms; n_nodes=nothing)
+    function compute_germination_response(model_type, times, ρₛ, prms; n_nodes=nothing, debug=false)
         """
         Generic wrapper function to compute the germination response.
         inputs:
@@ -199,9 +235,13 @@ module GermStats
             n_nodes (int) - number of Gauss-Hermite nodes to use
             prms (Dict) - additional parameters for the germination response function
             n_nodes (int) - number of Gauss-Hermite nodes to use
+            debug (bool) - whether to print additional debugging messages
         """
 
         @argcheck model_type in load_model_collection()[1]
+
+        # Empty global parameters buffer
+        global PARAMS_BUFFER = []
 
         # Determine number of nodes depending on the integral dimension (if not specified)
         if isnothing(n_nodes)
@@ -290,478 +330,481 @@ module GermStats
 
         # Compute the germination response
         if model_type == "independent" # 0
-            germ_response = [germ_response_independent_factors_gh(u, W, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω]) for t in times]
+            @note_param germ_response = [germ_response_independent_factors_gh(u, W, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω]) for t in times]
             
         elseif model_type == "inhibitor"
-            germ_response = [germ_response_inducer_dep_inhibitor_gh(u, W, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:k_C], prms[:μ_γ], prms[:σ_γ]) for t in times]
+            @note_param germ_response = [germ_response_inducer_dep_inhibitor_gh(u, W, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:k_C], prms[:μ_γ], prms[:σ_γ]) for t in times]
             
         elseif model_type == "inhibitor_thresh" # B
-            germ_response = [germ_response_inducer_dep_inhibitor_thresh_gh(u, W, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:k_C], prms[:K_cC], prms[:μ_γ], prms[:σ_γ]) for t in times]
+            @note_param germ_response = [germ_response_inducer_dep_inhibitor_thresh_gh(u, W, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:k_C], prms[:K_cC], prms[:μ_γ], prms[:σ_γ]) for t in times]
             
         elseif model_type == "inhibitor_perm"
-            germ_response = [germ_response_inducer_dep_inhibitor_perm_gh(u, W, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:μ_γ], prms[:σ_γ]) for t in times]
+            @note_param germ_response = [germ_response_inducer_dep_inhibitor_perm_gh(u, W, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:μ_γ], prms[:σ_γ]) for t in times]
             
         elseif model_type == "inducer" # CE
-            germ_response = [germ_response_inhibitor_dep_inducer_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:k_I], prms[:K_cC], prms[:K_I], prms[:n], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
+            @note_param germ_response = [germ_response_inhibitor_dep_inducer_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:k_I], prms[:K_cC], prms[:K_I], prms[:n], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
 
         elseif model_type == "inducer_thresh" # E
-            germ_response = [germ_response_inhibitor_dep_inducer_thresh_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:k_I], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
+            @note_param germ_response = [germ_response_inhibitor_dep_inducer_thresh_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:k_I], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
             
         elseif model_type == "inducer_signal" # C
-            germ_response = [germ_response_inhibitor_dep_inducer_signal_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:K_I], prms[:n], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
+            @note_param germ_response = [germ_response_inhibitor_dep_inducer_signal_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:K_I], prms[:n], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
             
         elseif model_type == "combined_inhibitor"
-            germ_response = [germ_response_inducer_dep_inhibitor_2_factor_gh(u, W, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:k_C], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω]) for t in times]
+            @note_param germ_response = [germ_response_inducer_dep_inhibitor_2_factor_gh(u, W, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:k_C], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω]) for t in times]
             
         elseif model_type == "combined_inhibitor_thresh" # B
-            germ_response = [germ_response_inducer_dep_inhibitor_thresh_2_factor_gh(u, W, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:k_C], prms[:K_cC], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω]) for t in times]
+            @note_param germ_response = [germ_response_inducer_dep_inhibitor_thresh_2_factor_gh(u, W, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:k_C], prms[:K_cC], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω]) for t in times]
             
         elseif model_type == "combined_inhibitor_perm"
-            germ_response = [germ_response_inducer_dep_inhibitor_perm_2_factor_gh(u, W, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω]) for t in times]
+            @note_param germ_response = [germ_response_inducer_dep_inhibitor_perm_2_factor_gh(u, W, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω]) for t in times]
             
         elseif model_type == "combined_inducer" # CE
-            germ_response = [germ_response_inhibitor_dep_inducer_2_factor_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:K_I], prms[:n], prms[:k_I], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
+            @note_param germ_response = [germ_response_inhibitor_dep_inducer_2_factor_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:K_I], prms[:n], prms[:k_I], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
             
         elseif model_type == "combined_inducer_thresh" # E
-            germ_response = [germ_response_inhibitor_dep_inducer_thresh_2_factor_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:k_I], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
+            @note_param germ_response = [germ_response_inhibitor_dep_inducer_thresh_2_factor_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:k_I], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
             
         elseif model_type == "combined_inducer_signal" # C
-            germ_response = [germ_response_inhibitor_dep_inducer_signal_2_factor_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:K_I], prms[:n], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
+            @note_param germ_response = [germ_response_inhibitor_dep_inducer_signal_2_factor_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:K_I], prms[:n], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
             
-        elseif model_type == "special_inducer"
-            germ_response = [germ_response_inducer_var_perm_gh(u, W4, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:K_I], prms[:k_I], prms[:n], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ], prms[:μ_α], prms[:σ_α]) for t in times]
+        # elseif model_type == "special_inducer"
+        #     germ_response = [germ_response_inducer_var_perm_gh(u, W4, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:K_I], prms[:k_I], prms[:n], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ], prms[:μ_α], prms[:σ_α]) for t in times]
             
-        elseif model_type == "special_independent"
-            germ_response = [germ_response_independent_factors_var_perm_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_α], prms[:σ_α]) for t in times]
+        # elseif model_type == "special_independent"
+        #     germ_response = [germ_response_independent_factors_var_perm_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_α], prms[:σ_α]) for t in times]
             
-        elseif model_type == "special_combined"
-            germ_response = [germ_response_inducer_2_factors_var_perm_gh(u, W4, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:K_I], prms[:k_I], prms[:n], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ], prms[:μ_α], prms[:σ_α]) for t in times]
+        # elseif model_type == "special_combined"
+        #     germ_response = [germ_response_inducer_2_factors_var_perm_gh(u, W4, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:K_I], prms[:k_I], prms[:n], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ], prms[:μ_α], prms[:σ_α]) for t in times]
             
-        elseif model_type == "special_thresh"
-            germ_response = [germ_response_inducer_thresh_2_factors_var_perm_gh(u, W4, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:k_I], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ], prms[:μ_α], prms[:σ_α]) for t in times]
+        # elseif model_type == "special_thresh"
+        #     germ_response = [germ_response_inducer_thresh_2_factors_var_perm_gh(u, W4, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:k_I], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ], prms[:μ_α], prms[:σ_α]) for t in times]
             
-        elseif model_type == "special_signal"
-            germ_response = [germ_response_inducer_signal_2_factors_var_perm_gh(u, W4, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:K_I], prms[:n], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ], prms[:μ_α], prms[:σ_α]) for t in times]
+        # elseif model_type == "special_signal"
+        #     germ_response = [germ_response_inducer_signal_2_factors_var_perm_gh(u, W4, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:K_I], prms[:n], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ], prms[:μ_α], prms[:σ_α]) for t in times]
         
         elseif model_type == "feedback_inhibitor_inducer_perm" # A
             ode_func = ode_inducer_dependent_perm!
             thresh_crit = thresh_criterion_inhibitor
-            f_maxs = [prms[:s_max]]
-            K_fs = [nothing, prms[:K_cC]]
-            thresh_means = [prms[:μ_γ]]
-            thresh_sds = [prms[:σ_γ]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds)
+            @note_param f_maxs = [prms[:s_max]]
+            @note_param K_fs = [nothing, prms[:K_cC]]
+            @note_param thresh_means = [prms[:μ_γ]]
+            @note_param thresh_sds = [prms[:σ_γ]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds)
             
         elseif model_type == "feedback_combined_inducer_perm" # A
             ode_func = ode_inducer_dependent_perm!
             thresh_crit = thresh_criterion_combined
-            f_maxs = [prms[:s_max]]
-            K_fs = [nothing, prms[:K_cC]]
-            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
-            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds)
+            @note_param f_maxs = [prms[:s_max]]
+            @note_param K_fs = [nothing, prms[:K_cC]]
+            @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds)
             
         elseif model_type == "feedback_inducer_inhibitor_perm" # D
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_inducer
-            f_maxs = [prms[:b_max]]
-            K_fs = [prms[:K_cI], nothing]
-            thresh_means = [prms[:μ_ω]]
-            thresh_sds = [prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds)
+            @note_param f_maxs = [prms[:b_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
+            @note_param thresh_means = [prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds)
            
         elseif model_type == "feedback_combined_inhibitor_perm" # D
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_combined
-            f_maxs = [prms[:b_max]]
-            K_fs = [prms[:K_cI], nothing]
-            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
-            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds)
+            @note_param f_maxs = [prms[:b_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
+            @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds)
            
         elseif model_type == "feedback_inhibitor_inducer_perm_thresh" # AB
             ode_func = ode_inducer_dependent_perm!
             thresh_crit = thresh_criterion_inhibitor_shift
-            f_maxs = [prms[:s_max]]
-            K_fs = [nothing, prms[:K_cC]]
-            thresh_means = [prms[:μ_γ]]
-            thresh_sds = [prms[:σ_γ]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_C]])
+            @note_param f_maxs = [prms[:s_max]]
+            @note_param K_fs = [nothing, prms[:K_cC]]
+            @note_param thresh_means = [prms[:μ_γ]]
+            @note_param thresh_sds = [prms[:σ_γ]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_C]])
            
         elseif model_type == "feedback_combined_inducer_perm_thresh" # AB
             ode_func = ode_inducer_dependent_perm!
             thresh_crit = thresh_criterion_combined_inhibitor_shift
-            f_maxs = [prms[:s_max]]
-            K_fs = [nothing, prms[:K_cC]]
-            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
-            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thesh_sds; ks=[prms[:k_C]])
+            @note_param f_maxs = [prms[:s_max]]
+            @note_param K_fs = [nothing, prms[:K_cC]]
+            @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thesh_sds; ks=[prms[:k_C]])
            
         elseif model_type == "feedback_inhibitor_inducer_perm_inhibitor_signal" # AC
             ode_func = ode_inducer_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_inhibitor
-            f_maxs = [prms[:s_max]]
-            K_fs = [nothing, prms[:K_cC], prms[:K_I]]
-            thresh_means = [prms[:μ_γ]]
-            thresh_sds = [prms[:σ_γ]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; n=prms[:n])
+            @note_param f_maxs = [prms[:s_max]]
+            @note_param K_fs = [nothing, prms[:K_cC], prms[:K_I]]
+            @note_param thresh_means = [prms[:μ_γ]]
+            @note_param thresh_sds = [prms[:σ_γ]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; n=prms[:n])
 
         elseif model_type == "feedback_inducer_inducer_perm_inhibitor_signal" # AC
             ode_func = ode_inducer_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_inducer
-            f_maxs = [prms[:s_max]]
-            K_fs = [nothing, prms[:K_cC], prms[:K_I]]
-            thresh_means = [prms[:μ_ω]]
-            thresh_sds = [prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; n=prms[:n])
+            @note_param f_maxs = [prms[:s_max]]
+            @note_param K_fs = [nothing, prms[:K_cC], prms[:K_I]]
+            @note_param thresh_means = [prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; n=prms[:n])
         
         elseif model_type == "feedback_combined_inducer_perm_inhibitor_signal" # AC
             ode_func = ode_inducer_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_combined
-            f_maxs = [prms[:s_max]]
-            K_fs = [nothing, prms[:K_cC], prms[:K_I]]
-            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
-            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; n=prms[:n])
+            @note_param f_maxs = [prms[:s_max]]
+            @note_param K_fs = [nothing, prms[:K_cC], prms[:K_I]]
+            @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; n=prms[:n])
         
         elseif model_type == "feedback_inhibitor_inhibitor_inducer_perm" # AD
             ode_func = ode_inducer_and_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_inhibitor
-            f_maxs = [prms[:b_max], prms[:s_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC]]
-            thresh_means = [prms[:μ_γ]]
-            thresh_sds = [prms[:σ_γ]]
-            ode_func = ode_inducer_and_inhibitor_dependent_perm!
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds)
+            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
+            @note_param thresh_means = [prms[:μ_γ]]
+            @note_param thresh_sds = [prms[:σ_γ]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds)
             
         elseif model_type == "feedback_inducer_inhibitor_inducer_perm" # AD
             ode_func = ode_inducer_and_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_inducer
-            f_maxs = [prms[:b_max], prms[:s_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC]]
-            thresh_means = [prms[:μ_ω]]
-            thresh_sds = [prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds)
+            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
+            @note_param thresh_means = [prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds)
             
         elseif model_type == "feedback_combined_inhibitor_inducer_perm" # AD
             ode_func = ode_inducer_and_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_combined
-            f_maxs = [prms[:b_max], prms[:s_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC]]
-            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
-            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds)
+            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
+            @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds)
             
         elseif model_type == "feedback_inducer_inhibitor_thresh_inducer_perm" # AE
             ode_func = ode_inducer_dependent_perm!
             thresh_crit = thresh_criterion_inducer_shift
-            f_maxs = [prms[:s_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC]]
-            thresh_means = [prms[:μ_ω]]
-            thresh_sds = [prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds, ks=[prms[:k_I]])
+            @note_param f_maxs = [prms[:s_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
+            @note_param thresh_means = [prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds, ks=[prms[:k_I]])
             
         elseif model_type == "feedback_combined_inhibitor_thresh_inducer_perm" # AE
             ode_func = ode_inducer_dependent_perm!
             thresh_crit = thresh_criterion_combined_inducer_shift
-            f_maxs = [prms[:s_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC]]
-            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
-            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds, ks=[prms[:k_I]])
+            @note_param f_maxs = [prms[:s_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
+            @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds, ks=[prms[:k_I]])
             
         elseif model_type == "inhibitor_thresh_inducer_signal" # BC
-            germ_response = [germ_response_inh_dep_ind_signal_ind_dep_inh_thresh_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:k_C], prms[:K_cC], prms[:K_I], prms[:n], prms[:μ_γ], prms[:σ_γ], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
+            @note_param germ_response = [germ_response_inh_dep_ind_signal_ind_dep_inh_thresh_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:k_C], prms[:K_cC], prms[:K_I], prms[:n], prms[:μ_γ], prms[:σ_γ], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
             
         elseif model_type == "combined_inhibitor_thresh_inducer_signal" # BC
-            germ_response = [germ_response_inh_dep_ind_signal_ind_dep_inh_thresh_2_factor_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:k_C], prms[:K_cC], prms[:K_I], prms[:n], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
+            @note_param germ_response = [germ_response_inh_dep_ind_signal_ind_dep_inh_thresh_2_factor_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:k_C], prms[:K_cC], prms[:K_I], prms[:n], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
             
         elseif model_type == "feedback_inhibitor_inducer_thresh_inhibitor_perm" # BD
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_inhibitor_shift
-            f_maxs = [prms[:b_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC]]
-            thresh_means = [prms[:μ_γ]]
-            thresh_sds = [prms[:σ_γ]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds, ks=[prms[:k_C]])
+            @note_param f_maxs = [prms[:b_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
+            @note_param thresh_means = [prms[:μ_γ]]
+            @note_param thresh_sds = [prms[:σ_γ]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds, ks=[prms[:k_C]])
            
         elseif model_type == "feedback_combined_inducer_thresh_inhibitor_perm" # BD
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_combined_inhibitor_shift
-            f_maxs = [prms[:b_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC]]
-            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
-            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds, ks=[prms[:k_C]])
+            @note_param f_maxs = [prms[:b_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
+            @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds, ks=[prms[:k_C]])
            
         elseif model_type == "combined_inhibitor_thresh_inducer_thresh" # BE
-            germ_response = [germ_response_inh_dep_ind_thresh_ind_dep_inh_thresh_2_factor_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:k_I], prms[:k_C], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
+            @note_param germ_response = [germ_response_inh_dep_ind_thresh_ind_dep_inh_thresh_2_factor_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:k_I], prms[:k_C], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
             
         elseif model_type == "feedback_inducer_inhibitor_perm_signal" # CD
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_inducer_signal
-            f_maxs = [prms[:b_max]]
-            K_fs = [nothing, prms[:K_cC], prms[:K_I]]
-            thresh_means = [prms[:μ_ω]]
-            thresh_sds = [prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds, n=prms[:n])
+            @note_param f_maxs = [prms[:b_max]]
+            @note_param K_fs = [nothing, prms[:K_cC], prms[:K_I]]
+            @note_param thresh_means = [prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds, n=prms[:n])
            
         elseif model_type == "feedback_combined_inhibitor_perm_signal" # CD
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_combined_inducer_signal
-            f_maxs = [prms[:b_max]]
-            K_fs = [nothing, prms[:K_cC], prms[:K_I]]
-            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
-            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds, n=prms[:n])
+            @note_param f_maxs = [prms[:b_max]]
+            @note_param K_fs = [nothing, prms[:K_cC], prms[:K_I]]
+            @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds, n=prms[:n])
            
         elseif model_type == "feedback_inducer_inhibitor_perm_thresh" # DE
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_inducer_shift
-            f_maxs = [prms[:b_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC]]
-            thresh_means = [prms[:μ_ω]]
-            thresh_sds = [prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds, ks=[prms[:k_I]])
+            @note_param f_maxs = [prms[:b_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
+            @note_param thresh_means = [prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds, ks=[prms[:k_I]])
            
         elseif model_type == "feedback_combined_inhibitor_perm_thresh" # DE
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_combined_inducer_shift
-            f_maxs = [prms[:b_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC]]
-            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
-            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds, ks=[prms[:k_I]])
+            @note_param f_maxs = [prms[:b_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
+            @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds, ks=[prms[:k_I]])
            
         elseif model_type == "feedback_inhibitor_inducer_perm_thresh_inhibitor_signal" # ABC
             ode_func = ode_inducer_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_inducer_shift
-            f_maxs = [prms[:s_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
-            thresh_means = [prms[:μ_γ]]
-            thresh_sds = [prms[:σ_γ]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_C]], n=prms[:n])
+            @note_param f_maxs = [prms[:s_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
+            @note_param thresh_means = [prms[:μ_γ]]
+            @note_param thresh_sds = [prms[:σ_γ]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_C]], n=prms[:n])
         
         elseif model_type == "feedback_combined_inducer_perm_thresh_inhibitor_signal" # ABC
             ode_func = ode_inducer_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_combined_inducer_shift
-            f_maxs = [prms[:s_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
-            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
-            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_C]], n=prms[:n])
+            @note_param f_maxs = [prms[:s_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
+            @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_C]], n=prms[:n])
         
         elseif model_type == "feedback_inhibitor_inducer_perm_thresh_inhibitor_perm" # ABD
             ode_func = ode_inducer_and_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_inhibitor_shift
-            f_maxs = [prms[:b_max], prms[:s_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC]]
-            thresh_means = [prms[:μ_γ]]
-            thresh_sds = [prms[:σ_γ]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_C]])
+            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
+            @note_param thresh_means = [prms[:μ_γ]]
+            @note_param thresh_sds = [prms[:σ_γ]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_C]])
             
         elseif model_type == "feedback_combined_inducer_perm_thresh_inhibitor_perm" # ABD
             ode_func = ode_inducer_and_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_combined_inhibitor_shift
-            f_maxs = [prms[:b_max], prms[:s_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC]]
-            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
-            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_C]])
+            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
+            @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_C]])
             
         elseif model_type == "feedback_combined_inducer_perm_thresh_inhibitor_thresh" # ABE
             ode_func = ode_inducer_dependent_perm!
             thresh_crit = thresh_criterion_combined_shift
-            f_maxs = [prms[:s_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC]]
-            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
-            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I], prms[:k_C]])
+            @note_param f_maxs = [prms[:s_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
+            @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I], prms[:k_C]])
             
         elseif model_type == "feedback_inhibitor_inhibitor_inducer_perm_inhibitor_signal" # ACD
             ode_func = ode_inducer_and_inhibitor_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_inhibitor
-            f_maxs = [prms[:b_max], prms[:s_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
-            thresh_means = [prms[:μ_γ]]
-            thresh_sds = [prms[:σ_γ]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; n=prms[:n])
+            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
+            @note_param thresh_means = [prms[:μ_γ]]
+            @note_param thresh_sds = [prms[:σ_γ]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; n=prms[:n])
             
         elseif model_type == "feedback_inducer_inhibitor_inducer_perm_inhibitor_signal" # ACD
             ode_func = ode_inducer_and_inhibitor_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_inducer
-            f_maxs = [prms[:b_max], prms[:s_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
-            thresh_means = [prms[:μ_ω]]
-            thresh_sds = [prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; n=prms[:n])
+            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
+            @note_param thresh_means = [prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; n=prms[:n])
             
         elseif model_type == "feedback_combined_inhibitor_inducer_perm_inhibitor_signal" # ACD
             ode_func = ode_inducer_and_inhibitor_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_combined
-            f_maxs = [prms[:b_max], prms[:s_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
-            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
-            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; n=prms[:n])
+            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
+            @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; n=prms[:n])
             
         elseif model_type == "feedback_inducer_inducer_perm_inhibitor_thresh_signal" # ACE
             ode_func = ode_inducer_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_inducer_shift
-            f_maxs = [prms[:s_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
-            thresh_means = [prms[:μ_ω]]
-            thresh_sds = [prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I]], n=prms[:n])
+            @note_param f_maxs = [prms[:s_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
+            @note_param thresh_means = [prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I]], n=prms[:n])
         
         elseif model_type == "feedback_combined_inducer_perm_inhibitor_thresh_signal" # ACE
             ode_func = ode_inducer_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_combined_inducer_shift
-            f_maxs = [prms[:s_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
-            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
-            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I]], n=prms[:n])
+            @note_param f_maxs = [prms[:s_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
+            @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I]], n=prms[:n])
         
         elseif model_type == "feedback_inducer_inhibitor_inducer_perm_inhibitor_thresh" # ADE
             ode_func = ode_inducer_and_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_inhibitor_shift
-            f_maxs = [prms[:b_max], prms[:s_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC]]
-            thresh_means = [prms[:μ_γ]]
-            thresh_sds = [prms[:σ_γ]]
-            ode_func = ode_inducer_and_inhibitor_dependent_perm!
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I]])
+            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
+            @note_param thresh_means = [prms[:μ_γ]]
+            @note_param thresh_sds = [prms[:σ_γ]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I]])
             
         elseif model_type == "feedback_combined_inhibitor_inducer_perm_inhibitor_thresh" # ADE
             ode_func = ode_inducer_and_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_combined_inhibitor_shift
-            f_maxs = [prms[:b_max], prms[:s_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC]]
-            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
-            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I]])
+            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
+            @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I]])
             
          elseif model_type == "feedback_inhibitor_inducer_thresh_inhibitor_perm_signal" # BCD
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_inhibitor_signal_shift
-            f_maxs = [prms[:b_max]]
-            K_fs = [nothing, prms[:K_cC], prms[:K_I]]
-            thresh_means = [prms[:μ_γ]]
-            thresh_sds = [prms[:σ_γ]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_C]], n=prms[:n])
+            @note_param f_maxs = [prms[:b_max]]
+            @note_param K_fs = [nothing, prms[:K_cC], prms[:K_I]]
+            @note_param thresh_means = [prms[:μ_γ]]
+            @note_param thresh_sds = [prms[:σ_γ]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_C]], n=prms[:n])
            
         elseif model_type == "feedback_combined_inducer_thresh_inhibitor_perm_signal" # BCD
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_combined_inhibitor_signal_shift
-            f_maxs = [prms[:b_max]]
-            K_fs = [nothing, prms[:K_cC], prms[:K_I]]
-            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
-            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_C]], n=prms[:n])
+            @note_param f_maxs = [prms[:b_max]]
+            @note_param K_fs = [nothing, prms[:K_cC], prms[:K_I]]
+            @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_C]], n=prms[:n])
            
         elseif model_type == "combined_inhibitor_thresh_signal_inducer_thresh" # BCE
-            germ_response = [germ_response_inh_dep_ind_thresh_signal_ind_dep_inh_thresh_2_factor_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:K_I], prms[:n], prms[:k_I], prms[:k_C], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
+            @note_param germ_response = [germ_response_inh_dep_ind_thresh_signal_ind_dep_inh_thresh_2_factor_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:K_I], prms[:n], prms[:k_I], prms[:k_C], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
             
         elseif model_type == "feedback_combined_inhibitor_perm_thresh_inducer_thresh" # BDE
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_combined_shift
-            f_maxs = [prms[:b_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC]]
-            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
-            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I], prms[:k_C]])
+            @note_param f_maxs = [prms[:b_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
+            @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I], prms[:k_C]])
            
         elseif model_type == "feedback_inducer_inhibitor_perm_thresh_signal" # CDE
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_inducer_signal_shift
-            f_maxs = [prms[:b_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
-            thresh_means = [prms[:μ_ω]]
-            thresh_sds = [prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I]], n=prms[:n])
+            @note_param f_maxs = [prms[:b_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
+            @note_param thresh_means = [prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I]], n=prms[:n])
            
         elseif model_type == "feedback_combined_inhibitor_perm_thresh_signal" # CDE
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_combined_inducer_signal_shift
-            f_maxs = [prms[:b_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
-            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
-            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I]], n=prms[:n])
+            @note_param f_maxs = [prms[:b_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
+            @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I]], n=prms[:n])
            
         elseif model_type == "feedback_inhibitor_inducer_perm_thresh_inhibitor_perm_signal" # ABCD
             ode_func = ode_inducer_and_inhibitor_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_inhibitor_shift
-            f_maxs = [prms[:b_max], prms[:s_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
-            thresh_means = [prms[:μ_γ]]
-            thresh_sds = [prms[:σ_γ]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_C]], n=prms[:n])
+            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
+            @note_param thresh_means = [prms[:μ_γ]]
+            @note_param thresh_sds = [prms[:σ_γ]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_C]], n=prms[:n])
             
         elseif model_type == "feedback_combined_inducer_perm_thresh_inhibitor_perm_signal" # ABCD
             ode_func = ode_inducer_and_inhibitor_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_combined_inhibitor_shift
-            f_maxs = [prms[:b_max], prms[:s_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
-            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
-            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_C]], n=prms[:n])
+            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
+            @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_C]], n=prms[:n])
             
         elseif model_type == "feedback_combined_inhibitor_thresh_signal_inducer_perm_thresh" # ABCE
             ode_func = ode_inducer_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_combined_inhibitor_shift_inducer_signal_shift
-            f_maxs = [prms[:s_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
-            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
-            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I], prms[:k_C]], n=prms[:n])
+            @note_param f_maxs = [prms[:s_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
+            @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I], prms[:k_C]], n=prms[:n])
         
         elseif model_type == "feedback_combined_inhibitor_perm_thresh_inducer_perm_thresh" # ABDE
             ode_func = ode_inducer_and_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_combined_shift
-            f_maxs = [prms[:b_max], prms[:s_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC]]
-            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
-            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I], prms[:k_C]])
+            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
+            @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I], prms[:k_C]])
             
         elseif model_type == "feedback_inducer_inhibitor_perm_thresh_signal_inducer_perm" # ACDE
             ode_func = ode_inducer_and_inhibitor_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_inducer_signal_shift
-            f_maxs = [prms[:b_max], prms[:s_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
-            thresh_means = [prms[:μ_ω]]
-            thresh_sds = [prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I]], n=prms[:n])
+            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
+            @note_param thresh_means = [prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I]], n=prms[:n])
             
         elseif model_type == "feedback_combined_inhibitor_perm_thresh_signal_inducer_perm" # ACDE
             ode_func = ode_inducer_and_inhibitor_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_combined_inducer_signal_shift
-            f_maxs = [prms[:b_max], prms[:s_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
-            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
-            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I]], n=prms[:n])
+            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
+            @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I]], n=prms[:n])
             
         elseif model_type == "feedback_combined_inhibitor_perm_thresh_signal_inducer_thresh" # BCDE
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_combined_inhibitor_shift_inducer_signal_shift
-            f_maxs = [prms[:b_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
-            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
-            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I], prms[:k_C]], n=prms[:n])
+            @note_param f_maxs = [prms[:b_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
+            @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I], prms[:k_C]], n=prms[:n])
            
         elseif model_type == "feedback_combined_inhibitor_perm_thresh_signal_inducer_perm_thresh" # ABCDE
             ode_func = ode_inducer_and_inhibitor_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_combined_inhibitor_shift_inducer_signal_shift
-            f_maxs = [prms[:b_max], prms[:s_max]]
-            K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
-            thresh_means = [prms[:μ_γ], prms[:μ_ω]]
-            thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
-            germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I], prms[:k_C]], n=prms[:n])
+            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
+            @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
+            @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I], prms[:k_C]], n=prms[:n])
             
+        end
+
+        if debug
+            println("Parameters:")
+            println(PARAMS_BUFFER)
         end
 
         return germ_response
