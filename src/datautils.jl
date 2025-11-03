@@ -162,7 +162,7 @@ module DataUtils
     end
 
 
-    function fit_model_to_data(model_type, def_params, dantigny_data, times, sources, densities, bounds_dict; max_steps=10000)
+    function fit_model_to_data(model_type, def_params, dantigny_data, times, sources, densities, bounds_dict; max_steps=10000, debug=false)
         """
         Fit a selected germination model to the data.
         inputs:
@@ -174,6 +174,7 @@ module DataUtils
             densities (Vector): spore densities
             bounds_dict (Dict): bounds for the free parameters
             max_steps (int): maximum number of steps for the optimization
+            debug (bool) - whether to print additional debugging messages
         outputs:
             params_out (Dict): optimized parameters
         """
@@ -551,7 +552,7 @@ module DataUtils
             param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :k_I, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
             # param_occurrences = [1, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1]
 
-        elseif model_type_split[3] == "combined_inducer_signal"
+        elseif model_type == "combined_inducer_signal"
             println("Model: inhibitor-modulated inducer (signal)")
             wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_signal_2_factor_gh(
                 u, W3,
@@ -1139,20 +1140,20 @@ module DataUtils
                 [params[1]], # b_max
                 params[2], # Pₛ_I
                 params[3], # Pₛ_C
-                [nothing, params[4], params[5]], # K_cC, K_I
-                params[6], # μ_ψ
-                params[6] * exp(params[7]), # σ_ψ = μ_ψ * exp(δ_ψ)
-                [params[8]], # [μ_ω]
-                [params[8] * exp(params[9])] # [σ_ω = μ_ω * exp(δ_ω)]
+                [params[4], params[5], params[6]], # K_cI, K_cC, K_I
+                params[7], # μ_ψ
+                params[7] * exp(params[8]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                [params[9]], # [μ_ω]
+                [params[9] * exp(params[10])] # [σ_ω = μ_ω * exp(δ_ω)]
             )
-            param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_ω, :δ_ω]
+            param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_ω, :δ_ω]
             # param_occurrences = [1, 1, n_src, n_src, 1, 1, 1, n_src, n_src]
         
         elseif model_type == "feedback_combined_inhibitor_perm_signal" # CD
             println("Model: 2-factor germination with inducer-dependent inhibition threshold and inhibitor-dependent inhibitor/inducer permeability")
             wrapper = (V_out, params) -> Main.germ_response_feedback(
                 Main.ode_inhibitor_dependent_perm!,
-                Main.thresh_criterion_inducer_signal,
+                Main.thresh_criterion_combined_inducer_signal,
                 sobol_pts,
                 times,
                 [samples_A, samples_Vₛ, V_out, samples_V_ps],
@@ -1160,13 +1161,13 @@ module DataUtils
                 [params[1]], # b_max
                 params[2], # Pₛ_I
                 params[3], # Pₛ_C
-                [nothing, params[4], params[5]], # K_cC, K_I
-                params[6], # μ_ψ
-                params[6] * exp(params[7]), # σ_ψ = μ_ψ * exp(δ_ψ)
-                [params[8], params[10]], # [μ_γ, μ_ω]
-                [params[8] * exp(params[9]), params[10] * exp(params[11])] # [σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)]
+                [params[4], params[5], params[6]], # K_cI, K_cC, K_I
+                params[7], # μ_ψ
+                params[7] * exp(params[8]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                [params[9], params[11]], # [μ_γ, μ_ω]
+                [params[9] * exp(params[10]), params[11] * exp(params[12])] # [σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)]
             )
-            param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
+            param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
             # param_occurrences = [1, 1, n_src, n_src, 1, 1, 1, 1, 1, n_src, n_src]
         
         elseif model_type == "feedback_inducer_inhibitor_perm_thresh" # DE
@@ -1217,7 +1218,7 @@ module DataUtils
             println("Model: Inducer-dependent germination with inducer-dependent permeability and inhibitor-dependent induction signal")
             wrapper = (V_out, params) -> Main.germ_response_feedback(
                 Main.ode_inducer_dependent_perm_inhibitor_dependent_signal!,
-                Main.thresh_criterion_inducer,
+                Main.thresh_criterion_inhibitor_shift,
                 sobol_pts,
                 times,
                 [samples_A, samples_Vₛ, V_out, samples_V_ps],
@@ -1225,22 +1226,22 @@ module DataUtils
                 [params[1]], # s_max
                 params[2], # Pₛ_I
                 params[3], # Pₛ_C
-                [params[4], params[5], params[6]], # K_cI, K_cC, K_I
-                params[7], # μ_ψ
-                params[7] * exp(params[8]), # σ_ψ = μ_ψ * exp(δ_ψ)
-                [params[9]], # μ_γ
-                [params[9] * exp(params[10])]; # σ_γ = μ_γ * exp(δ_γ)
-                ks=[exp(params[11])], # k_C
-                n=params[12] # n
+                [nothing, params[4], params[5]], # K_cC, K_I
+                params[6], # μ_ψ
+                params[6] * exp(params[7]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                [params[8]], # μ_γ
+                [params[8] * exp(params[9])]; # σ_γ = μ_γ * exp(δ_γ)
+                ks=[exp(params[10])], # k_C
+                n=params[11] # n
             )
-            param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :k_C, :n]
+            param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :k_C, :n]
             # param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, n_src, 1, 1, n_src]
             
         elseif model_type == "feedback_combined_inducer_perm_thresh_inhibitor_signal" # ABC
             println("Model: 2-factor germination with inducer-dependent permeability and inhibitor-dependent induction signal")
             wrapper = (V_out, params) -> Main.germ_response_feedback(
                 Main.ode_inducer_dependent_perm_inhibitor_dependent_signal!,
-                Main.thresh_criterion_combined,
+                Main.thresh_criterion_combined_inhibitor_shift,
                 sobol_pts,
                 times,
                 [samples_A, samples_Vₛ, V_out, samples_V_ps],
@@ -1248,15 +1249,15 @@ module DataUtils
                 [params[1]], # s_max
                 params[2], # Pₛ_I
                 params[3], # Pₛ_C
-                [params[4], params[5], params[6]], # K_cI, K_cC, K_I
-                params[7], # μ_ψ
-                params[7] * exp(params[8]), # σ_ψ = μ_ψ * exp(δ_ψ)
-                [params[9], params[11]], # [μ_γ, μ_ω]
-                [params[9] * exp(params[10]), params[11] * exp(params[12])]; # [σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)]
-                ks=[exp(params[13])], # k_C
-                n=params[14] # n
+                [nothing, params[4], params[5]], # K_cC, K_I
+                params[6], # μ_ψ
+                params[6] * exp(params[7]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                [params[8], params[11]], # [μ_γ, μ_ω]
+                [params[8] * exp(params[9]), params[10] * exp(params[11])]; # [σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)]
+                ks=[exp(params[12])], # k_C
+                n=params[13] # n
             )
-            param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_I, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :k_C, :n]
+            param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :k_C, :n]
             # param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src, n_src, n_src, n_src]
             
         elseif model_type == "feedback_inhibitor_inducer_perm_thresh_inhibitor_perm" # ABD
@@ -1395,7 +1396,7 @@ module DataUtils
             println("Model: Inducer-dependent germination with inducer-dependent permeability and inhibitor-dependent induction threshold and signal")
             wrapper = (V_out, params) -> Main.germ_response_feedback(
                 Main.ode_inducer_dependent_perm_inhibitor_dependent_signal!,
-                Main.thresh_criterion_inducer_shift,
+                Main.thresh_criterion_inducer_signal_shift,
                 sobol_pts,
                 times,
                 [samples_A, samples_Vₛ, V_out, samples_V_ps],
@@ -1418,7 +1419,7 @@ module DataUtils
             println("Model: 2-factor germination with inducer-dependent permeability and inhibitor-dependent induction threshold and signal")
             wrapper = (V_out, params) -> Main.germ_response_feedback(
                 Main.ode_inducer_dependent_perm_inhibitor_dependent_signal!,
-                Main.thresh_criterion_combined_inducer_shift,
+                Main.thresh_criterion_combined_inducer_signal_shift,
                 sobol_pts,
                 times,
                 [samples_A, samples_Vₛ, V_out, samples_V_ps],
@@ -1438,10 +1439,10 @@ module DataUtils
             # param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src, n_src, n_src, n_src]
             
         elseif model_type == "feedback_inducer_inhibitor_inducer_perm_inhibitor_thresh" # ADE
-            println("Model: Inhibitor-dependent germination with inhibitor- and inducer-dependent inhibitor/inducer permeability")
+            println("Model: Inhibitor-dependent germination with inhibitor- and inducer-dependent inhibitor/inducer permeability, inhibitor-dependent induction threshold")
             wrapper = (V_out, params) -> Main.germ_response_feedback(
                 Main.ode_inducer_and_inhibitor_dependent_perm!,
-                Main.thresh_criterion_inhibitor_shift,
+                Main.thresh_criterion_inducer_shift,
                 sobol_pts,
                 times,
                 [samples_A, samples_Vₛ, V_out, samples_V_ps],
@@ -1460,10 +1461,10 @@ module DataUtils
             # param_occurrences = [1, n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src]
         
         elseif model_type == "feedback_combined_inhibitor_inducer_perm_inhibitor_thresh" # ADE
-            println("Model: 2-factor germination with inhibitor- and inducer-dependent inhibitor/inducer permeability")
+            println("Model: 2-factor germination with inhibitor- and inducer-dependent inhibitor/inducer permeability, inhibitor-dependent induction threshold")
             wrapper = (V_out, params) -> Main.germ_response_feedback(
                 Main.ode_inducer_and_inhibitor_dependent_perm!,
-                Main.thresh_criterion_combined_inhibitor_shift,
+                Main.thresh_criterion_combined_inducer_shift,
                 sobol_pts,
                 times,
                 [samples_A, samples_Vₛ, V_out, samples_V_ps],
@@ -1493,15 +1494,15 @@ module DataUtils
                 [params[1]], # b_max
                 params[2], # Pₛ_I
                 params[3], # Pₛ_C
-                [nothing, params[4], params[5]], # K_cC, K_I
-                params[6], # μ_ψ
-                params[6] * exp(params[7]), # σ_ψ = μ_ψ * exp(δ_ψ)
-                [params[8]], # [μ_γ]
-                [params[8] * exp(params[9])]; # [σ_γ = μ_γ * exp(δ_γ)]
-                ks=params[10], # k_C
-                n=params[11] # n
+                [params[4], params[5], params[6]], # K_cI, K_cC, K_I
+                params[7], # μ_ψ
+                params[7] * exp(params[8]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                [params[9]], # [μ_γ]
+                [params[9] * exp(params[10])]; # [σ_γ = μ_γ * exp(δ_γ)]
+                ks=params[11], # k_C
+                n=params[12] # n
             )
-            param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :k_C, :n]
+            param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :k_C, :n]
             # param_occurrences = [1, 1, n_src, n_src, 1, 1, 1, 1, 1, n_src, n_src]
         
         elseif model_type == "feedback_combined_inducer_thresh_inhibitor_perm_signal" # BCD
@@ -1516,15 +1517,15 @@ module DataUtils
                 [params[1]], # b_max
                 params[2], # Pₛ_I
                 params[3], # Pₛ_C
-                [nothing, params[4], params[5]], # K_cC, K_I
-                params[6], # μ_ψ
-                params[6] * exp(params[7]), # σ_ψ = μ_ψ * exp(δ_ψ)
-                [params[8], params[10]], # [μ_γ, μ_ω]
-                [params[8] * exp(params[9]), params[10] * exp(params[11])]; # [σ_ω = μ_ω * exp(δ_ω)]
-                ks=params[12], # k_C
-                n=params[13] # n
+                [params[4], params[5], params[6]], # K_cI, K_cC, K_I
+                params[7], # μ_ψ
+                params[7] * exp(params[8]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                [params[9], params[11]], # [μ_γ, μ_ω]
+                [params[9] * exp(params[10]), params[11] * exp(params[12])]; # [σ_ω = μ_ω * exp(δ_ω)]
+                ks=params[13], # k_C
+                n=params[14] # n
             )
-            param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :k_C, :n]
+            param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :k_C, :n]
             # param_occurrences = [1, 1, n_src, n_src, 1, 1, 1, 1, 1, n_src, n_src, n_src, n_src]
         
         elseif model_type == "combined_inhibitor_thresh_signal_inducer_thresh" # BCE
@@ -1695,7 +1696,7 @@ module DataUtils
             println("Model: 2-factor germination with inhibitor- and inducer-dependent inhibitor/inducer permeability, inhibitor- and inducer-dependent thresholds")
             wrapper = (V_out, params) -> Main.germ_response_feedback(
                 Main.ode_inducer_and_inhibitor_dependent_perm!,
-                Main.thresh_criterion_combined,
+                Main.thresh_criterion_combined_shift,
                 sobol_pts,
                 times,
                 [samples_A, samples_Vₛ, V_out, samples_V_ps],
@@ -1717,7 +1718,7 @@ module DataUtils
             println("Model: Inhibitor-dependent germination with inducer/inhibitor-dependent inhibitor/inducer permeability and inhibitor-dependent induction signal and threshold")
             wrapper = (V_out, params) -> Main.germ_response_feedback(
                 Main.ode_inducer_and_inhibitor_dependent_perm_inhibitor_dependent_signal!,
-                Main.thresh_criterion_inducer,
+                Main.thresh_criterion_inducer_signal_shift,
                 sobol_pts,
                 times,
                 [samples_A, samples_Vₛ, V_out, samples_V_ps],
@@ -1739,7 +1740,7 @@ module DataUtils
             println("Model: 2-factor germination with inducer/inhibitor-dependent inhibitor/inducer permeability and inhibitor-dependent induction signal and threshold")
             wrapper = (V_out, params) -> Main.germ_response_feedback(
                 Main.ode_inducer_and_inhibitor_dependent_perm_inhibitor_dependent_signal!,
-                Main.thresh_criterion_combined,
+                Main.thresh_criterion_combined_inducer_signal_shift,
                 sobol_pts,
                 times,
                 [samples_A, samples_Vₛ, V_out, samples_V_ps],
@@ -1805,130 +1806,142 @@ module DataUtils
             error("Model type not recognized.")
         end
 
-        param_occurrences = [param_occurrences_dict[pkey] for pkey in param_keys]
-
-        # Duplicate bounds/parameters for each source
-        param_starts = cumsum(param_occurrences) .- param_occurrences .+ 1
-        param_keys_dup = vcat([key for key in param_keys for _ in 1:param_occurrences[param_keys .== key][1]]...)
-        param_starts = cumsum(param_occurrences) .- param_occurrences .+ 1
-        bounds = [bounds_dict[key] for key in param_keys_dup]
-
-        param_indices_per_src = [param_starts .+ ((i - 1) .% param_occurrences) for i in 1:length(sources)]
+        if debug
+            # Simply print wrapper function and parameters
+            
+            # println("Parameters: ", sort(vcat(param_keys, collect(keys(def_params)))))
+            println("Parameters: ", sort(param_keys))
+            params_out = nothing
+            rmse = nothing
         
-        if gh_integral
-
-            # Objective function
-            input_tuples =  [tuple.(times_tile[i, :, :], inverse_mL_to_cubic_um.(densities_tile[i, :, :])) for i in 1:length(sources)]
-            dantigny_data_flat = [collect(dantigny_data[i, :, :]) for i in 1:length(sources)]
-
-            # println(size(times_tile))
-            # println(size(densities_tile))
-            # println(size(input_tuples))
-            # println(size(dantigny_data))
-            # println(size(dantigny_data_flat))
-
-            obj = params -> begin
-                err = 0.0
-                @inbounds for i in eachindex(sources)
-                    params_select = view(params, param_indices_per_src[i])
-                    ŷ = [wrapper(inputs, params_select) for inputs in input_tuples[i]]
-                    err += sum(abs2, ŷ .- dantigny_data_flat[i])
-                end
-                return err
-            end
-            objgrad = (params,_) -> begin
-                err = 0
-                @inbounds for i in eachindex(sources)
-                    params_select = view(params, param_indices_per_src[i])
-                    ŷ = [wrapper(inputs, params_select) for inputs in input_tuples[i]]
-                    err += sum(abs2, ŷ .- dantigny_data_flat[i])
-                end
-                return err
-            end
         else
+            # Model fitting
 
-            # Objective function (feedback model)
-            input_densities = inverse_mL_to_cubic_um.(densities)
-            samples_V_out = 1 ./ input_densities .- samples_Vₛ'
+            param_occurrences = [param_occurrences_dict[pkey] for pkey in param_keys]
 
-            params = zeros(length(keys(bounds_dict)))
-            for (i, key) in enumerate(keys(bounds_dict))
-                params[i] = mean(bounds_dict[key])
-            end
+            # Duplicate bounds/parameters for each source
+            param_starts = cumsum(param_occurrences) .- param_occurrences .+ 1
+            param_keys_dup = vcat([key for key in param_keys for _ in 1:param_occurrences[param_keys .== key][1]]...)
+            param_starts = cumsum(param_occurrences) .- param_occurrences .+ 1
+            bounds = [bounds_dict[key] for key in param_keys_dup]
 
-            obj = params -> begin
-                err = 0.0
-                @inbounds for i in eachindex(sources)
-                    params_select = view(params, param_indices_per_src[i])
+            param_indices_per_src = [param_starts .+ ((i - 1) .% param_occurrences) for i in 1:length(sources)]
+            
+            if gh_integral
 
-                    # run a single simulation at all times
-                    ŷ = reduce(vcat, [wrapper(samples_V_out[j, :], params_select) for j in eachindex(input_densities)]')
+                # Objective function
+                input_tuples =  [tuple.(times_tile[i, :, :], inverse_mL_to_cubic_um.(densities_tile[i, :, :])) for i in 1:length(sources)]
+                dantigny_data_flat = [collect(dantigny_data[i, :, :]) for i in 1:length(sources)]
 
-                    err += sum(abs2, ŷ .- dantigny_data[i, :, :])
+                # println(size(times_tile))
+                # println(size(densities_tile))
+                # println(size(input_tuples))
+                # println(size(dantigny_data))
+                # println(size(dantigny_data_flat))
+
+                obj = params -> begin
+                    err = 0.0
+                    @inbounds for i in eachindex(sources)
+                        params_select = view(params, param_indices_per_src[i])
+                        ŷ = [wrapper(inputs, params_select) for inputs in input_tuples[i]]
+                        err += sum(abs2, ŷ .- dantigny_data_flat[i])
+                    end
+                    return err
                 end
-                return err
-            end
-            objgrad = (params,_) -> begin
-                err = 0.0
-                @inbounds for i in eachindex(sources)
-                    params_select = view(params, param_indices_per_src[i])
-                    
-                    # run a single simulation at all times
-                    ŷ = reduce(vcat, [wrapper(samples_V_out[j, :], params_select) for j in eachindex(input_densities)]')
-
-                    err += sum(abs2, ŷ .- dantigny_data[i, :, :])
+                objgrad = (params,_) -> begin
+                    err = 0
+                    @inbounds for i in eachindex(sources)
+                        params_select = view(params, param_indices_per_src[i])
+                        ŷ = [wrapper(inputs, params_select) for inputs in input_tuples[i]]
+                        err += sum(abs2, ŷ .- dantigny_data_flat[i])
+                    end
+                    return err
                 end
-                return err
-            end
-        end
-        
-        # Fit model
-        println("Running first optimisation stage")
-        res = bboptimize(params -> obj(params);
-                    SearchRange = bounds,
-                    MaxSteps = max_steps,
-                    Method = :adaptive_de_rand_1_bin_radiuslimited)
-                    # Method = :adaptive_de_rand_1_bin)
-        p_opt = best_candidate(res)
-        best_fit = best_fitness(res)
+            else
 
-        println("Running second optimisation stage")
-        opt = Opt(:LN_COBYLA, length(bounds))
-        lower_bounds!(opt, [bnd[1] for bnd in bounds])
-        upper_bounds!(opt, [bnd[2] for bnd in bounds])
-        xtol_rel!(opt, 1e-4)
-        maxeval!(opt, 2000)
-        min_objective!(opt, objgrad)
+                # Objective function (feedback model)
+                input_densities = inverse_mL_to_cubic_um.(densities)
+                samples_V_out = 1 ./ input_densities .- samples_Vₛ'
 
-        (best_fit, res, code) = NLopt.optimize(opt, p_opt)
-        p_opt = res
-        println("Final fitness: ", best_fit)
-        
-
-        # Compute rmse
-        rmse = sqrt(best_fit / length(dantigny_data))
-
-        # Create a dictionary for the optimized parameters
-        params_out = Dict()
-        for (i, key) in enumerate(param_keys)
-            for j in 1:param_occurrences[i]
-                # Transform parameters back to original scale
-                key_split = split(string(key), "_")
-                if key_split[1] == "δ"
-                    key_new = Symbol(:σ_, key_split[2])
-                    val = p_opt[param_starts[i - 1] + j - 1] * exp(p_opt[param_starts[i] + j - 1])
-                elseif (key == :k_I || key == :k_C)
-                    println("Converting k to original scale")
-                    key_new = key
-                    val = exp(p_opt[param_starts[i] + j - 1])
-                else
-                    key_new = key
-                    val = p_opt[param_starts[i] + j - 1]
+                params = zeros(length(keys(bounds_dict)))
+                for (i, key) in enumerate(keys(bounds_dict))
+                    params[i] = mean(bounds_dict[key])
                 end
-                if haskey(params_out, key_new)
-                    push!(params_out[key_new], val)
-                else
-                    params_out[key_new] = [val]
+
+                obj = params -> begin
+                    err = 0.0
+                    @inbounds for i in eachindex(sources)
+                        params_select = view(params, param_indices_per_src[i])
+
+                        # run a single simulation at all times
+                        ŷ = reduce(vcat, [wrapper(samples_V_out[j, :], params_select) for j in eachindex(input_densities)]')
+
+                        err += sum(abs2, ŷ .- dantigny_data[i, :, :])
+                    end
+                    return err
+                end
+                objgrad = (params,_) -> begin
+                    err = 0.0
+                    @inbounds for i in eachindex(sources)
+                        params_select = view(params, param_indices_per_src[i])
+                        
+                        # run a single simulation at all times
+                        ŷ = reduce(vcat, [wrapper(samples_V_out[j, :], params_select) for j in eachindex(input_densities)]')
+
+                        err += sum(abs2, ŷ .- dantigny_data[i, :, :])
+                    end
+                    return err
+                end
+            end
+            
+            # Fit model
+            println("Running first optimisation stage")
+            res = bboptimize(params -> obj(params);
+                        SearchRange = bounds,
+                        MaxSteps = max_steps,
+                        Method = :adaptive_de_rand_1_bin_radiuslimited)
+                        # Method = :adaptive_de_rand_1_bin)
+            p_opt = best_candidate(res)
+            best_fit = best_fitness(res)
+
+            println("Running second optimisation stage")
+            opt = Opt(:LN_COBYLA, length(bounds))
+            lower_bounds!(opt, [bnd[1] for bnd in bounds])
+            upper_bounds!(opt, [bnd[2] for bnd in bounds])
+            xtol_rel!(opt, 1e-4)
+            maxeval!(opt, 2000)
+            min_objective!(opt, objgrad)
+
+            (best_fit, res, code) = NLopt.optimize(opt, p_opt)
+            p_opt = res
+            println("Final fitness: ", best_fit)
+            
+
+            # Compute rmse
+            rmse = sqrt(best_fit / length(dantigny_data))
+
+            # Create a dictionary for the optimized parameters
+            params_out = Dict()
+            for (i, key) in enumerate(param_keys)
+                for j in 1:param_occurrences[i]
+                    # Transform parameters back to original scale
+                    key_split = split(string(key), "_")
+                    if key_split[1] == "δ"
+                        key_new = Symbol(:σ_, key_split[2])
+                        val = p_opt[param_starts[i - 1] + j - 1] * exp(p_opt[param_starts[i] + j - 1])
+                    elseif (key == :k_I || key == :k_C)
+                        println("Converting k to original scale")
+                        key_new = key
+                        val = exp(p_opt[param_starts[i] + j - 1])
+                    else
+                        key_new = key
+                        val = p_opt[param_starts[i] + j - 1]
+                    end
+                    if haskey(params_out, key_new)
+                        push!(params_out[key_new], val)
+                    else
+                        params_out[key_new] = [val]
+                    end
                 end
             end
         end
