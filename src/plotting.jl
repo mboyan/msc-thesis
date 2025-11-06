@@ -992,13 +992,9 @@ __precompile__(false)
             n_nodes (int): number of Gauss-Hermite nodes for computing the visualised germination response
         """
 
-        @argcheck model_type in ["independent",
-                                "inhibitor", "inhibitor_thresh", "inhibitor_perm",
-                                "inducer", "inducer_thresh", "inducer_signal",
-                                "combined_inhibitor", "combined_inhibitor_thresh", "combined_inhibitor_perm",
-                                "combined_inducer", "combined_inducer_thresh", "combined_inducer_signal",
-                                "special_inhibitor", "special_inducer", "special_independent", "special_combined", "special_combined_thresh", "special_combined_signal",
-                                "feedback_inhibitor_perm"]
+        model_collection = load_model_collection()
+
+        @argcheck model_type in model_collection[1]
 
         # Create figure and subfigures
         fig = figure(figsize=(4.5, 0.6 + 1.5*length(densities_data)))
@@ -1049,31 +1045,84 @@ __precompile__(false)
         rmse = sqrt(error_total / (length(sources_data) * length(densities_data) * length(times)))
 
         # Model labels
-        model_labels = Dict(
-            "independent" => "Independent inducer/inhibitor model\n",
-            "inhibitor" => "Inducer-dependent inhibitor threshold and release\n",
-            "inhibitor_thresh" => "Inducer-dependent inhibition threshold\n",
-            "inhibitor_perm" => "Inducer-dependent inhibitor release\n",
-            "inducer" => "Inhibitor-dependent induction threshold and signal\n",
-            "inducer_thresh" => "Inhibitor-dependent induction threshold\n",
-            "inducer_signal" => "Inhibitor-dependent induction signal\n",
-            "combined_inhibitor" => "Combined model with inducer-dependent inhibitor\nthreshold and release, ",
-            "combined_inhibitor_thresh" => "Combined model with inducer-dependent\ninhibitor threshold, ",
-            "combined_inhibitor_perm" => "Combined model with inducer-dependent\ninhibitor release, ",
-            "combined_inducer" => "Combined model with inhibitor-dependent\ninduction threshold and signal, ",
-            "combined_inducer_thresh" => "Combined model with inhibitor-dependent\ninduction threshold, ",
-            "combined_inducer_signal" => "Combined model with inhibitor-dependent\ninduction signal, ",
-            "special_inhibitor" => "Inducer-dependent inhibition (varying permeability)\n",
-            "special_inducer" => "Inhibitor-dependent induction (varying permeability)\n",
-            "special_independent" => "Independent inducer/inhibitor model\n(varying permeability), ",
-            "special_combined" => "Combined model with inhibitor-dependent\ninduction (var. permeability), ",
-            "special_combined_thresh" => "Combined model with inhibitor-dependent\ninduction threshold (var. permeability), ",
-            "special_combined_signal" => "Combined model with inhibitor-dependent\ninduction signal (var. permeability), ",
-            "feedback_inhibitor_perm" => "Inhibitor-dependent germination with\n inducer-dependent permeability"
-        )
+        # model_labels = Dict(
+        #     "independent" => "Independent inducer/inhibitor model\n",
+        #     "inhibitor" => "Inducer-dependent inhibitor threshold and release\n",
+        #     "inhibitor_thresh" => "Inducer-dependent inhibition threshold\n",
+        #     "inhibitor_perm" => "Inducer-dependent inhibitor release\n",
+        #     "inducer" => "Inhibitor-dependent induction threshold and signal\n",
+        #     "inducer_thresh" => "Inhibitor-dependent induction threshold\n",
+        #     "inducer_signal" => "Inhibitor-dependent induction signal\n",
+        #     "combined_inhibitor" => "Combined model with inducer-dependent inhibitor\nthreshold and release",
+        #     "combined_inhibitor_thresh" => "Combined model with inducer-dependent\ninhibitor threshold",
+        #     "combined_inhibitor_perm" => "Combined model with inducer-dependent\ninhibitor release",
+        #     "combined_inducer" => "Combined model with inhibitor-dependent\ninduction threshold and signal",
+        #     "combined_inducer_thresh" => "Combined model with inhibitor-dependent\ninduction threshold",
+        #     "combined_inducer_signal" => "Combined model with inhibitor-dependent\ninduction signal",
+        #     "special_inhibitor" => "Inducer-dependent inhibition (varying permeability)\n",
+        #     "special_inducer" => "Inhibitor-dependent induction (varying permeability)\n",
+        #     "special_independent" => "Independent inducer/inhibitor model\n(varying permeability)",
+        #     "special_combined" => "Combined model with inhibitor-dependent\ninduction (var. permeability)",
+        #     "special_combined_thresh" => "Combined model with inhibitor-dependent\ninduction threshold (var. permeability)",
+        #     "special_combined_signal" => "Combined model with inhibitor-dependent\ninduction signal (var. permeability)",
+        #     "feedback_inhibitor_inducer_perm" => "Inhibitor-dependent germination with\n inducer-dependent permeability",
+        #     "feedback_combined_inducer_perm" => "2-factor germination with\n inducer-dependent permeability",
+        #     "feedback_inducer_inhibitor_perm" => "Inducer-dependent germination with\n inhibitor-dependent permeability",
+        #     "feedback_combined_inhibitor_perm" => "2-factor germination with\n inhibitor-dependent permeability",
+        #     "feedback_inhibitor_inducer_perm_thresh" => "Inhibitor-dependent germination with\ninducer-dependent permeability/threshold",
+        #     "feedback_combined_inducer_perm_thresh" => "2-factor germination with\ninducer-dependent permeability/threshold",
+        #     "feedback_inhibitor_inducer_perm_inhibitor_signal" => "Inhibitor-dependent germination with\ninducer-dep. permeability / inhibitor-dep. signal",
+        #     "feedback_inducer_inducer_perm_inhibitor_signal" => "Inducer-dependent germination with\ninducer-dep. permeability / inhibitor-dep. signal",
+        #     "feedback_combined_inducer_perm_inhibitor_signal" => "2-factor germination with\ninducer-dep. permeability / inhibitor-dep. signal",
+        #     "feedback_inhibitor_inhibitor_inducer_perm" => "Inhibitor-dependent germination with\ninhibitor+inducer-dependent permeability",
+        #     "feedback_inducer_inhibitor_inducer_perm" => "Inducer-dependent germination with\ninhibitor+inducer-dependent permeability",
+        #     "feedback_combined_inhibitor_inducer_perm" => "2-factor germination with\ninhibitor+inducer-dependent permeability",
+        #     "feedback_inducer_inhibitor_thresh_inducer_perm" => "Inducer-dependent germination with\ninhibitor-dep. thresh., inducer-dep. perm.",
+        #     "feedback_combined_inhibitor_thresh_inducer_perm" => "2-factor germination with\ninhibitor-dep. thresh., inducer-dep. perm.",
+        #     "inhibitor_thresh_inducer_signal" => "Inhibitor-dependent germination with\ninhibitor-dep. signal, inducer-dep. thresh", 
+        #     "combined_inhibitor_thresh_inducer_signal" => "2-factor germination with\ninhibitor-dep. signal, inducer-dep. thresh",
+        #     "feedback_inhibitor_inducer_thresh_inhibitor_perm" => "Inhibitor-dependent germination with\ninducer-dep. thresh, inhibitor-dep. perm.",
+        #     "feedback_combined_inducer_thresh_inhibitor_perm" => "2-factor germination with\ninducer-dep. thresh., inhibitor-dep. perm.",
+        #     "combined_inhibitor_thresh_inducer_thresh" => "2-factor germination with\ninducer-dep. thresh., inhibitor-dep. thresh.",
+        #     "feedback_inducer_inhibitor_perm_signal" => "Inducer-dependent germination with\ninhibitor-dependent perm. and induction signal",
+        #     "feedback_combined_inhibitor_perm_signal" => "2-factor germination with\ninhibitor-dependent perm. and induction signal",
+        #     "feedback_inducer_inhibitor_perm_thresh" => "Inducer-dependent germination with\ninhibitor-dependent perm. and induction thresh.",
+        #     "feedback_combined_inhibitor_perm_thresh" => "2-factor germination with\ninhibitor-dependent perm. and induction thresh.",
+        #     "feedback_inhibitor_inducer_perm_thresh_inhibitor_signal" => "Inhibitor-dependent germination with\ninducer-dep. perm./thresh., inhibitor-dep. signal",
+        #     "feedback_combined_inducer_perm_thresh_inhibitor_signal" => "2-factor germination with\ninducer-dep. perm./thresh., inhibitor-dep. signal",
+        #     "feedback_inhibitor_inducer_perm_thresh_inhibitor_perm" => "Inhibitor-dependent germination with\ninducer-dep. perm./thresh., inhibitor-dep. perm.",
+        #     "feedback_combined_inducer_perm_thresh_inhibitor_perm" => "2-factor germination with\ninducer-dep. perm./thresh., inhibitor-dep. perm.",
+        #     "feedback_combined_inducer_perm_thresh_inhibitor_thresh" => "2-factor germination with\ninducer-dep. pern./thresh., inhibitor-dep. thresh.",
+        #     "feedback_inhibitor_inhibitor_inducer_perm_inhibitor_signal" => "Inhibitor-dependent germination with\ninhibitor/inducer-dep. perm, inhibitor-dep. signal",
+        #     "feedback_inducer_inhibitor_inducer_perm_inhibitor_signal" => "Inducer-dependent germination with\ninhibitor/inducer-dep. perm, inhibitor-dep. signal",
+        #     "feedback_combined_inhibitor_inducer_perm_inhibitor_signal" => "2-factor germination with\ninhibitor/inducer-dep. perm, inhibitor-dep. signal",
+        #     "feedback_inducer_inducer_perm_inhibitor_thresh_signal" => "Inducer-dependent germination with\ninducer-dep. perm., inhbitor-dep. thresh./signal",
+        #     "feedback_combined_inducer_perm_inhibitor_thresh_signal" => "2-factor germination with\ninducer-dep. perm., inhbitor-dep. thresh./signal",
+        #     "feedback_inhibitor_inhibitor_inducer_perm_inhibitor_thresh" => "Inhibitor-dependent germination with\ninhibitor/inducer-dep. perm, inhibitor-dep thresh.",
+        #     "feedback_combined_inhibitor_inducer_perm_inhibitor_thresh" => "2-factor germination with\ninhibitor/inducer-dep. perm, inhibitor-dep thresh.",
+        #     "feedback_inhibitor_inducer_thresh_inhibitor_perm_signal" => "Inhibitor-dependent germination with\ninducer-dep. thresh., inhibitor-dep. perm./signal",
+        #     "feedback_combined_inducer_thresh_inhibitor_perm_signal" => "2-factor germination with\ninducer-dep. thresh., inhibitor-dep. perm./signal",
+        #     "combined_inhibitor_thresh_signal_inducer_thresh" => "2-factor germination with\ninhibitor-dep. thresh./signal, inducer-dep. thresh",
+        #     "feedback_combined_inhibitor_perm_thresh_inducer_thresh" => "2-factor germination with\ninhibitor-dep. perm./thresh., inducer-dep. thresh.",
+        #     "feedback_inducer_inhibitor_perm_thresh_signal" => "Inducer-dependent germination with\ninhibitor-dep. perm./thresh./signal",
+        #     "feedback_combined_inhibitor_perm_thresh_signal" => "2-factor germination with\ninhibitor-dep. perm./thresh./signal",
+        #     "feedback_inhibitor_inducer_perm_thresh_inhibitor_perm_signal" => "Inhibitor-dependent germination with\ninducer-dep. perm./thresh., inhibitor-dep. perm./signal", 
+        #     "feedback_combined_inducer_perm_thresh_inhibitor_perm_signal" => "2-factor germination with\ninducer-dep. perm./thresh., inhibitor-dep. perm./signal",
+        #     "feedback_combined_inhibitor_thresh_signal_inducer_perm_thresh" => "2-factor germination with inhibitor-dep.\nthresh./signal, inducer-dep. perm./thresh.",
+        #     "feedback_combined_inhibitor_perm_thresh_inducer_perm_thresh" => "2-factor germination with inhibitor/inducer-dep. perm,\ninhibitor/inducer-dep. thresholds",
+        #     "feedback_inducer_inhibitor_perm_thresh_signal_inducer_perm" => "Inducer-dependent germination with inhibitor/inducer-dep.\nperm., inhibitor-dep. thresh./signal",
+        #     "feedback_combined_inhibitor_perm_thresh_signal_inducer_perm" => "2-factor germination with inhibitor/inducer-dep. perm.,\ninhibitor-dep. thresh./signal",
+        #     "feedback_combined_inhibitor_perm_thresh_signal_inducer_thresh" => "2-factor germination with inhibitor/inducer-dep. thresh.,\ninhibitor-dep. perm./signal",
+        #     "feedback_combined_inhibitor_perm_thresh_signal_inducer_perm_thresh" => "2-factor germination with inhibitor/inducer-dep.\nperm./thresh., inhibitor-dep. signal"
+        # )
+        model_labels = Dict()
+        for (i, alias) in enumerate(model_collection[1])
+            model_labels[alias] = model_collection[3][i]
+        end
+
 
         plot_germination_data_fit(densities_data, p_maxs_data, density_range, germ_resp_final .* 100, sources_data, yerr=p_max_errs,
-                                    ax=top_axs, title=model_labels[model_type] * "RMSE: $(round(rmse, sigdigits=3))", ncols=2)
+                                    ax=top_axs, title=model_labels[model_type] * ", RMSE: $(round(rmse, sigdigits=3))", ncols=2)
 
         # tight_layout()
         gcf()
