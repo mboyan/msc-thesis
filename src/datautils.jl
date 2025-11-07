@@ -272,7 +272,7 @@ module DataUtils
             :k_I => n_src,
             :K_I => n_src,
             :K_cC => n_src,
-            :K_cI => 1,
+            :K_cI => n_src,
             :n => n_src,
             :μ_γ => 1,
             :δ_γ => 1,
