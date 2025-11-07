@@ -4,8 +4,10 @@
 - Closed-form solution models - solved using GH, else solved by MC;
 - Half-saturation constant of inducer is the same in affecting the inhibition threshold and in producing a germination signal - this is because **the inhibition threshold is considered shifted as a by-product of the inducing trigger** (in the case of 2-factor germination);
 - Cell wall porosity - insignificant variance (?);
-- Induction threshold may be shifted differently depending on carbon source, but also inhibition threshold may be shifted differently depending on carbon source (assuming different receptor protein types / signalling pathways ?) - DOUBLE-CHECK!
-- Michaelis-Menten kinetics for inducer (because receptor proteins are known to play a role) but simple linear relationship for inhibitor (because effect less known)
+- Induction threshold may be shifted differently depending on carbon source (because inducing signal pathways are inhibited in different proportions), but also inhibition threshold may be shifted differently depending on carbon source (because inducing signal pathways take effect in different proportions) - this means both the multiplication factors and the effective half-saturation constants are inducer-specific;
+- Michaelis-Menten kinetics for inducer (because receptor proteins are known to play a role) but simple linear relationship for inhibitor (because effect less known); HOWEVER: the (indirect) inhibitory effect on the induction threshold may be non-linear - therefore, Michaelis-Menten kinetics is used;
+- The inducing effect may occur via different parallel signalling pathways (RasA, GPRC to cAMP-PKA pathway...). This is clumped into a single Michaelis-Menten-like relationship with effective half-saturation constants, but the constituent signalling pathways may differ for varying types of carbon source molecules. Also: the constituent components of the inductive effect may contribute to permeability differently (in the case of inducer-modulated cell wall permeability). These assumptions inform which parameters are inducer-specific.
+- While there may also be different inhibitor types within a single spore, they can be clumped into a single inhibitor effect (we assume they do not interact) that is specific for a spore colony - therefore, purely inhibitor-dependent parameters do not vary under changing carbon source.
 
 ## Deliverables
 - Sensitivity analysis - global vs. local, algorithm, Julia package?
