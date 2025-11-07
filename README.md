@@ -6,6 +6,7 @@
 - Cell wall porosity - insignificant variance (?);
 - Induction threshold may be shifted differently depending on carbon source, but also inhibition threshold may be shifted differently depending on carbon source (assuming different receptor protein types / signalling pathways ?) - DOUBLE-CHECK!
 - Michaelis-Menten kinetics for inducer (because receptor proteins are known to play a role) but simple linear relationship for inhibitor (because effect less known)
+- The inducing effect may occur via different parallel signalling pathways (RasA, GPRC to cAMP-PKA pathway...). This is clumped into a single Michaelis-Menten-like relationship with effective half-saturation constants, but the constituent signalling pathways may differ for varying types of carbon source molecules.
 
 ## Deliverables
 - Sensitivity analysis - global vs. local, algorithm, Julia package?
