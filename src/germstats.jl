@@ -1015,7 +1015,6 @@ module GermStats
     end
     
     
-    # WARNING!!!!!!!!!!!!!!! THRESHOLD SHIFT INCONSISTENT WITH FEEDBACK MODELS!!!!!!!!!!!!!!!!!!
     function germ_response_inhibitor_dep_inducer_thresh_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cI, K_cC, k, μ_ω, σ_ω, μ_ψ, σ_ψ)
         """
         Compute the germination response for an inhibitor-dependent
