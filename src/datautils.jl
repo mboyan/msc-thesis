@@ -9,6 +9,7 @@ module DataUtils
     using BlackBoxOptim
     using Optim
     using NLopt
+    using LsqFit
     using MeshGrid
     using Distributions
     using ArgCheck
@@ -22,6 +23,7 @@ module DataUtils
     export parse_ijadpanahsaravi_data
     export dantigny
     export generate_dantigny_dataset
+    export fit_dantigny_to_germination_curve
     export fit_model_to_data
     export get_params_for_idx
     export fit_model_to_data_equilibrium
@@ -162,6 +164,68 @@ module DataUtils
     end
 
 
+    function fit_dantigny_to_germination_curve(germ_response, times; check_stderr=false)
+        """
+        Fit Dantigny model to simulated germination curve
+        from a mechanistic model.
+        inputs:
+            germ_response (Vector): germination fractions per time
+            times (Vector): time frames for germination fractions
+            check_stderr (Bool): whether to perform a standard error check
+        outputs:
+            p_max (Float): maximum germination percentage
+            τ (Float): half-saturation time for germination
+            ν (Float): design parameter
+        """
+
+        dantigny_wrapper(t, p) = dantigny.(t, 1 / (1 + exp(-p[1])), exp(p[2]), exp(p[3])) # [p_max, τ, ν] after transformations to become strictly positive
+
+        # Initial guesses
+        p0 = [maximum(germ_response)*0.99, times[Int(0.5 * length(times))], 2.0]
+        lower = [1e-6, 1e-6, 1e-3]
+        upper = [1.0, 86400, 100]
+
+        # Transform to strictly positive scales
+        p0[1] = log(p0[1]) - log1p(-p0[1])
+        p0[2] = log(p0[2])
+        p0[3] = log(p0[3])
+        lower[1] = log(lower[1]) - log1p(-lower[1])
+        lower[2] = log(lower[2])
+        lower[3] = log(lower[3])
+        upper[1] = log(upper[1]) - log1p(-upper[1])
+        upper[2] = log(upper[2])
+        upper[3] = log(upper[3])
+
+        # println(maximum(germ_response))
+        # println(p0)
+        # println(lower)
+        # println(upper)
+
+        fit = curve_fit(dantigny_wrapper, times, germ_response, p0, upper=upper, lower=lower)
+        params = coef(fit)
+
+        # Transform parameters
+        params[1] = 1 / (1 + exp(-params[1]))
+        params[2] = exp(params[2])
+        params[3] = exp(params[3])
+        
+        if check_stderr
+            resid = residuals(fit)
+            J = fit.jacobian
+            println(repr("text/plain", J))
+            rss = sum(resid.^2)
+            dof = length(times) - length(params)
+            sigma2 = rss / dof
+            cov = sigma2 * inv(J' * J)
+            stderr = sqrt.(diag(cov))
+
+            if any(stderr ./ params .> 0.1)
+                println("Questionable fit with parameters $(params); standard errors: $(stderr)")
+            end
+        end
+    end
+
+
     function fit_model_to_data(model_type, def_params, dantigny_data, times, sources, densities, bounds_dict; max_steps=10000, debug=false)
         """
         Fit a selected germination model to the data.
@@ -261,7 +325,6 @@ module DataUtils
         end
 
         # Define number of specific parameter occurrences (general or per carbon source)
-        # !!!!!!!!!!!!!!!!!!!!!!!!REVISE!!!!!!!!!!!!!!!!!!!!!!!!!!!
         n_src = length(sources)
         param_occurrences_dict = Dict(
             :s_max => n_src,
