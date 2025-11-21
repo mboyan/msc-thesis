@@ -30,8 +30,8 @@ module GermStats
     export germ_response_inhibitor_dep_inducer_signal_gh
     export germ_response_inhibitor_dep_inducer_gh
     export germ_response_inducer_dep_inhibitor_thresh_2_factor_gh
-    export germ_response_inducer_dep_inhibitor_perm_2_factor_gh
-    export germ_response_inducer_dep_inhibitor_2_factor_gh
+    # export germ_response_inducer_dep_inhibitor_perm_2_factor_gh
+    # export germ_response_inducer_dep_inhibitor_2_factor_gh
     export germ_response_inhibitor_dep_inducer_thresh_2_factor_gh
     export germ_response_inhibitor_dep_inducer_signal_2_factor_gh
     export germ_response_inhibitor_dep_inducer_2_factor_gh
@@ -351,14 +351,14 @@ module GermStats
         elseif model_type == "inducer_signal" # C
             @note_param germ_response = [germ_response_inhibitor_dep_inducer_signal_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:K_I], prms[:n], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
             
-        elseif model_type == "combined_inhibitor"
-            @note_param germ_response = [germ_response_inducer_dep_inhibitor_2_factor_gh(u, W, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:k_C], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω]) for t in times]
+        # elseif model_type == "combined_inhibitor"
+        #     @note_param germ_response = [germ_response_inducer_dep_inhibitor_2_factor_gh(u, W, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:k_C], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω]) for t in times]
             
         elseif model_type == "combined_inhibitor_thresh" # B
             @note_param germ_response = [germ_response_inducer_dep_inhibitor_thresh_2_factor_gh(u, W, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:k_C], prms[:K_cC], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω]) for t in times]
             
-        elseif model_type == "combined_inhibitor_perm"
-            @note_param germ_response = [germ_response_inducer_dep_inhibitor_perm_2_factor_gh(u, W, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω]) for t in times]
+        # elseif model_type == "combined_inhibitor_perm"
+        #     @note_param germ_response = [germ_response_inducer_dep_inhibitor_perm_2_factor_gh(u, W, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cC], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω]) for t in times]
             
         elseif model_type == "combined_inducer" # CE
             @note_param germ_response = [germ_response_inhibitor_dep_inducer_2_factor_gh(u, W3, t, ρₛ, prms[:c₀_cs], prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:Pₛ_cs], prms[:K_cI], prms[:K_cC], prms[:K_I], prms[:n], prms[:k_I], prms[:μ_γ], prms[:σ_γ], prms[:μ_ω], prms[:σ_ω], prms[:μ_ψ], prms[:σ_ψ]) for t in times]
@@ -387,7 +387,7 @@ module GermStats
         elseif model_type == "feedback_inhibitor_inducer_perm" # A
             ode_func = ode_inducer_dependent_perm!
             thresh_crit = thresh_criterion_inhibitor
-            @note_param f_maxs = [prms[:s_max]]
+            @note_param f_maxs = [prms[:s]]
             @note_param K_fs = [nothing, prms[:K_cC]]
             @note_param thresh_means = [prms[:μ_γ]]
             @note_param thresh_sds = [prms[:σ_γ]]
@@ -396,7 +396,7 @@ module GermStats
         elseif model_type == "feedback_combined_inducer_perm" # A
             ode_func = ode_inducer_dependent_perm!
             thresh_crit = thresh_criterion_combined
-            @note_param f_maxs = [prms[:s_max]]
+            @note_param f_maxs = [prms[:s]]
             @note_param K_fs = [nothing, prms[:K_cC]]
             @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
@@ -405,7 +405,7 @@ module GermStats
         elseif model_type == "feedback_inducer_inhibitor_perm" # D
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_inducer
-            @note_param f_maxs = [prms[:b_max]]
+            @note_param f_maxs = [prms[:b]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
             @note_param thresh_means = [prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_ω]]
@@ -414,7 +414,7 @@ module GermStats
         elseif model_type == "feedback_combined_inhibitor_perm" # D
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_combined
-            @note_param f_maxs = [prms[:b_max]]
+            @note_param f_maxs = [prms[:b]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
             @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
@@ -423,7 +423,7 @@ module GermStats
         elseif model_type == "feedback_inhibitor_inducer_perm_thresh" # AB
             ode_func = ode_inducer_dependent_perm!
             thresh_crit = thresh_criterion_inhibitor_shift
-            @note_param f_maxs = [prms[:s_max]]
+            @note_param f_maxs = [prms[:s]]
             @note_param K_fs = [nothing, prms[:K_cC]]
             @note_param thresh_means = [prms[:μ_γ]]
             @note_param thresh_sds = [prms[:σ_γ]]
@@ -432,7 +432,7 @@ module GermStats
         elseif model_type == "feedback_combined_inducer_perm_thresh" # AB
             ode_func = ode_inducer_dependent_perm!
             thresh_crit = thresh_criterion_combined_inhibitor_shift
-            @note_param f_maxs = [prms[:s_max]]
+            @note_param f_maxs = [prms[:s]]
             @note_param K_fs = [nothing, prms[:K_cC]]
             @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
@@ -441,7 +441,7 @@ module GermStats
         elseif model_type == "feedback_inhibitor_inducer_perm_inhibitor_signal" # AC
             ode_func = ode_inducer_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_inhibitor
-            @note_param f_maxs = [prms[:s_max]]
+            @note_param f_maxs = [prms[:s]]
             @note_param K_fs = [nothing, prms[:K_cC], prms[:K_I]]
             @note_param thresh_means = [prms[:μ_γ]]
             @note_param thresh_sds = [prms[:σ_γ]]
@@ -450,7 +450,7 @@ module GermStats
         elseif model_type == "feedback_inducer_inducer_perm_inhibitor_signal" # AC
             ode_func = ode_inducer_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_inducer
-            @note_param f_maxs = [prms[:s_max]]
+            @note_param f_maxs = [prms[:s]]
             @note_param K_fs = [nothing, prms[:K_cC], prms[:K_I]]
             @note_param thresh_means = [prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_ω]]
@@ -459,7 +459,7 @@ module GermStats
         elseif model_type == "feedback_combined_inducer_perm_inhibitor_signal" # AC
             ode_func = ode_inducer_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_combined
-            @note_param f_maxs = [prms[:s_max]]
+            @note_param f_maxs = [prms[:s]]
             @note_param K_fs = [nothing, prms[:K_cC], prms[:K_I]]
             @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
@@ -468,7 +468,7 @@ module GermStats
         elseif model_type == "feedback_inhibitor_inhibitor_inducer_perm" # AD
             ode_func = ode_inducer_and_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_inhibitor
-            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param f_maxs = [prms[:b], prms[:s]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
             @note_param thresh_means = [prms[:μ_γ]]
             @note_param thresh_sds = [prms[:σ_γ]]
@@ -477,7 +477,7 @@ module GermStats
         elseif model_type == "feedback_inducer_inhibitor_inducer_perm" # AD
             ode_func = ode_inducer_and_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_inducer
-            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param f_maxs = [prms[:b], prms[:s]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
             @note_param thresh_means = [prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_ω]]
@@ -486,7 +486,7 @@ module GermStats
         elseif model_type == "feedback_combined_inhibitor_inducer_perm" # AD
             ode_func = ode_inducer_and_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_combined
-            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param f_maxs = [prms[:b], prms[:s]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
             @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
@@ -495,7 +495,7 @@ module GermStats
         elseif model_type == "feedback_inducer_inhibitor_thresh_inducer_perm" # AE
             ode_func = ode_inducer_dependent_perm!
             thresh_crit = thresh_criterion_inducer_shift
-            @note_param f_maxs = [prms[:s_max]]
+            @note_param f_maxs = [prms[:s]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
             @note_param thresh_means = [prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_ω]]
@@ -504,7 +504,7 @@ module GermStats
         elseif model_type == "feedback_combined_inhibitor_thresh_inducer_perm" # AE
             ode_func = ode_inducer_dependent_perm!
             thresh_crit = thresh_criterion_combined_inducer_shift
-            @note_param f_maxs = [prms[:s_max]]
+            @note_param f_maxs = [prms[:s]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
             @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
@@ -519,7 +519,7 @@ module GermStats
         elseif model_type == "feedback_inhibitor_inducer_thresh_inhibitor_perm" # BD
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_inhibitor_shift
-            @note_param f_maxs = [prms[:b_max]]
+            @note_param f_maxs = [prms[:b]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
             @note_param thresh_means = [prms[:μ_γ]]
             @note_param thresh_sds = [prms[:σ_γ]]
@@ -528,7 +528,7 @@ module GermStats
         elseif model_type == "feedback_combined_inducer_thresh_inhibitor_perm" # BD
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_combined_inhibitor_shift
-            @note_param f_maxs = [prms[:b_max]]
+            @note_param f_maxs = [prms[:b]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
             @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
@@ -540,7 +540,7 @@ module GermStats
         elseif model_type == "feedback_inducer_inhibitor_perm_signal" # CD
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_inducer_signal
-            @note_param f_maxs = [prms[:b_max]]
+            @note_param f_maxs = [prms[:b]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
             @note_param thresh_means = [prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_ω]]
@@ -549,7 +549,7 @@ module GermStats
         elseif model_type == "feedback_combined_inhibitor_perm_signal" # CD
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_combined_inducer_signal
-            @note_param f_maxs = [prms[:b_max]]
+            @note_param f_maxs = [prms[:b]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
             @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
@@ -558,7 +558,7 @@ module GermStats
         elseif model_type == "feedback_inducer_inhibitor_perm_thresh" # DE
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_inducer_shift
-            @note_param f_maxs = [prms[:b_max]]
+            @note_param f_maxs = [prms[:b]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
             @note_param thresh_means = [prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_ω]]
@@ -567,7 +567,7 @@ module GermStats
         elseif model_type == "feedback_combined_inhibitor_perm_thresh" # DE
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_combined_inducer_shift
-            @note_param f_maxs = [prms[:b_max]]
+            @note_param f_maxs = [prms[:b]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
             @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
@@ -576,7 +576,7 @@ module GermStats
         elseif model_type == "feedback_inhibitor_inducer_perm_thresh_inhibitor_signal" # ABC
             ode_func = ode_inducer_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_inhibitor_shift
-            @note_param f_maxs = [prms[:s_max]]
+            @note_param f_maxs = [prms[:s]]
             @note_param K_fs = [nothing, prms[:K_cC], prms[:K_I]]
             @note_param thresh_means = [prms[:μ_γ]]
             @note_param thresh_sds = [prms[:σ_γ]]
@@ -585,7 +585,7 @@ module GermStats
         elseif model_type == "feedback_combined_inducer_perm_thresh_inhibitor_signal" # ABC
             ode_func = ode_inducer_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_combined_inhibitor_shift
-            @note_param f_maxs = [prms[:s_max]]
+            @note_param f_maxs = [prms[:s]]
             @note_param K_fs = [nothing, prms[:K_cC], prms[:K_I]]
             @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
@@ -594,7 +594,7 @@ module GermStats
         elseif model_type == "feedback_inhibitor_inducer_perm_thresh_inhibitor_perm" # ABD
             ode_func = ode_inducer_and_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_inhibitor_shift
-            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param f_maxs = [prms[:b], prms[:s]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
             @note_param thresh_means = [prms[:μ_γ]]
             @note_param thresh_sds = [prms[:σ_γ]]
@@ -603,7 +603,7 @@ module GermStats
         elseif model_type == "feedback_combined_inducer_perm_thresh_inhibitor_perm" # ABD
             ode_func = ode_inducer_and_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_combined_inhibitor_shift
-            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param f_maxs = [prms[:b], prms[:s]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
             @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
@@ -612,7 +612,7 @@ module GermStats
         elseif model_type == "feedback_combined_inducer_perm_thresh_inhibitor_thresh" # ABE
             ode_func = ode_inducer_dependent_perm!
             thresh_crit = thresh_criterion_combined_shift
-            @note_param f_maxs = [prms[:s_max]]
+            @note_param f_maxs = [prms[:s]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
             @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
@@ -621,7 +621,7 @@ module GermStats
         elseif model_type == "feedback_inhibitor_inhibitor_inducer_perm_inhibitor_signal" # ACD
             ode_func = ode_inducer_and_inhibitor_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_inhibitor
-            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param f_maxs = [prms[:b], prms[:s]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
             @note_param thresh_means = [prms[:μ_γ]]
             @note_param thresh_sds = [prms[:σ_γ]]
@@ -630,7 +630,7 @@ module GermStats
         elseif model_type == "feedback_inducer_inhibitor_inducer_perm_inhibitor_signal" # ACD
             ode_func = ode_inducer_and_inhibitor_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_inducer
-            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param f_maxs = [prms[:b], prms[:s]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
             @note_param thresh_means = [prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_ω]]
@@ -639,7 +639,7 @@ module GermStats
         elseif model_type == "feedback_combined_inhibitor_inducer_perm_inhibitor_signal" # ACD
             ode_func = ode_inducer_and_inhibitor_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_combined
-            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param f_maxs = [prms[:b], prms[:s]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
             @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
@@ -648,7 +648,7 @@ module GermStats
         elseif model_type == "feedback_inducer_inducer_perm_inhibitor_thresh_signal" # ACE
             ode_func = ode_inducer_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_inducer_signal_shift
-            @note_param f_maxs = [prms[:s_max]]
+            @note_param f_maxs = [prms[:s]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
             @note_param thresh_means = [prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_ω]]
@@ -657,7 +657,7 @@ module GermStats
         elseif model_type == "feedback_combined_inducer_perm_inhibitor_thresh_signal" # ACE
             ode_func = ode_inducer_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_combined_inducer_signal_shift
-            @note_param f_maxs = [prms[:s_max]]
+            @note_param f_maxs = [prms[:s]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
             @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
@@ -666,7 +666,7 @@ module GermStats
         elseif model_type == "feedback_inducer_inhibitor_inducer_perm_inhibitor_thresh" # ADE
             ode_func = ode_inducer_and_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_inducer_shift
-            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param f_maxs = [prms[:b], prms[:s]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
             @note_param thresh_means = [prms[:μ_γ]]
             @note_param thresh_sds = [prms[:σ_γ]]
@@ -675,7 +675,7 @@ module GermStats
         elseif model_type == "feedback_combined_inhibitor_inducer_perm_inhibitor_thresh" # ADE
             ode_func = ode_inducer_and_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_combined_inducer_shift
-            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param f_maxs = [prms[:b], prms[:s]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
             @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
@@ -684,7 +684,7 @@ module GermStats
          elseif model_type == "feedback_inhibitor_inducer_thresh_inhibitor_perm_signal" # BCD
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_inhibitor_signal_shift
-            @note_param f_maxs = [prms[:b_max]]
+            @note_param f_maxs = [prms[:b]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
             @note_param thresh_means = [prms[:μ_γ]]
             @note_param thresh_sds = [prms[:σ_γ]]
@@ -693,7 +693,7 @@ module GermStats
         elseif model_type == "feedback_combined_inducer_thresh_inhibitor_perm_signal" # BCD
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_combined_inhibitor_signal_shift
-            @note_param f_maxs = [prms[:b_max]]
+            @note_param f_maxs = [prms[:b]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
             @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
@@ -705,7 +705,7 @@ module GermStats
         elseif model_type == "feedback_combined_inhibitor_perm_thresh_inducer_thresh" # BDE
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_combined_shift
-            @note_param f_maxs = [prms[:b_max]]
+            @note_param f_maxs = [prms[:b]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
             @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
@@ -714,7 +714,7 @@ module GermStats
         elseif model_type == "feedback_inducer_inhibitor_perm_thresh_signal" # CDE
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_inducer_signal_shift
-            @note_param f_maxs = [prms[:b_max]]
+            @note_param f_maxs = [prms[:b]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
             @note_param thresh_means = [prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_ω]]
@@ -723,7 +723,7 @@ module GermStats
         elseif model_type == "feedback_combined_inhibitor_perm_thresh_signal" # CDE
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_combined_inducer_signal_shift
-            @note_param f_maxs = [prms[:b_max]]
+            @note_param f_maxs = [prms[:b]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
             @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
@@ -732,7 +732,7 @@ module GermStats
         elseif model_type == "feedback_inhibitor_inducer_perm_thresh_inhibitor_perm_signal" # ABCD
             ode_func = ode_inducer_and_inhibitor_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_inhibitor_shift
-            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param f_maxs = [prms[:b], prms[:s]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
             @note_param thresh_means = [prms[:μ_γ]]
             @note_param thresh_sds = [prms[:σ_γ]]
@@ -741,7 +741,7 @@ module GermStats
         elseif model_type == "feedback_combined_inducer_perm_thresh_inhibitor_perm_signal" # ABCD
             ode_func = ode_inducer_and_inhibitor_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_combined_inhibitor_shift
-            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param f_maxs = [prms[:b], prms[:s]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
             @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
@@ -750,7 +750,7 @@ module GermStats
         elseif model_type == "feedback_combined_inhibitor_thresh_signal_inducer_perm_thresh" # ABCE
             ode_func = ode_inducer_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_combined_inhibitor_shift_inducer_signal_shift
-            @note_param f_maxs = [prms[:s_max]]
+            @note_param f_maxs = [prms[:s]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
             @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
@@ -759,7 +759,7 @@ module GermStats
         elseif model_type == "feedback_combined_inhibitor_perm_thresh_inducer_perm_thresh" # ABDE
             ode_func = ode_inducer_and_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_combined_shift
-            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param f_maxs = [prms[:b], prms[:s]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
             @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
@@ -768,7 +768,7 @@ module GermStats
         elseif model_type == "feedback_inducer_inhibitor_perm_thresh_signal_inducer_perm" # ACDE
             ode_func = ode_inducer_and_inhibitor_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_inducer_signal_shift
-            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param f_maxs = [prms[:b], prms[:s]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
             @note_param thresh_means = [prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_ω]]
@@ -777,7 +777,7 @@ module GermStats
         elseif model_type == "feedback_combined_inhibitor_perm_thresh_signal_inducer_perm" # ACDE
             ode_func = ode_inducer_and_inhibitor_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_combined_inducer_signal_shift
-            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param f_maxs = [prms[:b], prms[:s]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
             @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
@@ -786,7 +786,7 @@ module GermStats
         elseif model_type == "feedback_combined_inhibitor_perm_thresh_signal_inducer_thresh" # BCDE
             ode_func = ode_inhibitor_dependent_perm!
             thresh_crit = thresh_criterion_combined_inhibitor_shift_inducer_signal_shift
-            @note_param f_maxs = [prms[:b_max]]
+            @note_param f_maxs = [prms[:b]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
             @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
@@ -795,7 +795,7 @@ module GermStats
         elseif model_type == "feedback_combined_inhibitor_perm_thresh_signal_inducer_perm_thresh" # ABCDE
             ode_func = ode_inducer_and_inhibitor_dependent_perm_inhibitor_dependent_signal!
             thresh_crit = thresh_criterion_combined_inhibitor_shift_inducer_signal_shift
-            @note_param f_maxs = [prms[:b_max], prms[:s_max]]
+            @note_param f_maxs = [prms[:b], prms[:s]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC], prms[:K_I]]
             @note_param thresh_means = [prms[:μ_γ], prms[:μ_ω]]
             @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
@@ -1322,81 +1322,81 @@ module GermStats
     end
 
 
-    function germ_response_inducer_dep_inhibitor_perm_2_factor_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cC, μ_γ, σ_γ, μ_ω, σ_ω)
-        """
-        Compute the germination response for an inducer-dependent
-        inhibitor permeation for a given set of parameters,
-        without considering an external initial concentration.
-        Uses Gauss-Hermite approximation.
-        inputs:
-            u - transformed Gauss-Hermite nodes
-            W - transformed Gauss-Hermite weights (matrix)
-            t - time in seconds
-            ρₛ - spore density in spores/um^3
-            c₀_cs - initial concentration of carbon source in M
-            d_hp - thickness of the hydrophobin layer in um
-            ξ - spore radius in um
-            κ - cell wall thickness in um
-            Pₛ - permeation constant for inhibitor in um/s
-            Pₛ_cs - permeation constant for the carbon source in um/s
-            K_cC - half-saturation constant for the carbon source
-            μ_γ - mean inhibition threshold
-            σ_γ - standard deviation of inhibition threshold
-            μ_ω - mean induction threshold
-            σ_ω - standard deviation of induction threshold
-        output:
-            the germination response for the given parameters (normalized)
-        """
+    # function germ_response_inducer_dep_inhibitor_perm_2_factor_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cC, μ_γ, σ_γ, μ_ω, σ_ω)
+    #     """
+    #     Compute the germination response for an inducer-dependent
+    #     inhibitor permeation for a given set of parameters,
+    #     without considering an external initial concentration.
+    #     Uses Gauss-Hermite approximation.
+    #     inputs:
+    #         u - transformed Gauss-Hermite nodes
+    #         W - transformed Gauss-Hermite weights (matrix)
+    #         t - time in seconds
+    #         ρₛ - spore density in spores/um^3
+    #         c₀_cs - initial concentration of carbon source in M
+    #         d_hp - thickness of the hydrophobin layer in um
+    #         ξ - spore radius in um
+    #         κ - cell wall thickness in um
+    #         Pₛ - permeation constant for inhibitor in um/s
+    #         Pₛ_cs - permeation constant for the carbon source in um/s
+    #         K_cC - half-saturation constant for the carbon source
+    #         μ_γ - mean inhibition threshold
+    #         σ_γ - standard deviation of inhibition threshold
+    #         μ_ω - mean induction threshold
+    #         σ_ω - standard deviation of induction threshold
+    #     output:
+    #         the germination response for the given parameters (normalized)
+    #     """
 
-        # Distributions
-        dist_γ, dist_ω = normal_distributions([μ_γ, μ_ω], [σ_γ, σ_ω])
+    #     # Distributions
+    #     dist_γ, dist_ω = normal_distributions([μ_γ, μ_ω], [σ_γ, σ_ω])
 
-        # Signals
-        β, s = calc_signals(ξ, d_hp, κ, c₀_cs, ρₛ, Pₛ, Pₛ_cs, K_cC, t)
+    #     # Signals
+    #     β, s = calc_signals(ξ, d_hp, κ, c₀_cs, ρₛ, Pₛ, Pₛ_cs, K_cC, t)
 
-        tail = (1 .- cdf.(dist_γ, β)) .* cdf.(dist_ω, s)
+    #     tail = (1 .- cdf.(dist_γ, β)) .* cdf.(dist_ω, s)
 
-        return sum(W .* tail)
-    end
+    #     return sum(W .* tail)
+    # end
 
 
-    function germ_response_inducer_dep_inhibitor_2_factor_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cC, k, μ_γ, σ_γ, μ_ω, σ_ω)
-        """
-        Compute the germination response for an inducer-dependent
-        inhibitor threshold and permeation and an additional
-        inducer-dependent germination for a given set of parameters.
-        Uses Gauss-Hermite approximation.
-        inputs:
-            u - transformed Gauss-Hermite nodes
-            W - transformed Gauss-Hermite weights (matrix)
-            t - time in seconds
-            ρₛ - spore density in spores/um^3
-            c₀_cs - initial concentration of carbon source in M
-            d_hp - thickness of the hydrophobin layer in um
-            ξ - spore radius in um
-            κ - cell wall thickness in um
-            Pₛ - permeation constant for the inhibitor in um/s
-            Pₛ_cs - permeation constant for the carbon source in um/s
-            K_cC - half-saturation constant for the carbon source
-            k - proportionality constant for threshold modulation vs permeability modulation
-            μ_γ - mean inhibition threshold
-            σ_γ - standard deviation of inhibition threshold
-            μ_ω - mean induction threshold
-            σ_ω - standard deviation of induction threshold
-        output:
-            the germination response for the given parameters (normalized)
-        """
+    # function germ_response_inducer_dep_inhibitor_2_factor_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cC, k, μ_γ, σ_γ, μ_ω, σ_ω)
+    #     """
+    #     Compute the germination response for an inducer-dependent
+    #     inhibitor threshold and permeation and an additional
+    #     inducer-dependent germination for a given set of parameters.
+    #     Uses Gauss-Hermite approximation.
+    #     inputs:
+    #         u - transformed Gauss-Hermite nodes
+    #         W - transformed Gauss-Hermite weights (matrix)
+    #         t - time in seconds
+    #         ρₛ - spore density in spores/um^3
+    #         c₀_cs - initial concentration of carbon source in M
+    #         d_hp - thickness of the hydrophobin layer in um
+    #         ξ - spore radius in um
+    #         κ - cell wall thickness in um
+    #         Pₛ - permeation constant for the inhibitor in um/s
+    #         Pₛ_cs - permeation constant for the carbon source in um/s
+    #         K_cC - half-saturation constant for the carbon source
+    #         k - proportionality constant for threshold modulation vs permeability modulation
+    #         μ_γ - mean inhibition threshold
+    #         σ_γ - standard deviation of inhibition threshold
+    #         μ_ω - mean induction threshold
+    #         σ_ω - standard deviation of induction threshold
+    #     output:
+    #         the germination response for the given parameters (normalized)
+    #     """
 
-        # Distributions
-        dist_γ, dist_ω = normal_distributions([μ_γ, μ_ω], [σ_γ, σ_ω])
+    #     # Distributions
+    #     dist_γ, dist_ω = normal_distributions([μ_γ, μ_ω], [σ_γ, σ_ω])
 
-        # Signals
-        β, s = calc_signals(ξ, d_hp, κ, c₀_cs, ρₛ, Pₛ, Pₛ_cs, K_cC, t)
+    #     # Signals
+    #     β, s = calc_signals(ξ, d_hp, κ, c₀_cs, ρₛ, Pₛ, Pₛ_cs, K_cC, t)
 
-        tail = (1 .- cdf.(dist_γ, β .- k .* s)) .* cdf.(dist_ω, s)
+    #     tail = (1 .- cdf.(dist_γ, β .- k .* s)) .* cdf.(dist_ω, s)
 
-        return sum(W .* tail)
-    end
+    #     return sum(W .* tail)
+    # end
 
 
     function germ_response_inhibitor_dep_inducer_thresh_2_factor_gh(u, W3, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cI, K_cC, k, μ_γ, σ_γ, μ_ω, σ_ω, μ_ψ, σ_ψ)
@@ -2598,7 +2598,7 @@ module GermStats
         """
         cinI, cinC, coutI = u
         
-        g = (1 + p.f_maxs[1] * cinC / (p.K_fs[2] + cinC)) * p.A # f_maxs[1] is s_max, K_fs[2] is K_cC
+        g = (1 + p.f_maxs[1] * cinC / (p.K_fs[2] + cinC)) * p.A # f_maxs[1] is s, K_fs[2] is K_cC
         rateI = g * p.Pₛ_I
         rateC = g * p.Pₛ_C
 
@@ -2618,7 +2618,7 @@ module GermStats
         """
         cinI, cinC, coutI = u
         
-        g = (1 - p.f_maxs[1] * cinI / (p.K_fs[1] + cinI)) * p.A # f_maxs[1] is b_max, K_fs[1] is K_cI
+        g = (1 - p.f_maxs[1] * cinI / (p.K_fs[1] + cinI)) * p.A # f_maxs[1] is b, K_fs[1] is K_cI
         rateI = g * p.Pₛ_I
         rateC = g * p.Pₛ_C
 
@@ -2640,7 +2640,7 @@ module GermStats
 
         cinI = max(cinI, 0.0)
         
-        s = p.f_maxs[1] / (1 + (cinI / p.K_fs[3]) ^ p.n) # f_maxs[1] is s_max, K_fs[3] is K_I
+        s = p.f_maxs[1] / (1 + (cinI / p.K_fs[3]) ^ p.n) # f_maxs[1] is s, K_fs[3] is K_I
         g = (1 + s * cinC / (p.K_fs[2] + cinC)) * p.A # K_fs[2] is K_cC
         rateI = g * p.Pₛ_I
         rateC = g * p.Pₛ_C
@@ -2661,7 +2661,7 @@ module GermStats
         """
         cinI, cinC, coutI = u
         
-        g = (1 - p.f_maxs[1] * cinI / (p.K_fs[1] + cinI) + p.f_maxs[2] * cinC / (p.K_fs[2] + cinC)) * p.A # f_maxs[1] is b_max, f_maxs[2] is s_max, K_fs[1] is K_cI, K_fs[2] is K_cC
+        g = (1 - p.f_maxs[1] * cinI / (p.K_fs[1] + cinI) + p.f_maxs[2] * cinC / (p.K_fs[2] + cinC)) * p.A # f_maxs[1] is b, f_maxs[2] is s, K_fs[1] is K_cI, K_fs[2] is K_cC
         rateI = g * p.Pₛ_I
         rateC = g * p.Pₛ_C
 
@@ -2686,7 +2686,7 @@ module GermStats
         cinC = max(cinC, 0.0)
         
         inh_factor = (1 + (cinI / p.K_fs[3]) ^ p.n) # K_fs[3] is K_I
-        g = (1 - p.f_maxs[1] * cinI / (p.K_fs[1] + cinI) + p.f_maxs[2] * cinC / ((p.K_fs[2] + cinC) * inh_factor)) * p.A # f_maxs[1] is b_max, f_maxs[2] is s_max, K_fs[1] is K_cI, K_fs[2] is K_cC
+        g = (1 - p.f_maxs[1] * cinI / (p.K_fs[1] + cinI) + p.f_maxs[2] * cinC / ((p.K_fs[2] + cinC) * inh_factor)) * p.A # f_maxs[1] is b, f_maxs[2] is s, K_fs[1] is K_cI, K_fs[2] is K_cC
         rateI = g * p.Pₛ_I
         rateC = g * p.Pₛ_C
 

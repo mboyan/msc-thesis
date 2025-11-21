@@ -120,8 +120,14 @@ module DataUtils
             t_max (float): maximum time point in seconds
             n_pts (int): number of time points to generate
         outputs:
-            times (Vector): vector of time points
             dantigny_data (Matrix): matrix of time-dependent germination data
+            times (Vector): vector of time points
+            sources (Vector): unique string identifiers of carbon sources
+            densities (Vector): unique spore densities used in the data
+            errs (Matrix): negative and positive offsets of p_max CIs from the mean
+            p_maxs (Matrix): maximum germination percentages
+            taus (Matrix): characteristic germination times
+            nus (Matrix): design parameters
         """
         
         sources = unique(df_germination[!, :CarbonSource])
@@ -164,7 +170,7 @@ module DataUtils
     end
 
 
-    function fit_dantigny_to_germination_curve(germ_response, times; check_stderr=false)
+    function fit_dantigny_to_germination_curve(germ_response, times)#; check_stderr=false)
         """
         Fit Dantigny model to simulated germination curve
         from a mechanistic model.
@@ -181,48 +187,27 @@ module DataUtils
         dantigny_wrapper(t, p) = dantigny.(t, 1 / (1 + exp(-p[1])), exp(p[2]), exp(p[3])) # [p_max, τ, ν] after transformations to become strictly positive
 
         # Initial guesses
-        p0 = [maximum(germ_response)*0.99, times[Int(0.5 * length(times))], 2.0]
-        lower = [1e-6, 1e-6, 1e-3]
-        upper = [1.0, 86400, 100]
+        p0 = [0.5, times[Int(0.5 * length(times))], 2.0]
 
         # Transform to strictly positive scales
         p0[1] = log(p0[1]) - log1p(-p0[1])
         p0[2] = log(p0[2])
         p0[3] = log(p0[3])
-        lower[1] = log(lower[1]) - log1p(-lower[1])
-        lower[2] = log(lower[2])
-        lower[3] = log(lower[3])
-        upper[1] = log(upper[1]) - log1p(-upper[1])
-        upper[2] = log(upper[2])
-        upper[3] = log(upper[3])
 
-        # println(maximum(germ_response))
-        # println(p0)
-        # println(lower)
-        # println(upper)
-
-        fit = curve_fit(dantigny_wrapper, times, germ_response, p0, upper=upper, lower=lower)
+        fit = curve_fit(dantigny_wrapper, times, germ_response, p0)
         params = coef(fit)
+        rmse = sqrt(mean(residuals(fit) .^ 2))
+        
+        if rmse > 0.03 # average deviation > 3 percentage points in germination
+            println("High RMSE: $rmse")
+        end
 
         # Transform parameters
         params[1] = 1 / (1 + exp(-params[1]))
         params[2] = exp(params[2])
         params[3] = exp(params[3])
-        
-        if check_stderr
-            resid = residuals(fit)
-            J = fit.jacobian
-            println(repr("text/plain", J))
-            rss = sum(resid.^2)
-            dof = length(times) - length(params)
-            sigma2 = rss / dof
-            cov = sigma2 * inv(J' * J)
-            stderr = sqrt.(diag(cov))
 
-            if any(stderr ./ params .> 0.1)
-                println("Questionable fit with parameters $(params); standard errors: $(stderr)")
-            end
-        end
+        return params
     end
 
 
