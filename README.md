@@ -1,5 +1,8 @@
 # Notes
 
+## Important for BMA
+- Check if experimental _triplets_, sample sizes etc. (see Ijadpanahsaravi et al. 2023) should be considered in BMA process.
+
 ## Update of Assumptions
 - Closed-form solution models - solved using GH, else solved by MC;
 - Half-saturation constant of inducer is the same in affecting the inhibition threshold and in producing a germination signal - this is because **the inhibition threshold is considered shifted as a by-product of the inducing trigger** (in the case of 2-factor germination);
