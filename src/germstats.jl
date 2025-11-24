@@ -1266,6 +1266,18 @@ module GermStats
 
         # Signals
         β, s = calc_signals(ξ, d_hp, κ, c₀_cs, ρₛ, Pₛ, Pₛ_cs, K_cC, t)
+        # if any(β .< 0)
+        #     println(Pₛ)
+        #     println(Pₛ_cs)
+        #     println(K_cC)
+        #     println(t)
+        #     println(β)
+        #     V, A, V_cw = calc_geom_variables(ξ, d_hp, κ)
+        #     println(V[1])
+        #     println(A[1])
+        #     println(V_cw[1])
+        #     println(ρₛ .* V)
+        # end
 
         # Reshape
         n_nodes = size(u, 1)
@@ -2598,6 +2610,10 @@ module GermStats
         """
         cinI, cinC, coutI = u
         
+        # cinI = max(cinI, 0.0)
+        # cinC = max(cinC, 0.0)
+        # coutI = max(coutI, 0.0)
+        
         g = (1 + p.f_maxs[1] * cinC / (p.K_fs[2] + cinC)) * p.A # f_maxs[1] is s, K_fs[2] is K_cC
         rateI = g * p.Pₛ_I
         rateC = g * p.Pₛ_C
@@ -2617,6 +2633,9 @@ module GermStats
         cell wall permeability.
         """
         cinI, cinC, coutI = u
+
+        cinI = max(cinI, 0.0)
+        cinC = max(cinC, 0.0)
         
         g = (1 - p.f_maxs[1] * cinI / (p.K_fs[1] + cinI)) * p.A # f_maxs[1] is b, K_fs[1] is K_cI
         rateI = g * p.Pₛ_I
@@ -3007,9 +3026,19 @@ module GermStats
             remake(prob; u0 = [samples_ψ[i], 0.0, 0.0], p = p_new)
         end
 
+        # condition(u, t, integrator) = any(u .< 0) || any(isnan.(u))
+        # affect!(integrator) = error("Invalid state at t=$(integrator.t): u=$(integrator.u)")
+
+        condition(u, t, integrator) = any(u .< 0)
+        affect!(integrator) = (integrator.u .= max.(integrator.u, 0.0))
+
+        cb = DiscreteCallback(condition, affect!)
+
+        unstable_check(dt, u, p, t) = any(isnan, u) || any(isinf, u) || dt < 1e-16
+
         # Run ODE ensembles
         ep = EnsembleProblem(prob; prob_func=prob_func)
-        sols = solve(ep, AutoTsit5(Rosenbrock23()), EnsembleThreads(), trajectories=n_samp, saveat=times, abstol=1e-6, reltol=1e-6)
+        sols = solve(ep, AutoTsit5(Rosenbrock23()), EnsembleThreads(), trajectories=n_samp, saveat=times, abstol=1e-6, reltol=1e-6, callback=cb, unstable_check=unstable_check)
 
         # Evaluate fraction germinated
         n_times = length(times)
@@ -3020,8 +3049,8 @@ module GermStats
         @inbounds for (ti, t) in enumerate(times)
             for i in 1:n_samp
                 u = sols[i](t)
-                c_in[1, i] = u[1]
-                c_in[2, i] = u[2]
+                c_in[1, i] = max(u[1], 0.0)
+                c_in[2, i] = max(u[2], 0.0)
             end
             gmask = thresh_func(c_in, samples_thresh, ks, K_fs, n) .| germ_term # Make sure once germinated does not oscillate
             germ_term = gmask 
