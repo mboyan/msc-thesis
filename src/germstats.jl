@@ -2614,9 +2614,14 @@ module GermStats
         # cinC = max(cinC, 0.0)
         # coutI = max(coutI, 0.0)
         
-        g = (1 + p.f_maxs[1] * cinC / (p.K_fs[2] + cinC)) * p.A # f_maxs[1] is s, K_fs[2] is K_cC
-        rateI = g * p.Pₛ_I
-        rateC = g * p.Pₛ_C
+        # g = (1 + p.f_maxs[1] * cinC / (p.K_fs[2] + cinC)) * p.A # f_maxs[1] is s, K_fs[2] is K_cC
+        # rateI = g * p.Pₛ_I
+        # rateC = g * p.Pₛ_C
+        Δg = p.f_maxs[1] * cinC / (p.K_fs[2] + cinC) # f_maxs[1] is s, K_fs[2] is K_cC
+        exponent = -(1 + Δg) * 1e-3
+        PmaxA = 1000 * p.A # limit permeability to Pmax = 1000 μm/s
+        rateI = PmaxA * (1 - exp(exponent * p.Pₛ_I)) 
+        rateC = PmaxA * (1 - exp(exponent * p.Pₛ_C))
 
         diffI = cinI - coutI
         diffC = cinC - p.c₀_cs
@@ -2660,9 +2665,12 @@ module GermStats
         cinI = max(cinI, 0.0)
         
         s = p.f_maxs[1] / (1 + (cinI / p.K_fs[3]) ^ p.n) # f_maxs[1] is s, K_fs[3] is K_I
-        g = (1 + s * cinC / (p.K_fs[2] + cinC)) * p.A # K_fs[2] is K_cC
-        rateI = g * p.Pₛ_I
-        rateC = g * p.Pₛ_C
+        # g = (1 + s * cinC / (p.K_fs[2] + cinC)) * p.A # K_fs[2] is K_cC
+        Δg = s * cinC / (p.K_fs[2] + cinC) # K_fs[2] is K_cC
+        exponent = -(1 + Δg) * 1e-3
+        PmaxA = 1000 * p.A # limit permeability to Pmax = 1000 μm/s
+        rateI = PmaxA * (1 - exp(exponent * p.Pₛ_I)) 
+        rateC = PmaxA * (1 - exp(exponent * p.Pₛ_C))
 
         diffI = cinI - coutI
         diffC = cinC - p.c₀_cs
@@ -2680,9 +2688,14 @@ module GermStats
         """
         cinI, cinC, coutI = u
         
-        g = (1 - p.f_maxs[1] * cinI / (p.K_fs[1] + cinI) + p.f_maxs[2] * cinC / (p.K_fs[2] + cinC)) * p.A # f_maxs[1] is b, f_maxs[2] is s, K_fs[1] is K_cI, K_fs[2] is K_cC
-        rateI = g * p.Pₛ_I
-        rateC = g * p.Pₛ_C
+        # g = (1 - p.f_maxs[1] * cinI / (p.K_fs[1] + cinI) + p.f_maxs[2] * cinC / (p.K_fs[2] + cinC)) * p.A # f_maxs[1] is b, f_maxs[2] is s, K_fs[1] is K_cI, K_fs[2] is K_cC
+        # rateI = g * p.Pₛ_I
+        # rateC = g * p.Pₛ_C
+        Δg = p.f_maxs[2] * cinC / (p.K_fs[2] + cinC) # f_maxs[2] is s, K_fs[2] is K_cC
+        exponent = -(1 + Δg) * 1e-3
+        inh_shift = p.f_maxs[1] * cinI / (p.K_fs[1] + cinI)
+        rateI = (1000 * (1 - exp(exponent * p.Pₛ_I)) - p.Pₛ_I * inh_shift) * p.A # limit permeability to Pmax = 1000 μm/s
+        rateC = (1000 * (1 - exp(exponent * p.Pₛ_C)) - p.Pₛ_C * inh_shift) * p.A # limit permeability to Pmax = 1000 μm/s
 
         diffI = cinI - coutI
         diffC = cinC - p.c₀_cs
@@ -2705,9 +2718,14 @@ module GermStats
         cinC = max(cinC, 0.0)
         
         inh_factor = (1 + (cinI / p.K_fs[3]) ^ p.n) # K_fs[3] is K_I
-        g = (1 - p.f_maxs[1] * cinI / (p.K_fs[1] + cinI) + p.f_maxs[2] * cinC / ((p.K_fs[2] + cinC) * inh_factor)) * p.A # f_maxs[1] is b, f_maxs[2] is s, K_fs[1] is K_cI, K_fs[2] is K_cC
-        rateI = g * p.Pₛ_I
-        rateC = g * p.Pₛ_C
+        # g = (1 - p.f_maxs[1] * cinI / (p.K_fs[1] + cinI) + p.f_maxs[2] * cinC / ((p.K_fs[2] + cinC) * inh_factor)) * p.A # f_maxs[1] is b, f_maxs[2] is s, K_fs[1] is K_cI, K_fs[2] is K_cC
+        # rateI = g * p.Pₛ_I
+        # rateC = g * p.Pₛ_C
+        Δg = p.f_maxs[2] * cinC / ((p.K_fs[2] + cinC) * inh_factor) # f_maxs[2] is s, K_fs[2] is K_cC
+        exponent = -(1 + Δg) * 1e-3
+        inh_shift = p.f_maxs[1] * cinI / (p.K_fs[1] + cinI)
+        rateI = (1000 * (1 - exp(exponent * p.Pₛ_I)) - p.Pₛ_I * inh_shift) * p.A # limit permeability to Pmax = 1000 μm/s
+        rateC = (1000 * (1 - exp(exponent * p.Pₛ_C)) - p.Pₛ_C * inh_shift) * p.A # limit permeability to Pmax = 1000 μm/s
 
         diffI = cinI - coutI
         diffC = cinC - p.c₀_cs

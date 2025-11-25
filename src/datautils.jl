@@ -182,6 +182,7 @@ module DataUtils
             p_max (Float): maximum germination percentage
             τ (Float): half-saturation time for germination
             ν (Float): design parameter
+            rmse (Float): root mean-squared error
         """
 
         dantigny_wrapper(t, p) = dantigny.(t, 1 / (1 + exp(-p[1])), exp(p[2]), exp(p[3])) # [p_max, τ, ν] after transformations to become strictly positive
@@ -207,7 +208,7 @@ module DataUtils
         params[2] = exp(params[2])
         params[3] = exp(params[3])
 
-        return params
+        return params, rmse
     end
 
 
