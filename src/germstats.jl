@@ -86,6 +86,7 @@ module GermStats
 
     # const DEBUG_MODE = false
     global PARAMS_BUFFER = []
+    const LAMBDA_MAX = 1e6
     
     # Macro for printing code line in debug mode
     macro print_line(expr)
@@ -256,7 +257,7 @@ module GermStats
             elseif model_type in ["special_inducer", "special_combined", "special_thresh", "special_signal"]
                 n_nodes = 6 # 4D integral
             elseif startswith(model_type, "feedback")
-                n_nodes = 512#1024
+                n_nodes = 4#512#1024
             end
         end
 
@@ -2642,7 +2643,9 @@ module GermStats
         cinI = max(cinI, 0.0)
         cinC = max(cinC, 0.0)
         
-        g = (1 - p.f_maxs[1] * cinI / (p.K_fs[1] + cinI)) * p.A # f_maxs[1] is b, K_fs[1] is K_cI
+        # g = (1 - p.f_maxs[1] * cinI / (p.K_fs[1] + cinI)) * p.A # f_maxs[1] is b, K_fs[1] is K_cI
+        exponent = p.f_maxs[1] * cinI / (p.K_fs[1] + cinI) # f_maxs[1] is b, K_fs[1] is K_cI
+        g = exp(-exponent) * p.A
         rateI = g * p.Pₛ_I
         rateC = g * p.Pₛ_C
 
@@ -2671,13 +2674,14 @@ module GermStats
         PmaxA = 1000 * p.A # limit permeability to Pmax = 1000 μm/s
         rateI = PmaxA * (1 - exp(exponent * p.Pₛ_I)) 
         rateC = PmaxA * (1 - exp(exponent * p.Pₛ_C))
+        # if rateI / p.Vₛ > 1e6 || rateC / p.V_ps > 1e6 ||  rateI / p.V_out > 1e6 println("eeeeek!") end
 
         diffI = cinI - coutI
         diffC = cinC - p.c₀_cs
-
-        du[1] = -(rateI / p.Vₛ) * diffI
-        du[2] = -(rateC / p.V_ps) * diffC
-        du[3] = (rateI / p.V_out) * diffI
+        
+        du[1] = -rateI / p.Vₛ * diffI
+        du[2] = -rateC / p.V_ps * diffC
+        du[3] = rateI / p.V_out * diffI
     end
 
 
@@ -2691,11 +2695,13 @@ module GermStats
         # g = (1 - p.f_maxs[1] * cinI / (p.K_fs[1] + cinI) + p.f_maxs[2] * cinC / (p.K_fs[2] + cinC)) * p.A # f_maxs[1] is b, f_maxs[2] is s, K_fs[1] is K_cI, K_fs[2] is K_cC
         # rateI = g * p.Pₛ_I
         # rateC = g * p.Pₛ_C
-        Δg = p.f_maxs[2] * cinC / (p.K_fs[2] + cinC) # f_maxs[2] is s, K_fs[2] is K_cC
-        exponent = -(1 + Δg) * 1e-3
-        inh_shift = p.f_maxs[1] * cinI / (p.K_fs[1] + cinI)
-        rateI = (1000 * (1 - exp(exponent * p.Pₛ_I)) - p.Pₛ_I * inh_shift) * p.A # limit permeability to Pmax = 1000 μm/s
-        rateC = (1000 * (1 - exp(exponent * p.Pₛ_C)) - p.Pₛ_C * inh_shift) * p.A # limit permeability to Pmax = 1000 μm/s
+        Δg_C = p.f_maxs[2] * cinC / (p.K_fs[2] + cinC) # f_maxs[2] is s, K_fs[2] is K_cC
+        Δg_I = p.f_maxs[1] * cinI / (p.K_fs[1] + cinI) # f_maxs[1] is b, K_fs[2] is K_cI
+        perturb_C = (1 + Δg_C)
+        exponent = -perturb_C * exp(-Δg_I / perturb_C) * 1e-3
+        PmaxA = 1000 * p.A # limit permeability to Pmax = 1000 μm/s
+        rateI = PmaxA * (1 - exp(exponent * p.Pₛ_I))
+        rateC = PmaxA * (1 - exp(exponent * p.Pₛ_C))
 
         diffI = cinI - coutI
         diffC = cinC - p.c₀_cs
@@ -2721,11 +2727,26 @@ module GermStats
         # g = (1 - p.f_maxs[1] * cinI / (p.K_fs[1] + cinI) + p.f_maxs[2] * cinC / ((p.K_fs[2] + cinC) * inh_factor)) * p.A # f_maxs[1] is b, f_maxs[2] is s, K_fs[1] is K_cI, K_fs[2] is K_cC
         # rateI = g * p.Pₛ_I
         # rateC = g * p.Pₛ_C
-        Δg = p.f_maxs[2] * cinC / ((p.K_fs[2] + cinC) * inh_factor) # f_maxs[2] is s, K_fs[2] is K_cC
-        exponent = -(1 + Δg) * 1e-3
-        inh_shift = p.f_maxs[1] * cinI / (p.K_fs[1] + cinI)
-        rateI = (1000 * (1 - exp(exponent * p.Pₛ_I)) - p.Pₛ_I * inh_shift) * p.A # limit permeability to Pmax = 1000 μm/s
-        rateC = (1000 * (1 - exp(exponent * p.Pₛ_C)) - p.Pₛ_C * inh_shift) * p.A # limit permeability to Pmax = 1000 μm/s
+        Δg_C = p.f_maxs[2] * cinC / ((p.K_fs[2] + cinC) * inh_factor) # f_maxs[2] is s, K_fs[2] is K_cC
+        Δg_I = p.f_maxs[1] * cinI / (p.K_fs[1] + cinI) # f_maxs[1] is b, K_fs[2] is K_cI
+        perturb_C = (1 + Δg_C)
+        exponent = -perturb_C * exp(-Δg_I / perturb_C) * 1e-3
+        PmaxA = 1000 * p.A # limit permeability to Pmax = 1000 μm/s
+        rateI = PmaxA * (1 - exp(exponent * p.Pₛ_I))
+        rateC = PmaxA * (1 - exp(exponent * p.Pₛ_C))
+
+        # if abs(rateI) > 1e6 || abs(rateI) < 1e-6 || abs(rateC) > 1e6 || abs(rateC) < 1e-6
+        #     # if abs(rateI) > 1e1 || abs(rateC) > 1e1
+        #     println(rateI, ", ", rateC)
+        #     println("Δg_C = ", Δg_C)
+        #     println("Δg_I = ", Δg_I)
+        #     println("exponent = ", exponent)
+        #     # println("inh_shift = ", inh_shift)
+        #     println("cinI = ", cinI)
+        # end
+        # println(cinI)
+        # println("Δg_C = ", Δg_C)
+        # println("Δg_I = ", Δg_I)
 
         diffI = cinI - coutI
         diffC = cinC - p.c₀_cs
@@ -3047,6 +3068,13 @@ module GermStats
         # condition(u, t, integrator) = any(u .< 0) || any(isnan.(u))
         # affect!(integrator) = error("Invalid state at t=$(integrator.t): u=$(integrator.u)")
 
+        # Select solver
+        if ode_func in [ode_inducer_dependent_perm_inhibitor_dependent_signal!, ode_inducer_and_inhibitor_dependent_perm_inhibitor_dependent_signal!]
+            solver = KenCarp5()#Rodas5()
+        else
+            solver = Rosenbrock23()
+        end
+
         condition(u, t, integrator) = any(u .< 0)
         affect!(integrator) = (integrator.u .= max.(integrator.u, 0.0))
 
@@ -3056,7 +3084,8 @@ module GermStats
 
         # Run ODE ensembles
         ep = EnsembleProblem(prob; prob_func=prob_func)
-        sols = solve(ep, AutoTsit5(Rosenbrock23()), EnsembleThreads(), trajectories=n_samp, saveat=times, abstol=1e-6, reltol=1e-6, callback=cb, unstable_check=unstable_check)
+        # sols = solve(ep, AutoTsit5(Rosenbrock23()), EnsembleThreads(), trajectories=n_samp, saveat=times, abstol=1e-6, reltol=1e-6, callback=cb, unstable_check=unstable_check)
+        sols = solve(ep, AutoTsit5(solver), EnsembleThreads(), trajectories=n_samp, saveat=times, abstol=1e-6, reltol=1e-6, callback=cb, unstable_check=unstable_check, verbose=true)
 
         # Evaluate fraction germinated
         n_times = length(times)
