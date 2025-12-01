@@ -3085,7 +3085,7 @@ module GermStats
         # Run ODE ensembles
         ep = EnsembleProblem(prob; prob_func=prob_func)
         # sols = solve(ep, AutoTsit5(Rosenbrock23()), EnsembleThreads(), trajectories=n_samp, saveat=times, abstol=1e-6, reltol=1e-6, callback=cb, unstable_check=unstable_check)
-        sols = solve(ep, AutoTsit5(solver), EnsembleThreads(), trajectories=n_samp, saveat=times, abstol=1e-6, reltol=1e-6, callback=cb, unstable_check=unstable_check, verbose=true)
+        sols = solve(ep, AutoTsit5(solver), EnsembleThreads(), trajectories=n_samp, saveat=times, abstol=1e-6, reltol=1e-6, maxiters=1e8, callback=cb, unstable_check=unstable_check)#, verbose=true)
 
         # Evaluate fraction germinated
         n_times = length(times)
