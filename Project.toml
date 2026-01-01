@@ -1,7 +1,7 @@
 name = "GerminationSignals"
 uuid = "90f7f981-8caa-44a1-88b0-4a61cf84af06"
-authors = ["Boyan Mihaylov <mih.boyan@gmail.com> and contributors"]
 version = "1.0.0-DEV"
+authors = ["Boyan Mihaylov <mih.boyan@gmail.com> and contributors"]
 
 [deps]
 ArgCheck = "dce04be8-c92d-5529-be00-80e4d2c0e197"
@@ -39,7 +39,7 @@ BlackBoxOptim = "0.6"
 CSV = "0.10"
 CUDA = "5"
 Cubature = "1"
-CurveFit = "0.6"
+CurveFit = "0.6, 1"
 DataFrames = "1"
 Distributions = "0.25"
 FastGaussQuadrature = "1"
