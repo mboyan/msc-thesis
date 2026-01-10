@@ -170,6 +170,20 @@ module DataUtils
     end
 
 
+    function unresolved_step(y; atol=1e-3)
+        """
+        Utility function for detecting degenerate results
+        (fast step-like onset)
+        inputs:
+            y (Vector): measurements
+        output:
+            Bool: whether the measurements form a rapid step
+        """
+        Δ = abs.(diff(y))
+        return count(>(atol), Δ) ≤ 1
+    end
+
+
     function fit_dantigny_to_germination_curve(germ_response, times)#; check_stderr=false)
         """
         Fit Dantigny model to simulated germination curve
@@ -195,20 +209,25 @@ module DataUtils
         p0[2] = log(p0[2])
         p0[3] = log(p0[3])
 
-        fit = curve_fit(dantigny_wrapper, times, germ_response, p0)
-        params = coef(fit)
-        rmse = sqrt(mean(residuals(fit) .^ 2))
-        
-        if rmse > 0.03 # average deviation > 3 percentage points in germination
-            println("High RMSE: $rmse")
+        try
+            fit = curve_fit(dantigny_wrapper, times, germ_response, p0)
+            params = coef(fit)
+            rmse = sqrt(mean(residuals(fit) .^ 2))
+
+            # if rmse > 0.03 # average deviation > 3 percentage points in germination
+            #     println("High RMSE: $rmse")
+            # end
+
+            # Transform parameters
+            params[1] = 1 / (1 + exp(-params[1]))
+            params[2] = exp(params[2])
+            params[3] = exp(params[3])
+
+            return params, rmse
+
+        catch
+            return [germ_response[end], times[2], 10], NaN
         end
-
-        # Transform parameters
-        params[1] = 1 / (1 + exp(-params[1]))
-        params[2] = exp(params[2])
-        params[3] = exp(params[3])
-
-        return params, rmse
     end
 
 
@@ -822,11 +841,11 @@ module DataUtils
                 [params[1]], # b_max
                 params[2], # Pₛ_I
                 params[3], # Pₛ_C
-                [params[4], nothing], # K_cI
-                params[5], # μ_ψ
-                params[5] * exp(params[6]), # σ_ψ = μ_ψ * exp(δ_ψ)
-                [params[7]], # [μ_ω]
-                [params[7] * exp(params[8])] # [σ_ω = μ_ω * exp(δ_ω)]
+                [params[4], params[5]], # K_cI
+                params[6], # μ_ψ
+                params[6] * exp(params[7]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                [params[8]], # [μ_ω]
+                [params[8] * exp(params[9])] # [σ_ω = μ_ω * exp(δ_ω)]
             )
             # param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :μ_ψ, :δ_ψ, :μ_ω, :δ_ω]
             # param_occurrences = [1, 1, n_src, 1, 1, 1, n_src, n_src]
@@ -843,13 +862,13 @@ module DataUtils
                 [params[1]], # b_max
                 params[2], # Pₛ_I
                 params[3], # Pₛ_C
-                [params[4], nothing], # K_cI
-                params[5], # μ_ψ
-                params[5] * exp(params[6]), # σ_ψ = μ_ψ * exp(δ_ψ)
-                [params[7], params[9]], # [μ_γ, μ_ω]
-                [params[7] * exp(params[8]), params[9] * exp(params[10])] # [σ_ω = μ_ω * exp(δ_ω)]
+                [params[4], params[5]], # K_cI
+                params[6], # μ_ψ
+                params[6] * exp(params[7]), # σ_ψ = μ_ψ * exp(δ_ψ)
+                [params[8], params[10]], # [μ_γ, μ_ω]
+                [params[8] * exp(params[9]), params[10] * exp(params[11])] # [σ_ω = μ_ω * exp(δ_ω)]
             )
-            # param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
+            # param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
             # param_occurrences = [1, 1, n_src, 1, 1, 1, 1, 1, n_src, n_src]
         
         elseif model_type == "feedback_inhibitor_inducer_perm_thresh" # AB
@@ -1226,7 +1245,8 @@ module DataUtils
                 params[7], # μ_ψ
                 params[7] * exp(params[8]), # σ_ψ = μ_ψ * exp(δ_ψ)
                 [params[9], params[11]], # [μ_γ, μ_ω]
-                [params[9] * exp(params[10]), params[11] * exp(params[12])] # [σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)]
+                [params[9] * exp(params[10]), params[11] * exp(params[12])], # [σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)]
+                n=params[13] # n
             )
             # param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
             # param_occurrences = [1, 1, n_src, n_src, 1, 1, 1, 1, 1, n_src, n_src]
