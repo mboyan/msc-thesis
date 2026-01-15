@@ -223,9 +223,16 @@ module DataUtils
             params[2] = exp(params[2])
             params[3] = exp(params[3])
 
+            # Handle degenerate (flat) curves
+            if params[1] < 1e-6
+                params[2] = NaN
+                params[3] = NaN
+            end
+
             return params, rmse
 
         catch
+            # Handle sharp immediate steps
             return [germ_response[end], times[2], 10], NaN
         end
     end
