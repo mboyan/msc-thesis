@@ -18,6 +18,7 @@
 - Mid-resolution (agent-based) lattice simulations vs. selected models - to verify heterogeneity assumptions / impact of spatial distribution
 - Use Damköhler number, Biot number or Thiele modulus to support or further analyse adsorption-diffusion relation
 - Explore more model variants with 2-way signal influence (revise inducer-dependent inhibition and explore feedback loops)
+- Revise notation for publication
 
 ## Week 37 highlights
 - LaTeX set up, but workaround needs to be used to insert chapter text into Han's Word template of preference (using `python-docx`);
