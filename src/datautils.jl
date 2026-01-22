@@ -14,12 +14,16 @@ module DataUtils
     using Distributions
     using ArgCheck
     using QuasiMonteCarlo
+    using LinearAlgebra
     
     include("./conversions.jl")
     include("./germstats.jl")
     using .Conversions
     using .GermStats
 
+    export calibrate_marginals
+    export calibrate_copula
+    export sample_parameters
     export parse_ijadpanahsaravi_data
     export dantigny
     export generate_dantigny_dataset
@@ -27,6 +31,288 @@ module DataUtils
     export fit_model_to_data
     export get_params_for_idx
     export fit_model_to_data_equilibrium
+
+
+    # ===== Statistics =====
+    function weighted_median(values::Vector{T}, weights::Vector{T}) where T
+        """
+        Compute a weighted median from a set of values and weights.
+        """
+
+        # Check if the length of values and weights match
+        if length(values) != length(weights)
+            throw(ArgumentError("Values and weights must have the same length."))
+        end
+        
+        # Combine values and weights into a sorted array based on values
+        sorted_indices = sortperm(values)
+        sorted_values = values[sorted_indices]
+        sorted_weights = weights[sorted_indices]
+        
+        # Calculate cumulative weights
+        cum_weights = cumsum(sorted_weights)
+        total_weight = sum(sorted_weights)
+        
+        # Find the median index
+        median_idx = findfirst(cum -> cum >= total_weight / 2, cum_weights)
+        
+        return sorted_values[median_idx]
+    end
+
+    function weighted_quantile(x::AbstractVector, w::AbstractVector, p::Real)
+        """
+        Compute a quantile of a set of weighted values.
+        inputs:
+            x (Vector) - values
+            w (Vector) - weights
+            p (Real) - quantile
+        output:
+            the linearly interpolated value at the given quantile
+        """
+
+        @assert length(x) == length(w)
+        @assert 0 ≤ p ≤ 1
+
+        # Sort by x
+        idx = sortperm(x)
+        xs = x[idx]
+        ws = w[idx] ./ sum(w)
+
+        cdf = cumsum(ws)
+
+        i = searchsortedfirst(cdf, p)
+
+        if i == 1
+            return xs[1]
+        elseif i > length(xs)
+            return xs[end]
+        else
+            # Linear interpolation
+            x0, x1 = xs[i-1], xs[i]
+            F0, F1 = cdf[i-1], cdf[i]
+            return x0 + (p - F0) / (F1 - F0) * (x1 - x0)
+        end
+    end
+
+    function fit_dist(dist_current, θ, w; α=0.5)
+        """
+        Refit a prior distribution through a set of weighted samples
+        inputs:
+            dist_current (Distribution) - current Distribution
+            θ (Vector) - samples
+            w (Vector) - weights
+            α (Float) - learning rate
+        output:
+            the fitted prior distribution
+        """
+
+        μ_current = dist_current.μ
+        σ_current = dist_current.σ
+        dist_type = typeof(dist_current)
+
+        if dist_type == LogNormal{Float64}
+
+            x = log.(θ)
+            m = weighted_median(vec(x), w)
+            iqr = weighted_quantile(x, w, 0.75) - weighted_quantile(x, w, 0.25)
+            σ = iqr / 1.349
+
+            μ_interp = μ_current + α * (m - μ_current)
+            σ_interp = σ_current + α * (σ - σ_current)
+
+        elseif dist_type == Normal{Float64}
+            
+            μ = sum(w .* θ)
+            σ = sqrt(sum(w .* (θ .- μ).^2))
+
+            μ_interp = μ_current + α * (μ - μ_current)
+            σ_interp = σ_current + α * (σ - σ_current)
+
+        else
+            error("Invalid distribution type")
+        end
+
+        return dist_type(μ_interp, σ_interp)
+    end
+
+    function nearestSPD(A)
+        """
+        Perform near-PD projection (e.g. for when
+        a matrix is not Cholesky factorizable)
+        inputs:
+            A (Matrix) - matrix to be corrected
+        outputs:
+            A3 (Matrix) - SPD matrix
+        """
+        B = (A + A') / 2
+        _, S, V = svd(B)
+        H = V * Diagonal(S) * V'
+        A2 = (B + H) / 2
+        A3 = (A2 + A2') / 2
+
+        if isposdef(A3)
+            return A3
+        end
+
+        spacing = eps(Float64) * norm(A)
+        I = diagm(ones(size(A, 1)))
+        k = 1
+        while !isposdef(A3)
+            A3 += I * spacing * k
+            k += 1
+        end
+        return A3
+    end
+
+    function calibrate_marginals(marg_current, θ, w_glob, w_spec=nothing)
+        """
+        Calibrate a set of distributions given a set of weighted samples.
+        Optionally, condition-specific weights can also be used.
+        inputs:
+            marg_current (Vector{Distribution}) - the current distributions
+            θ (Matrix) - samples
+            w_glob (Vector) - global weights
+            w_spec (Matrix) - condition-specific weights
+        output:
+            marginals (Vector{Distribution}) - the calibrated distributions
+        """
+        Np = size(θ, 1)
+
+        if isnothing(w_spec) # Global marginal calibration
+            w_eff = w_glob ./ sum(w_glob)
+        else
+            w_eff = w_glob .* w_spec # Specific marginal calibration
+            w_eff ./= sum(w_eff)
+        end
+
+        marginals = Vector{Distribution}(undef, Np)
+        for i in 1:Np
+            marginals[i] = fit_dist(marg_current[i], θ[i, :], w_eff)
+        end
+        return marginals
+    end
+
+    function to_gaussian_space(Θg, Θs, marg_g, marg_s; eps_u = nothing)
+        """
+        Transform global and condition-specific parameter
+        values from given marginal distributions
+        to Gaussian space (for computing a Gaussian copula).
+        inputs: 
+            Θg (Matrix) - global parameter values
+            Θs (Matrix) - condition-specific parameter values
+            marg_g (Vector{Distribution}) - global parameter distributions
+            marg_s (Vector{Distribution}) - condition-specific parameter distributions
+            eps_u (Float) - tolerance avoiding the sampling of Inf
+        output:
+            Z (Matrix) - transformed parameter values
+        """
+        Ng = size(Θg, 1)
+        Nc = size(Θs, 1)
+        Ns = size(Θg, 2)
+        Z = zeros(Ns, Ng + Nc)
+
+        # Avoid U of 0 and 1
+        if eps_u === nothing
+            eps_u = 1 / (Ns + 1)
+        end
+
+        for i in 1:Ng
+            u = cdf.(marg_g[i], Θg[i, :])
+            u = clamp.(u, eps_u, 1 - eps_u)
+            Z[:, i] = quantile.(Normal(), u)
+        end
+        for i in 1:Nc
+            u = cdf.(marg_s[i], Θs[i, :])
+            u = clamp.(u, eps_u, 1 - eps_u)
+            Z[:, Ng + i] =
+                quantile.(Normal(), u)
+        end
+        return Z
+    end
+
+    function weighted_correlation(Z, w)
+        """
+        Compute the correlation of weighted
+        Gaussian-transformed parameter values.
+        inputs:
+            Z (Matrix) - transformed parameter values
+            w (Vector) - weights
+        output:
+            correlation matrix
+        """
+        μ = sum(w .* Z, dims=1)
+        Σ = zeros(size(Z, 2), size(Z, 2))
+
+        for i in eachindex(w)
+            δ = Z[i, :] .- μ
+            Σ .+= w[i] .* (δ' * δ)
+        end
+
+        D = diagm(0 => sqrt.(diag(Σ)))
+        return inv(D) * Σ * inv(D)
+    end
+
+    function calibrate_copula(Θg, Θs, marg_g, marg_s, w_glob, w_spec)
+        """
+        Construct a Gaussian copula from weighted 
+        parameter values and their marginal distributions.
+        inputs:
+            Θg (Matrix) - global parameter values
+            Θs (Matrix) - condition-specific parameter values
+            marg_g (Vector{Distribution}) - global parameter distributions
+            marg_s (Vector{Distribution}) - condition-specific parameter distributions
+            w_glob (Vector) - global weights
+            w_spec (Matrix) - condition-specific weights
+        output:
+            multivariate distribution of weighted samples
+        """
+
+        w_eff = w_glob .* w_spec
+        w_eff ./= sum(w_eff)
+
+        Z = to_gaussian_space(Θg, Θs, marg_g, marg_s)
+        R = weighted_correlation(Z, w_eff)
+
+        # Near-PD projection
+        if minimum(eigen(Symmetric(R)).values) <= 0
+            R = nearestSPD(R)
+            println("Attempting near-PD projection")
+        end
+        
+        return MvNormal(zeros(size(R,1)), R)
+    end
+
+    function sample_parameters(p, copula, marginals)#marg_g, marg_s)
+        """
+        Sample a multivariate distribution (Gaussian copula).
+        inputs:
+            p (Matrix) - normalized locations for sampling the copula
+            copula (MvNormal) - Gaussian copula
+            marginals (Vector{Distribution}) - parameter marginals (global and specific)
+        outputs:
+            Θ (Matrix) - new parameter values
+        """
+
+        d, N = size(p)
+
+        # 1. Sobol → iid Gaussians
+        Z0 = quantile.(Normal(), p)
+
+        # 2. Correlate (copula)
+        L = cholesky(copula.Σ).L
+        Z = L * Z0
+
+        # 3. Back to uniforms
+        U = cdf.(Normal(), Z)
+
+        # 4. Apply marginals
+        θ = zeros(d, N)
+        for i in 1:d
+            θ[i, :] = quantile.(marginals[i], U[i, :])
+        end
+
+        return θ
+    end
     
 
     function parse_ijadpanahsaravi_data()
