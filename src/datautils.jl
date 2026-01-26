@@ -510,7 +510,7 @@ module DataUtils
             params[3] = exp(params[3])
 
             # Handle degenerate (flat) curves
-            if params[1] < 1e-6
+            if params[1] < 1e-6 || params[2] > 1e10
                 params[2] = NaN
                 params[3] = NaN
             end
