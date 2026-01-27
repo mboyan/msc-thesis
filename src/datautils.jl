@@ -52,6 +52,7 @@ module DataUtils
         # Calculate cumulative weights
         cum_weights = cumsum(sorted_weights)
         total_weight = sum(sorted_weights)
+        println(total_weight)
         
         # Find the median index
         median_idx = findfirst(cum -> cum >= total_weight / 2, cum_weights)
@@ -273,13 +274,25 @@ module DataUtils
         Z = to_gaussian_space(Θg, Θs, marg_g, marg_s)
         R = weighted_correlation(Z, w_eff)
 
+        # Enforce symmetry
+        R = (R + R') / 2
+
+        # Regularise
+        ϵ = 1e-6 * tr(R) / size(R,1)
+        R_reg = R + ϵ * I
+
         # Near-PD projection
-        if minimum(eigen(Symmetric(R)).values) <= 0
-            R = nearestSPD(R)
+        # println("Eigenvalue: $(eigmin(R_reg))")
+        # println("max(|R - R'|) = $(maximum(abs.(R - R')))")
+        if eigmin(R) <= 0#minimum(eigen(Symmetric(R)).values) <= 0
+            R_reg = nearestSPD(R_reg)
             println("Attempting near-PD projection")
         end
+        # if maximum(abs.(R - R')) > 1e-12 # Enforce symmetry
+        #     R = (R + R') / 2
+        # end
         
-        return MvNormal(zeros(size(R,1)), R)
+        return MvNormal(zeros(size(R_reg,1)), R_reg)
     end
 
     function sample_parameters(p, copula, marginals)#marg_g, marg_s)
