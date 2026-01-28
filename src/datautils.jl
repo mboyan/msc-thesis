@@ -52,7 +52,7 @@ module DataUtils
         # Calculate cumulative weights
         cum_weights = cumsum(sorted_weights)
         total_weight = sum(sorted_weights)
-        println(total_weight)
+        # println(total_weight)
         
         # Find the median index
         median_idx = findfirst(cum -> cum >= total_weight / 2, cum_weights)
