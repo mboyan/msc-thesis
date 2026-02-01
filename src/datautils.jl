@@ -295,36 +295,67 @@ module DataUtils
         return MvNormal(zeros(size(R_reg,1)), R_reg)
     end
 
-    function sample_parameters(p, copula, marginals)#marg_g, marg_s)
+    function sample_parameters(p, copula, marg_g, marg_s, glob_tag)
         """
         Sample a multivariate distribution (Gaussian copula).
         inputs:
             p (Matrix) - normalized locations for sampling the copula
             copula (MvNormal) - Gaussian copula
-            marginals (Vector{Distribution}) - parameter marginals (global and specific)
+            marg_g (Vector{Distribution}) - global parameter marginals
+            marg_s (Vector{Distribution}) - carbon-specific parameter marginals
+            glob_tag (Vector{Bool}) - tags whether a parameter is global or not
         outputs:
             Θ (Matrix) - new parameter values
         """
 
         d, N = size(p)
 
-        # 1. Sobol → iid Gaussians
+        # Sobol → iid Gaussians
         Z0 = quantile.(Normal(), p)
 
-        # 2. Correlate (copula)
-        L = cholesky(copula.Σ).L
-        Z = L * Z0
+        # Partition Gaussians and copula
+        Zg = Z0[glob_tag, :]
+        Zs = Z0[.!glob_tag, :]
+        Σ = copula.Σ
+        Σgg = Σ[glob_tag, glob_tag]
+        Σss = Σ[.!glob_tag, .!glob_tag]
+        Σsg = Σ[.!glob_tag, glob_tag]
 
-        # 3. Back to uniforms
-        U = cdf.(Normal(), Z)
+        # Conditional mean and covariance (for spec. params)
+        μs = Σsg * (Σgg \ Zg) 
+        Σs = Σss - Σsg * (Σgg \ Σsg')
 
-        # 4. Apply marginals
-        θ = zeros(d, N)
-        for i in 1:d
-            θ[i, :] = quantile.(marginals[i], U[i, :])
+        # Correlate (copula)
+        L = cholesky(Symmetric(Σs + 1e-10I)).L
+        Zs = μs .+ L * Zs
+
+        # Back to uniforms
+        # U = cdf.(Normal(), Z)
+        Ug = cdf.(Normal(), Zg)
+        Us = cdf.(Normal(), Zs)
+
+        # Apply marginals
+        θg = similar(Zg)
+        for i in eachindex(marg_g)
+            θg[i,:] = quantile.(marg_g[i], Ug[i,:])
+        end
+        θs = similar(Zs)
+        for i in eachindex(marg_s)
+            θs[i,:] = quantile.(marg_s[i], Us[i,:])
         end
 
-        return θ
+        # Apply marginals
+        # θ = zeros(d, N)
+        # for i in 1:d
+        #     θ[i, :] = quantile.(marginals[i], U[i, :])
+        # end
+
+        # Weave back parameters
+        # θ = zeros(d, N)
+        # θ[glob_tag, :] .= θg
+        # θ[.!glob_tag, :] .= θs
+
+        return θg, θs
     end
     
 
@@ -523,9 +554,15 @@ module DataUtils
             params[3] = exp(params[3])
 
             # Handle degenerate (flat) curves
-            if params[1] < 1e-6 || params[2] > 1e10
+            if params[1] < 1e-6 || params[2] > 1e10 || isinf(params[3])
                 params[2] = NaN
                 params[3] = NaN
+            end
+
+            # Handle sharp immediate steps
+            if params[2] < 1e-6
+                params[2] = 1e-6
+                params[3] = 10
             end
 
             return params, rmse
