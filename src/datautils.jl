@@ -15,6 +15,8 @@ module DataUtils
     using ArgCheck
     using QuasiMonteCarlo
     using LinearAlgebra
+    using Random
+    using JLD2
     
     include("./conversions.jl")
     include("./germstats.jl")
@@ -25,6 +27,7 @@ module DataUtils
     export calibrate_copula
     export sample_parameters
     export parse_ijadpanahsaravi_data
+    export calibrate_priors
     export dantigny
     export generate_dantigny_dataset
     export fit_dantigny_to_germination_curve
@@ -95,13 +98,13 @@ module DataUtils
         end
     end
 
-    function fit_dist(dist_current, θ, w; α=0.5)
+    function fit_dist(dist_current, θ, w_norm; α=0.25)
         """
         Refit a prior distribution through a set of weighted samples
         inputs:
             dist_current (Distribution) - current Distribution
             θ (Vector) - samples
-            w (Vector) - weights
+            w_norm (Vector) - normalized weights
             α (Float) - learning rate
         output:
             the fitted prior distribution
@@ -111,23 +114,28 @@ module DataUtils
         σ_current = dist_current.σ
         dist_type = typeof(dist_current)
 
+        ess = 1 / sum(w_norm .^ 2) # effective sample size
+        ess_ratio = ess / length(w_norm)
+        exploration_factor = 1.0 + ess_ratio * 0.5
+        # println("ESS: $ess, exploration factor: $exploration_factor")
+
         if dist_type == LogNormal{Float64}
 
             x = log.(θ)
-            m = weighted_median(vec(x), w)
-            iqr = weighted_quantile(x, w, 0.75) - weighted_quantile(x, w, 0.25)
+            m = weighted_median(vec(x), w_norm)
+            iqr = weighted_quantile(x, w_norm, 0.75) - weighted_quantile(x, w_norm, 0.25)
             σ = iqr / 1.349
 
             μ_interp = μ_current + α * (m - μ_current)
-            σ_interp = σ_current + α * (σ - σ_current)
+            σ_interp = σ_current + α * (σ * exploration_factor - σ_current)
 
         elseif dist_type == Normal{Float64}
             
-            μ = sum(w .* θ)
-            σ = sqrt(sum(w .* (θ .- μ).^2))
+            μ = sum(w_norm .* θ)
+            σ = sqrt(sum(w_norm .* (θ .- μ).^2))
 
             μ_interp = μ_current + α * (μ - μ_current)
-            σ_interp = σ_current + α * (σ - σ_current)
+            σ_interp = σ_current + α * (σ * exploration_factor - σ_current)
 
         else
             error("Invalid distribution type")
@@ -165,30 +173,31 @@ module DataUtils
         return A3
     end
 
-    function calibrate_marginals(marg_current, θ, w_glob, w_spec=nothing)
+    function calibrate_marginals(marg_current, θ, weights)
         """
         Calibrate a set of distributions given a set of weighted samples.
         Optionally, condition-specific weights can also be used.
         inputs:
             marg_current (Vector{Distribution}) - the current distributions
-            θ (Matrix) - samples
-            w_glob (Vector) - global weights
-            w_spec (Matrix) - condition-specific weights
+            θ (Matrix) - parameter samples
+            weights (Vector) - sample weights
         output:
             marginals (Vector{Distribution}) - the calibrated distributions
         """
         Np = size(θ, 1)
 
-        if isnothing(w_spec) # Global marginal calibration
-            w_eff = w_glob ./ sum(w_glob)
-        else
-            w_eff = w_glob .* w_spec # Specific marginal calibration
-            w_eff ./= sum(w_eff)
-        end
+        # if isnothing(w_spec) # Global marginal calibration
+        #     w_eff = w_glob ./ sum(w_glob)
+        # else
+        #     w_eff = w_glob .* w_spec # Specific marginal calibration
+        #     w_eff ./= sum(w_eff)
+        # end
+
+        weights ./= sum(weights)
 
         marginals = Vector{Distribution}(undef, Np)
         for i in 1:Np
-            marginals[i] = fit_dist(marg_current[i], θ[i, :], w_eff)
+            marginals[i] = fit_dist(marg_current[i], θ[i, :], weights)
         end
         return marginals
     end
@@ -284,7 +293,7 @@ module DataUtils
         # Near-PD projection
         # println("Eigenvalue: $(eigmin(R_reg))")
         # println("max(|R - R'|) = $(maximum(abs.(R - R')))")
-        if eigmin(R) <= 0#minimum(eigen(Symmetric(R)).values) <= 0
+        if eigmin(R_reg) <= 0#minimum(eigen(Symmetric(R)).values) <= 0
             R_reg = nearestSPD(R_reg)
             println("Attempting near-PD projection")
         end
@@ -500,6 +509,468 @@ module DataUtils
     end
 
 
+    # ===== Prior calibration =====
+    function calibrate_priors(n_iter, n_samples, def_params, bounds_abs, bounds_rel; temp_param=0.25)
+        """
+        Iteratively calibrates parameter priors
+        based on lab-derived Dantigny summaries.
+        inputs:
+            n_iter (int) - maximum number of calibration iterations
+            n_samples (int) - size of Sobol sample
+            def_params (Dict) - defined parameters (not optimised)
+            bounds_abs (Dict) - initial-guess distributions for the case of absolute γ-thresholds
+            bounds_rel (Dict) - initial-guess distributions for the case of relative γ-thresholds
+            temp_param (float) - tempering parameter of distribution updates
+        """
+        
+        # Random.seed!(1236) #1236
+
+        t_max = 48 # hours
+
+        # Load data
+        aliases, combination_IDs, descriptions, param_key_sets = load_model_collection()
+        df_germination_rebuilt = parse_ijadpanahsaravi_data()
+        df_germination_rebuilt = filter(row -> row[1] != "Arg", df_germination_rebuilt) # Remove "Arg" from the dataset
+        dantigny_data, times, sources, densities, _, p_maxs, taus, nus = generate_dantigny_dataset(df_germination_rebuilt, t_max)
+
+        n_src = length(sources)
+        n_dens = length(densities)
+
+        # println(df_germination_rebuilt)
+
+        # Determine relative vs absolute threshold models
+        aliases_rel = ["0", "B", "Bi"]
+
+        # Determine global vs inducer-specific parameters
+        params_glob_keys = [:b, :Pₛ, :μ_γ, :neg_δ_γ, :μ_ψ, :neg_δ_ψ]
+
+        # Precompute distributions
+        param_dists_abs = Dict()
+        for (key, val) in bounds_abs
+            if startswith(string(key), "neg_δ_")
+                mean = 0.5 * (val[1] + val[2])
+                sd = (val[2] - val[1]) / (2 * 1.96)
+                param_dists_abs[key] = Normal(mean, sd)
+            else
+                mean = (log(val[1]) + log(val[2])) * 0.5
+                sd = (log(val[2]) - log(val[1])) / (2 * 1.96)
+                param_dists_abs[key] = LogNormal(mean, sd)
+            end
+        end
+
+        param_dists_rel = Dict()
+        for (key, val) in bounds_rel
+            if startswith(string(key), "neg_δ_")
+                mean = 0.5 * (val[1] + val[2])
+                sd = (val[2] - val[1]) / (2 * 1.96)
+                param_dists_rel[key] = Normal(mean, sd)
+            else
+                mean = (log(val[1]) + log(val[2])) * 0.5
+                sd = (log(val[2]) - log(val[1])) / (2 * 1.96)
+                param_dists_rel[key] = LogNormal(mean, sd)
+            end
+        end
+
+        # Dictionary for saving priors
+        priors_all = Dict()
+
+        # χ^2 threshold
+        χ_sq = 7.815
+
+        # Precompute lab data
+        data_lookup = Dict((row[1], row[2]) => row for row in eachrow(df_germination_rebuilt))
+        lab_means = zeros(Float64, n_dens, n_src, 3)
+        CIs = zeros(Float64, n_dens, n_src, 3, 2)
+        CI_widths = zeros(Float64, n_dens, n_src, 3)
+        for i in eachindex(densities)
+            for j in eachindex(sources)
+                data_row = data_lookup[(sources[j], densities[i])]
+                lab_means[i, j, :] = [data_row["Pmax"] * 0.01, data_row["tau"], data_row["d"]]
+                CIs[i, j, :, :] = [
+                    data_row["Pmax_CI_Lower"] * 0.01 data_row["Pmax_CI_Upper"] * 0.01;
+                    data_row["tau_CI_Lower"] data_row["tau_CI_Upper"];
+                    data_row["d_CI_Lower"] data_row["d_CI_Upper"]
+                    ]
+                CI_widths[i, j, :] = CIs[i, j, :, 2] .- CIs[i, j, :, 1]
+            end
+        end
+
+        println("CI_widths: $CI_widths")
+
+        input_params_all = Vector{Dict}(undef, n_src)
+
+        # Record data points (input parameters + Dantigny summaries)
+        data_pts_dict = Dict()
+
+        # Diagnostics
+        π_d = zeros(Float64, n_dens, n_src, 3)
+        π_diffs = zeros(Float64, n_dens, n_src, 3)
+        p_d = zeros(Float64, n_dens, n_src)
+        q_d = zeros(Float64, n_dens, n_src, 3)
+        m_d = zeros(Float64, n_dens, n_src)
+        iqr = zeros(Float64, n_dens, n_src, 3)
+        iqr_check = zeros(Bool, n_dens, n_src, 3)
+        iqr_diff = zeros(Float64, n_dens, n_src, 3)
+        p_z = zeros(Float64, n_dens, n_src)
+        p_z_diffs = zeros(Float64, n_dens, n_src)
+
+        π_d_crit = zeros(Bool, n_dens, n_src, 3)
+        q_d_crit = zeros(Bool, n_dens, n_src, 3)
+        m_d_crit = zeros(Bool, n_dens, n_src, 3)
+
+        # Placeholders
+        p_out = Vector{Float64}(undef, length(times))
+        diffs_dantigny = zeros(3, n_samples)
+        p_maxs = zeros(Float64, n_samples)
+        taus = zeros(Float64, n_samples)
+        nus = zeros(Float64, n_samples)
+        d = zeros(Float64, 3, n_samples)
+        z_dist = zeros(Float64, n_samples)
+        z_acc_specific = zeros(n_src, n_samples)
+        rmses = zeros(Float64, n_dens, n_samples)
+        results = Vector{Tuple}(undef, n_samples)
+
+        # Iterate over models
+        priors_running = Vector{Dict}(undef, n_iter)
+        for m in 1:1#eachindex(aliases)
+
+            println("Running $(aliases[m])")
+
+            param_keys = param_key_sets[m]
+            key_src_strings = [Symbol(string(key) * " " * src) for key in param_keys, src in sources]
+
+            n_dims = length(param_keys)
+            glob_tag = [key in params_glob_keys for key in param_keys]
+            n_glob = sum(glob_tag)
+            n_spec = n_dims - n_glob
+
+            idx_shuffle = collect(1:n_dims)
+
+            priors = Dict()
+
+            # Check if model uses absolute or relative bounds
+            if aliases[m] in aliases_rel
+                sample_dists = filter(p -> p[1] in param_keys, param_dists_rel)
+            else
+                sample_dists = filter(p -> p[1] in param_keys, param_dists_abs)
+            end
+
+            π_d_crit_ct = 0
+            q_d_crit_ct = 0
+            m_d_crit_ct = 0
+
+            # Generate (normalized) parameter samples
+            sobol_pts = QuasiMonteCarlo.sample(n_samples, n_dims, SobolSample())
+
+            # Shrink samples to 95%
+            sobol_pts = 0.025 .+ 0.95 .* sobol_pts
+
+            # Parameter and weights placeholders
+            θ = similar(sobol_pts)
+            θ_glob = zeros(Float64, n_glob, n_samples)
+            θ_spec = zeros(Float64, n_src, n_spec, n_samples)
+            w_spec = zeros(Float64, n_src, n_samples)
+            w_spec_penalized = similar(w_spec)
+            w_glob = zeros(Float64, n_samples)
+            w_glob_penalized = zeros(Float64, n_samples)
+            w_mean = zeros(Float64, n_src)
+            w_std = similar(w_mean)
+
+            # Distribution placeholders
+            marginals = Vector{Distribution}(undef, n_dims)
+            marg_glob = Vector{Distribution}(undef, n_glob)
+            marg_spec = Matrix{Distribution}(undef, (n_src, n_spec))
+
+            # Generate input parameter sample
+            sample_params = Dict()
+            for (i, src) in enumerate(sources)
+                g_ct = 1
+                s_ct = 1
+                for (k, key) in enumerate(param_keys)
+
+                    sample_params[key] = quantile.(sample_dists[key], sobol_pts[k, :]) # limit to sampling to 95% within bounds
+
+                    # Split in general and inducer-specific parameters
+                    if key in params_glob_keys
+                        θ_glob[g_ct, :] .= sample_params[key]
+                        marg_glob[g_ct] = sample_dists[key]
+                        g_ct += 1
+                    else
+                        θ_spec[i, s_ct, :] .= sample_params[key]
+                        marg_spec[i, s_ct] = sample_dists[key]
+                        s_ct += 1
+                    end
+
+                    # Initial guess priors
+                    priors[key_src_strings[k, i]] = sample_dists[key]
+                end
+            end
+
+            # Transform sigmas
+            for key in param_keys
+                if startswith(string(key), "neg_δ_")
+                    suffix = string(key)[end]
+                    sample_params[Symbol("σ_" * suffix)] = sample_params[Symbol("μ_" * suffix)] .* clamp.(exp.(-sample_params[key]), 1e-12, 1e6)
+                end
+            end
+
+            input_params_all .= Ref(merge(sample_params, def_params)) # Merge with default parameters
+
+            # Record data points (input parameters + Dantigny summaries)
+            data_pts = zeros(Float64, n_src, n_iter, n_dims + 3, n_samples)
+
+            # Calibration loop
+            @inbounds for s in 1:n_iter
+
+                # print("\rIteration $s")
+                println("Iteration $s")
+                
+                # Shuffle Sobol points
+                shuffle!(idx_shuffle)
+                sobol_pts = sobol_pts[idx_shuffle, :]
+
+                if s > 1
+                    marg_glob .= calibrate_marginals(marg_glob, θ_glob, w_glob_penalized)
+                    for (i, src) in enumerate(sources)
+
+                        sample_params = Dict()
+
+                        marg_spec[i, :] = calibrate_marginals(marg_spec[i, :], θ_spec[i, :, :], w_spec_penalized[i, :])
+                        copula = calibrate_copula(θ_glob, θ_spec[i, :, :], marg_glob, marg_spec[i, :], w_glob, w_spec_penalized[i, :])
+
+                        marginals[glob_tag] .= marg_glob
+                        marginals[.!glob_tag] .= marg_spec[i, :]
+
+                        θ_glob, θ_spec[i, :, :] = sample_parameters(sobol_pts, copula, marg_glob, marg_spec[i, :], glob_tag)
+                        θ[glob_tag, :] .= θ_glob
+                        θ[.!glob_tag, :] .= θ_spec[i, :, :]
+
+                        data_pts[i, s, 1:n_dims, :] .= θ
+
+                        # Assign new samples
+                        for (k, key) in enumerate(param_keys)
+                            sample_params[key] = θ[k, :]
+                            priors[key_src_strings[k, i]] = marginals[k]
+                        end
+
+                        # Transform sigmas
+                        for key in param_keys
+                            if startswith(string(key), "neg_δ_")
+                                suffix = string(key)[end]
+                                sample_params[Symbol("σ_" * suffix)] = sample_params[Symbol("μ_" * suffix)] .* clamp.(exp.(-sample_params[key]), 1e-12, 1e6)
+                            end
+                        end
+
+                        input_params_all[i] = merge(sample_params, def_params) # Merge with default parameters
+                    end
+                end
+
+                # Iterate over experimental conditions
+                @inbounds for (i, density) in enumerate(densities) # iterate over spore densities (exp. data)
+
+                    # println("Running model $(aliases[m]) with density $density")
+
+                    density_scaled = inverse_mL_to_cubic_um(density)
+
+                    @inbounds for j in eachindex(sources) # Iterate over sources
+
+                        Threads.@threads for n in 1:n_samples # Iterate over random parameter samples
+                            
+                            p_out .= compute_germination_response(aliases[m], times, density_scaled, Dict(k => v[mod1(n, length(v))] for (k, v) in input_params_all[j]))
+                            # d[:, n], rmses[i, n] = fit_dantigny_to_germination_curve(p_out, times)
+                            results[n] = fit_dantigny_to_germination_curve(p_out, times)
+
+                            # Unpack results
+                            # (p_maxs[n], taus[n], nus[n]) = d[:, n]
+                        end
+
+                        # Unpack results
+                        for n in 1:n_samples
+                            d[:, n], rmses[i, n] = results[n]
+                        end
+
+                        data_pts[j, s, (n_dims + 1):end, :] .= d
+
+                        # Find non-identifiable τ_g and ν
+                        identifiable = .!isnan.(taus)
+                        d_valid = d[:, identifiable]
+
+                        # Included fraction (Criterion 1)
+                        π_d_new = dropdims(mean(d_valid .> CIs[i, j, :, 1] .&& d_valid .< CIs[i, j, :, 2]; dims=2); dims=2)
+                        if s > 1 # Criterion 5
+                            π_diffs[i, j, :] = π_d_new ./ (π_d[i, j, :] .+ 1e-6)
+                        end
+                        π_d[i, j, :] .= π_d_new
+
+                        # Total predictive probability (Criterion 6)
+                        p_d[i, j] = mean(all(d_valid .> CIs[i, j, :, 1] .&& d_valid .< CIs[i, j, :, 2], dims=1))
+
+                        # Lab mean quantiles (Criterion 2)
+                        q_d[i, j, :] = dropdims(mean(d_valid .< lab_means[i, j, :]; dims=2); dims=2)
+
+                        # Mahalanobis distance (Criterion 3)
+                        μ_d = mean(d_valid, dims=2) |> vec
+                        Σ_d = cov(d_valid', corrected=false)
+                        diff_d = lab_means[i, j, :] .- μ_d
+                        # println("Identifiable: $(sum(identifiable))")
+                        # println("NaNs: $(sum(isnan.(d_valid)))")
+                        # println(minimum(d_valid[3, :]), " - ", maximum(d_valid[3, :]))
+                        d_mask = d_valid[3, :] .> 1e12 .|| any(isnan.(d_valid); dims=1)
+                        if sum(d_mask) > 0
+                            println("p_max: ", d_valid[1, d_mask])
+                            println("tau_g: ", d_valid[2, d_mask])
+                            println("nu: ", d_valid[2, d_mask])
+                        end
+                        if any(isnan.(Σ_d) .|| isinf.(Σ_d))
+                            display(Σ_d)
+                        end
+                        m_d[i, j] = dot(diff_d, Σ_d \ diff_d)
+
+                        # IQR comparison (Criterion 4)
+                        d_vecs = [vec(di) for di in eachrow(d_valid)]
+                        iqr_new = quantile.(d_vecs, 0.75) .- quantile.(d_vecs, 0.25)
+                        if s > 1 # Criterion 5
+                            iqr_diff[i, j, :] = iqr_new ./ (iqr[i, j, :] .+ 1e-6)
+                        end
+                        iqr[i, j, :] .= iqr_new
+                        iqr_check[i, j, :] .= iqr[i, j, :] .> CI_widths[i, j, :]
+
+                        # Standard deviation and covariance matrix
+                        σ_dantigny = CI_widths[i, j, :] ./ 3.92 #[Δ/1.96 for Δ in Δ_dantigny]
+                        Σ = diagm(σ_dantigny .^ 2)
+
+                        # Compute differences to experimental data
+                        diffs_dantigny[1, :] .= d[1, :] .- lab_means[i, j, 1]
+                        diffs_dantigny[2, :][identifiable] .= d_valid[2, :] .- lab_means[i, j, 2]
+                        diffs_dantigny[3, :][identifiable] .= d_valid[3, :] .- lab_means[i, j, 3]
+
+                        # Compute running z's
+                        for n in 1:n_samples
+                            if identifiable[n]
+                                z_dist[n] = dot(diffs_dantigny[:, n], Σ \ diffs_dantigny[:, n])
+                                z_acc_specific[j, n] += z_dist[n]
+                            else
+                                z_dist[n] = diffs_dantigny[1, n] .^ 2 / σ_dantigny[1] .^ 2
+                                z_acc_specific[j, n] += z_dist[n]
+                            end
+                        end
+
+                        # Fraction of lab means inside joint regions (Criterion 5)
+                        p_z_new = mean(z_dist .< χ_sq)
+                        if s > 1
+                            p_z_diffs[i, j] = p_z_new / (p_z[i, j] .+ 1e-6)
+                        end
+                        p_z[i, j] = p_z_new
+                    end
+                end
+
+                z_acc_specific ./= n_dens
+                # z_acc_specific[z_acc_specific .< χ_sq] .= 0 # Do not penalize good fits
+
+                # Penalize weights due to RMSE
+                reliabilities = exp.(-0.5 .* mean(rmses.^2, dims=1) ./ 0.004) # using an error scale of 2%
+
+                # Compute condition-specific weights
+                log_w_spec = -temp_param .* z_acc_specific
+                w_spec .= exp.(log_w_spec)
+                w_spec_penalized = w_spec .* repeat(reliabilities; outer=[n_src, 1])
+
+                # Compute global weights as product of specific ones
+                log_w_glob = dropdims(sum(log_w_spec, dims=1), dims=1)  # Sum of logs = log of product
+                w_glob .= exp.(log_w_glob)
+                w_glob_penalized = w_glob .* dropdims(reliabilities; dims=1)
+
+                # Debugging
+                if any(isnan.(w_glob_penalized))
+                    # println("w_glob: $w_glob")
+                    # println("log_w_glob: $log_w_glob")
+                    # println("w_spec_penalized: $w_spec_penalized")
+                    # println("w_spec: $w_spec")
+                    # println("log_w_spec: $log_w_spec")
+                    println("z_acc_specific: $z_acc_specific")
+                    println("diffs_dantigny: $diffs_dantigny")
+                end
+
+                # Weight statistics (Criterion 5)
+                w_mean_new = dropdims(mean(w_spec_penalized, dims=2); dims=2)
+                w_std_new = dropdims(std(w_spec_penalized, dims=2); dims=2)
+                if s > 1
+                    w_mean_diff = w_mean_new / w_mean
+                    w_std_diff = w_std_new / w_std
+                end
+                w_mean = w_mean_new
+                w_std = w_std_new
+
+                # Termination criteria
+                π_d_crit_new = all(π_d .> 0.2 .&& π_d .< 0.8) # Criterion 1
+                q_d_crit_new = all(q_d .> 0.1 .&& q_d .< 0.9) # Criterion 2
+                m_d_crit_new = all(m_d .< χ_sq) # Criterion 3
+                if s > 1
+                    if (π_d_crit_new != π_d_crit)
+                        π_d_crit_ct = 0
+                    else
+                        π_d_crit_ct += 1
+                    end
+                    if (q_d_crit_new != q_d_crit)
+                        q_d_crit_ct = 0
+                    else
+                        q_d_crit_ct += 1
+                    end
+                    if (m_d_crit_new != m_d_crit)
+                        m_d_crit_ct = 0
+                    else
+                        m_d_crit_ct += 1
+                    end
+                    println("π_d_crit_ct: $π_d_crit_ct")
+                    println("q_d_crit_ct: $q_d_crit_ct")
+                    println("m_d_crit_ct: $m_d_crit_ct")
+                    println("π_d: $π_d")
+                    println("π_d: $(minimum(π_d)) - $(maximum(π_d))")
+                    println("q_d: $q_d")
+                    println("m_d: $m_d")
+                    println("p_d: $p_d")
+                    println("iqr: $iqr")
+                    println("w_mean: $w_mean")
+                    println("w_std: $w_std")
+                    println("Max π_diffs: $(maximum(abs.(π_diffs)))")
+                    println("Max iqr_diff: $(maximum(abs.(iqr_diff)))")
+                    println("Max p_z_diffs: $(maximum(abs.(p_z_diffs)))")
+                    println("Max w_mean_diff: $(maximum(abs.(w_mean_diff)))")
+                    println("Max w_std_diff: $(maximum(abs.(w_std_diff)))")
+                    println("Criterion 1: $π_d_crit_new ($(π_d .> 0.2 .&& π_d .< 0.8))")
+                    println("Criterion 2: $q_d_crit_new ($(q_d .> 0.1 .&& q_d .< 0.9))")
+                    println("Criterion 3: $m_d_crit_new ($(m_d .< χ_sq))")
+                    println("Criterion 4: $(all(iqr_check))")
+                    println("Criterion 5: $(all(abs.(1.0 .- π_diffs) .< 0.1) && all(abs.(1.0 .- iqr_diff) .< 0.1) && all(abs.(1.0 .- p_z_diffs) .< 0.1) && all(abs.(1.0 .- w_mean_diff) .< 0.1) && all(abs.(1.0 .- w_std_diff) .< 0.1))")
+                    println("Criterion 6: $(all(p_d .> 1e-2))")
+                    println("Criterion 1, 2, 3 (soft): $((π_d_crit && q_d_crit && m_d_crit) || (π_d_crit_ct > 5 && q_d_crit_ct > 5 && m_d_crit_ct > 5))")
+                    if (all(iqr_check) # Criterion 4
+                        && all(abs.(1.0 .- π_diffs) .< 0.1) && all(abs.(1.0 .- iqr_diff) .< 0.1) && all(abs.(1.0 .- p_z_diffs) .< 0.1) && all(abs.(1.0 .- w_mean_diff) .< 0.1) && all(abs.(1.0 .- w_std_diff) .< 0.1) # Criterion 5
+                        && all(p_d .> 1e-2) # Criterion 6
+                        && ((π_d_crit && q_d_crit && m_d_crit) || (π_d_crit_ct > 5 && q_d_crit_ct > 5 && m_d_crit_ct > 5))) # Soft criteria 1, 2 and 3
+                        println("Termination criteria met at iteration $s")
+                        break
+                    end
+                    println("===========================")
+                end
+                π_d_crit = π_d_crit_new
+                q_d_crit = q_d_crit_new
+                m_d_crit = m_d_crit_new
+                
+                @show priors
+                priors_running[s] = copy(priors)
+            end
+
+            priors_all[aliases[m]] = priors
+            data_pts_dict[aliases[m]] = data_pts
+        end
+
+        jldsave("../src/Data/priors.jld2"; priors_all)
+
+        return data_pts_dict
+    end
+
+    # ===== Data fitting =====
     function unresolved_step(y; atol=1e-3)
         """
         Utility function for detecting degenerate results
@@ -554,7 +1025,7 @@ module DataUtils
             params[3] = exp(params[3])
 
             # Handle degenerate (flat) curves
-            if params[1] < 1e-6 || params[2] > 1e10 || isinf(params[3])
+            if params[1] < 1e-3 || params[2] > 1e6 || isinf(params[3])
                 params[2] = NaN
                 params[3] = NaN
             end
@@ -569,7 +1040,7 @@ module DataUtils
 
         catch
             # Handle sharp immediate steps
-            return [germ_response[end], times[2], 10], NaN
+            return [germ_response[end], NaN, NaN], 0.0
         end
     end
 
