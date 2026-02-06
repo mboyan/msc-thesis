@@ -17,6 +17,11 @@ module DataUtils
     using LinearAlgebra
     using Random
     using JLD2
+    using CUDA
+    using Flux
+    using Flux: gradient
+    using Statistics
+    using ProgressMeter
     
     include("./conversions.jl")
     include("./germstats.jl")
@@ -30,10 +35,15 @@ module DataUtils
     export calibrate_priors
     export dantigny
     export generate_dantigny_dataset
+    export train_multioutput_nn_mixed_precision
+    export predict_surrogate_gpu
+    export predict_with_uncertainty_mixed_precision
     export fit_dantigny_to_germination_curve
     export fit_model_to_data
     export get_params_for_idx
     export fit_model_to_data_equilibrium
+
+    CUDA.allowscalar(false)  # Prevent slow scalar operations
 
 
     # ===== Statistics =====
@@ -510,7 +520,7 @@ module DataUtils
 
 
     # ===== Prior calibration =====
-    function calibrate_priors(n_iter, n_samples, def_params, bounds_abs, bounds_rel; temp_param=0.25)
+    function calibrate_priors(n_iter, n_samples, def_params, bounds_abs, bounds_rel; temp_param=0.25, use_surrogates=true)
         """
         Iteratively calibrates parameter priors
         based on lab-derived Dantigny summaries.
@@ -521,6 +531,7 @@ module DataUtils
             bounds_abs (Dict) - initial-guess distributions for the case of absolute γ-thresholds
             bounds_rel (Dict) - initial-guess distributions for the case of relative γ-thresholds
             temp_param (float) - tempering parameter of distribution updates
+            use_surrogates (bool) - whether to use a surrogate NN for mapping successive parameter values to Dantigny summaries
         """
         
         # Random.seed!(1236) #1236
@@ -571,8 +582,9 @@ module DataUtils
             end
         end
 
-        # Dictionary for saving priors
+        # Dictionaries for saving priors and surrogate models
         priors_all = Dict()
+        surrogates_all = Dict()
 
         # χ^2 threshold
         χ_sq = 7.815
@@ -627,8 +639,7 @@ module DataUtils
         d = zeros(Float64, 3, n_samples)
         z_dist = zeros(Float64, n_samples)
         z_acc_specific = zeros(n_src, n_samples)
-        rmses = zeros(Float64, n_dens, n_samples)
-        results = Vector{Tuple}(undef, n_samples)
+        rmses = zeros(Float64, n_dens, n_src, n_samples)
 
         # Iterate over models
         priors_running = Vector{Dict}(undef, n_iter)
@@ -647,6 +658,7 @@ module DataUtils
             idx_shuffle = collect(1:n_dims)
 
             priors = Dict()
+            surrogates = Dict()
 
             # Check if model uses absolute or relative bounds
             if aliases[m] in aliases_rel
@@ -719,6 +731,10 @@ module DataUtils
             # Record data points (input parameters + Dantigny summaries)
             data_pts = zeros(Float64, n_src, n_iter, n_dims + 3, n_samples)
 
+            # NN training set
+            X_train = zeros(n_dims, n_samples, n_src)
+            Y_train = zeros(3, n_samples, n_dens, n_src)
+
             # Calibration loop
             @inbounds for s in 1:n_iter
 
@@ -746,6 +762,7 @@ module DataUtils
                         θ[.!glob_tag, :] .= θ_spec[i, :, :]
 
                         data_pts[i, s, 1:n_dims, :] .= θ
+                        X_train[:, :, i] .= θ
 
                         # Assign new samples
                         for (k, key) in enumerate(param_keys)
@@ -765,6 +782,8 @@ module DataUtils
                     end
                 end
 
+                max_uncertainties = zeros(n_dens, n_src)
+
                 # Iterate over experimental conditions
                 @inbounds for (i, density) in enumerate(densities) # iterate over spore densities (exp. data)
 
@@ -774,25 +793,43 @@ module DataUtils
 
                     @inbounds for j in eachindex(sources) # Iterate over sources
 
-                        Threads.@threads for n in 1:n_samples # Iterate over random parameter samples
+                        if (use_surrogates == true && s == 1) || use_surrogates == false
+                            for n in 1:n_samples # Iterate over random parameter samples
+                                
+                                p_out .= compute_germination_response(aliases[m], times, density_scaled, Dict(k => v[mod1(n, length(v))] for (k, v) in input_params_all[j]))
+                                d[:, n], rmses[i, j, n] = fit_dantigny_to_germination_curve(p_out, times)
+                                Y_train[:, n, i, j] = d[:, n]
+                            end
+                        else # Use surrogate model to predict Dantigny summaries
+                            d, σ_pred = predict_with_uncertainty_mixed_precision(
+                                surrogates[(i, j)], 
+                                θ,
+                                n_dropout_samples=50
+                            )
                             
-                            p_out .= compute_germination_response(aliases[m], times, density_scaled, Dict(k => v[mod1(n, length(v))] for (k, v) in input_params_all[j]))
-                            # d[:, n], rmses[i, n] = fit_dantigny_to_germination_curve(p_out, times)
-                            results[n] = fit_dantigny_to_germination_curve(p_out, times)
+                            # Use uncertainty for RMSE estimate
+                            rmses[i, j, :] = mean(σ_pred, dims=1) |> vec
 
-                            # Unpack results
-                            # (p_maxs[n], taus[n], nus[n]) = d[:, n]
+                            # Track maximum uncertainty
+                            max_uncertainties[i, j] = maximum(σ_pred)
+                            
+                            # Warn if extrapolating heavily
+                            rel_uncertainty = σ_pred ./ (d .+ 1e-10)
+                            max_rel_unc = maximum(rel_uncertainty)
+                            
+                            if max_rel_unc > 0.5  # >50% relative uncertainty
+                                println("⚠️  High uncertainty for density=$i, source=$j")
+                                println("    Max relative uncertainty: $(round(max_rel_unc*100, digits=1))%")
+                                println("    Consider retraining surrogate or using mechanistic model")
+                            end
                         end
 
-                        # Unpack results
-                        for n in 1:n_samples
-                            d[:, n], rmses[i, n] = results[n]
-                        end
+                        println("Maximum RMSE: $(maximum(rmses))")
 
                         data_pts[j, s, (n_dims + 1):end, :] .= d
 
                         # Find non-identifiable τ_g and ν
-                        identifiable = .!isnan.(taus)
+                        identifiable = dropdims(any(.!isnan.(d[2:3, :]); dims=1); dims=1)
                         d_valid = d[:, identifiable]
 
                         # Included fraction (Criterion 1)
@@ -815,7 +852,7 @@ module DataUtils
                         # println("Identifiable: $(sum(identifiable))")
                         # println("NaNs: $(sum(isnan.(d_valid)))")
                         # println(minimum(d_valid[3, :]), " - ", maximum(d_valid[3, :]))
-                        d_mask = d_valid[3, :] .> 1e12 .|| any(isnan.(d_valid); dims=1)
+                        d_mask = d_valid[3, :] .> 1e12 .|| dropdims(any(isnan.(d_valid); dims=1); dims=1)
                         if sum(d_mask) > 0
                             println("p_max: ", d_valid[1, d_mask])
                             println("tau_g: ", d_valid[2, d_mask])
@@ -868,17 +905,17 @@ module DataUtils
                 # z_acc_specific[z_acc_specific .< χ_sq] .= 0 # Do not penalize good fits
 
                 # Penalize weights due to RMSE
-                reliabilities = exp.(-0.5 .* mean(rmses.^2, dims=1) ./ 0.004) # using an error scale of 2%
+                reliabilities = exp.(-0.5 .* dropdims(mean(rmses.^2, dims=1); dims=1) ./ 0.004) # using an error scale of 2%
 
                 # Compute condition-specific weights
                 log_w_spec = -temp_param .* z_acc_specific
                 w_spec .= exp.(log_w_spec)
-                w_spec_penalized = w_spec .* repeat(reliabilities; outer=[n_src, 1])
+                w_spec_penalized = w_spec .* reliabilities
 
                 # Compute global weights as product of specific ones
                 log_w_glob = dropdims(sum(log_w_spec, dims=1), dims=1)  # Sum of logs = log of product
                 w_glob .= exp.(log_w_glob)
-                w_glob_penalized = w_glob .* dropdims(reliabilities; dims=1)
+                w_glob_penalized = w_glob .* dropdims(mean(reliabilities; dims=1); dims=1)
 
                 # Debugging
                 if any(isnan.(w_glob_penalized))
@@ -900,6 +937,25 @@ module DataUtils
                 end
                 w_mean = w_mean_new
                 w_std = w_std_new
+
+                # Train separate surrogate for each (density, source) combination
+                if s == 1
+                    println("Building GPU-accelerated surrogate...")
+                    
+                    # Determine optimal batch size
+                    optimal_batch_size = find_optimal_batch_size(n_dims, n_samples)
+                    
+                    for i in eachindex(densities)
+                        for j in eachindex(sources)
+                            valid_mask = .!any(isnan.(Y_train[:, :, i, j]), dims=1) |> vec
+                            X_valid = X_train[:, valid_mask, j]
+                            Y_valid = Y_train[:, valid_mask, i, j]
+                            
+                            # Train on GPU
+                            surrogates[(i, j)] = train_multioutput_nn_mixed_precision(X_valid, Y_valid; batch_size=optimal_batch_size)
+                        end
+                    end
+                end
 
                 # Termination criteria
                 π_d_crit_new = all(π_d .> 0.2 .&& π_d .< 0.8) # Criterion 1
@@ -962,12 +1018,442 @@ module DataUtils
             end
 
             priors_all[aliases[m]] = priors
+            surrogates_all[aliases[m]] = surrogates
             data_pts_dict[aliases[m]] = data_pts
         end
 
         jldsave("../src/Data/priors.jld2"; priors_all)
 
         return data_pts_dict
+    end
+
+
+    # ===== Surrogate model =====
+    struct MultiOutputSurrogate
+        model::Chain
+        X_mean::Vector{Float64}
+        X_std::Vector{Float64}
+        Y_mean::Vector{Float64}
+        Y_std::Vector{Float64}
+        n_inputs::Int
+        n_outputs::Int
+    end
+
+    function train_multioutput_nn_mixed_precision(
+        X_train, Y_train;
+        hidden_dims=[128, 64, 32],
+        epochs=1000,
+        batch_size=64,
+        learning_rate=0.001,
+        validation_split=0.15,
+        early_stopping_patience=50,
+        loss_scale=1024.0,  # Initial loss scale
+        verbose=true
+    )
+        """
+        Automatic Mixed Precision training optimized for RTX A4000
+        
+        Uses:
+        - FP16 for forward/backward passes (Tensor Cores)
+        - FP32 for loss computation and weight updates
+        - Dynamic loss scaling to prevent underflow
+        """
+        
+        n_inputs = size(X_train, 1)
+        n_outputs = size(Y_train, 1)
+        n_samples = size(X_train, 2)
+        
+        if verbose
+            println("Using Automatic Mixed Precision on RTX A4000")
+            println("This will use Tensor Cores for ~2-4× speedup")
+        end
+        
+        # ==================== Preprocessing ====================
+        
+        # Normalize (in Float32 for accuracy)
+        X_mean = mean(X_train, dims=2) |> vec
+        X_std = std(X_train, dims=2) |> vec
+        X_std[X_std .< 1e-8] .= 1.0
+        X_normalized = (X_train .- X_mean) ./ X_std
+        
+        # Log-transform outputs
+        Y_log = copy(Y_train)
+        Y_log[2, :] = log.(max.(Y_train[2, :], 1e-10))
+        Y_log[3, :] = log.(max.(Y_train[3, :], 1e-10))
+        
+        Y_mean = mean(Y_log, dims=2) |> vec
+        Y_std = std(Y_log, dims=2) |> vec
+        Y_std[Y_std .< 1e-8] .= 1.0
+        Y_normalized = (Y_log .- Y_mean) ./ Y_std
+        
+        # Train/val split
+        n_val = floor(Int, validation_split * n_samples)
+        n_train = n_samples - n_val
+        
+        indices = shuffle(1:n_samples)
+        train_idx = indices[1:n_train]
+        val_idx = indices[n_train+1:end]
+        
+        X_train_split = X_normalized[:, train_idx]
+        Y_train_split = Y_normalized[:, train_idx]
+        X_val = X_normalized[:, val_idx]
+        Y_val = Y_normalized[:, val_idx]
+        
+        # ==================== Build Model (Float32) ====================
+        
+        layers = []
+        push!(layers, Dense(n_inputs, hidden_dims[1], swish))
+        push!(layers, Dropout(0.1))
+        
+        for i in 2:length(hidden_dims)
+            push!(layers, Dense(hidden_dims[i-1], hidden_dims[i], swish))
+            push!(layers, Dropout(0.1))
+        end
+        
+        push!(layers, Dense(hidden_dims[end], n_outputs))
+        
+        model = Chain(layers...)
+        
+        # ==================== Move to GPU ====================
+        
+        # Model stays in Float32
+        model_gpu = model |> gpu
+        
+        # Convert data to Float16 and move to GPU
+        X_train_gpu = Float16.(X_train_split) |> gpu
+        Y_train_gpu = Float16.(Y_train_split) |> gpu
+        X_val_gpu = Float16.(X_val) |> gpu
+        Y_val_gpu = Float16.(Y_val) |> gpu
+        
+        if verbose
+            println("\nModel parameters: ", sum(length, Flux.params(model_gpu)))
+            println("Data type: Float16 (activations), Float32 (weights)")
+        end
+        
+        # ==================== Training Setup ====================
+        
+        # Optimizer (operates on Float32 weights)
+        opt_state = Flux.setup(Flux.Adam(learning_rate), model_gpu)
+        
+        # Dynamic loss scaling
+        current_scale = loss_scale
+        scale_factor = 2.0
+        scale_window = 2000  # Steps before increasing scale
+        steps_since_overflow = 0
+        
+        # ==================== Helper Functions ====================
+        
+        function create_batches(X, Y, batch_size)
+            n = size(X, 2)
+            indices = shuffle(1:n)
+            batches = []
+            
+            for i in 1:batch_size:n
+                batch_end = min(i + batch_size - 1, n)
+                batch_idx = indices[i:batch_end]
+                push!(batches, (X[:, batch_idx], Y[:, batch_idx]))
+            end
+            
+            return batches
+        end
+
+        function check_overflow(x)
+            if x === nothing
+                return false
+            elseif x isa AbstractArray
+                return any(isnan.(x)) || any(isinf.(x))
+            elseif x isa NamedTuple
+                return any(check_overflow(v) for v in values(x))
+            elseif x isa Tuple
+                return any(check_overflow(v) for v in x)
+            else
+                return false
+            end
+        end
+
+        function unscale_grads!(g, scale)
+            if g isa AbstractArray
+                g ./= scale
+            elseif g isa NamedTuple
+                foreach(v -> unscale_grads!(v, scale), values(g))
+            elseif g isa Tuple
+                foreach(v -> unscale_grads!(v, scale), g)
+            end
+            return g
+        end
+        
+        function mixed_precision_step!(model, x_fp16, y_fp16, opt_state, scale)
+            """
+            Single training step with mixed precision
+            
+            Returns: (loss, had_overflow)
+            """
+            # Forward pass in FP16
+            loss_val, grads = Flux.withgradient(model) do m
+                # Activations in FP16 (uses Tensor Cores!)
+                ŷ_fp16 = m(x_fp16)
+                
+                # Compute loss in FP32 for stability
+                ŷ_fp32 = Float32.(ŷ_fp16)
+                y_fp32 = Float32.(y_fp16)
+                
+                loss_fp32 = Flux.mse(ŷ_fp32, y_fp32)
+                
+                # Scale loss to prevent gradient underflow
+                loss_fp32 * scale
+            end
+            
+            # Check for overflow/NaN in gradients
+            grad_model = grads[1]
+            # has_overflow = false
+            has_overflow = check_overflow(grad_model)
+            
+            if !has_overflow
+                unscale_grads!(grad_model, scale)
+                Flux.update!(opt_state, model, grad_model)
+            end
+            
+            # Return unscaled loss
+            return loss_val / scale, has_overflow
+        end
+        
+        # ==================== Training Loop ====================
+        
+        best_val_loss = Inf
+        patience_counter = 0
+        best_model_state = Flux.state(model_gpu)
+        
+        train_losses = Float64[]
+        val_losses = Float64[]
+        
+        if verbose
+            println("\nStarting mixed precision training...")
+            progress = Progress(epochs, desc="Training: ")
+        end
+        
+        global_step = 0
+        
+        for epoch in 1:epochs
+            batches = create_batches(X_train_gpu, Y_train_gpu, batch_size)
+            
+            epoch_train_loss = 0.0
+            n_batches = length(batches)
+            overflow_count = 0
+            
+            for (x_batch, y_batch) in batches
+                global_step += 1
+                
+                # Mixed precision training step
+                loss_val, had_overflow = mixed_precision_step!(
+                    model_gpu, x_batch, y_batch, opt_state, current_scale
+                )
+                
+                if had_overflow
+                    # Reduce loss scale on overflow
+                    current_scale = max(current_scale / scale_factor, 1.0)
+                    overflow_count += 1
+                    steps_since_overflow = 0
+                else
+                    # Increase loss scale if stable
+                    steps_since_overflow += 1
+                    if steps_since_overflow >= scale_window
+                        current_scale = min(current_scale * scale_factor, 65536.0)
+                        steps_since_overflow = 0
+                    end
+                    
+                    epoch_train_loss += Float64(loss_val)
+                end
+            end
+            
+            epoch_train_loss /= n_batches
+            push!(train_losses, epoch_train_loss)
+            
+            # Validation (in FP16 for speed, convert to FP32 for loss)
+            ŷ_val_fp16 = model_gpu(X_val_gpu)
+            ŷ_val_fp32 = Float32.(ŷ_val_fp16)
+            Y_val_fp32 = Float32.(Y_val_gpu)
+            val_loss = Float64(Flux.mse(ŷ_val_fp32, Y_val_fp32))
+            push!(val_losses, val_loss)
+            
+            # Early stopping
+            if val_loss < best_val_loss
+                best_val_loss = val_loss
+                patience_counter = 0
+                best_model_state = Flux.state(model_gpu)
+            else
+                patience_counter += 1
+            end
+            
+            if patience_counter >= early_stopping_patience
+                if verbose
+                    println("\nEarly stopping at epoch $epoch")
+                end
+                break
+            end
+            
+            # Progress
+            if verbose && (epoch % 10 == 0 || epoch == 1)
+                ProgressMeter.next!(progress;
+                    showvalues = [
+                        (:epoch, epoch),
+                        (:train_loss, round(epoch_train_loss, digits=6)),
+                        (:val_loss, round(val_loss, digits=6)),
+                        (:best_val, round(best_val_loss, digits=6)),
+                        (:loss_scale, round(current_scale, digits=1)),
+                        (:overflows, overflow_count)
+                    ])
+            end
+        end
+        
+        # Restore best model and move to CPU
+        Flux.loadmodel!(model_gpu, best_model_state)
+        model_cpu = model_gpu |> cpu
+        
+        CUDA.reclaim()
+        
+        if verbose
+            println("\nTraining complete!")
+            println("Best validation loss: $(round(best_val_loss, digits=6))")
+            println("Final loss scale: $(round(current_scale, digits=1))")
+        end
+        
+        return MultiOutputSurrogate(
+            model_cpu,
+            X_mean,
+            X_std,
+            Y_mean,
+            Y_std,
+            n_inputs,
+            n_outputs
+        )
+    end
+    
+    function predict_surrogate_gpu(surrogate::MultiOutputSurrogate, X_new; use_gpu=false)
+        """
+        Predict with optional GPU acceleration for large batches
+        """
+        single_sample = ndims(X_new) == 1
+        if single_sample
+            X_new = reshape(X_new, :, 1)
+        end
+        
+        # Normalize
+        X_normalized = (X_new .- surrogate.X_mean) ./ surrogate.X_std
+        
+        # Move to GPU if requested and available
+        if use_gpu && CUDA.functional()
+            X_normalized_gpu = X_normalized |> gpu
+            model_gpu = surrogate.model |> gpu
+            
+            Y_normalized_pred = model_gpu(X_normalized_gpu)
+            Y_normalized_pred = Y_normalized_pred |> cpu  # Move back to CPU
+            
+            CUDA.reclaim()
+        else
+            Y_normalized_pred = surrogate.model(X_normalized)
+        end
+        
+        # Denormalize
+        Y_log_pred = Y_normalized_pred .* surrogate.Y_std .+ surrogate.Y_mean
+        
+        # Back-transform
+        Y_pred = copy(Y_log_pred)
+        Y_pred[2, :] = exp.(Y_log_pred[2, :])
+        Y_pred[3, :] = exp.(Y_log_pred[3, :])
+        
+        return single_sample ? Y_pred[:, 1] : Y_pred
+    end
+
+    function predict_with_uncertainty_mixed_precision(
+        surrogate::MultiOutputSurrogate,
+        X_new;
+        n_dropout_samples=50
+    )
+        """
+        Mixed precision uncertainty estimation (fastest option)
+        """
+        
+        single_sample = ndims(X_new) == 1
+        if single_sample
+            X_new = reshape(X_new, :, 1)
+        end
+        
+        n_samples = size(X_new, 2)
+        
+        # Normalize
+        X_normalized = (X_new .- surrogate.X_mean) ./ surrogate.X_std
+        
+        # Move to GPU and convert to FP16
+        model_gpu = surrogate.model |> gpu
+        X_gpu = Float16.(X_normalized) |> gpu
+        
+        # Enable dropout
+        Flux.testmode!(model_gpu, false)
+        
+        # Replicate for parallel dropout
+        X_replicated = repeat(X_gpu, outer=(1, n_dropout_samples))
+        
+        # Forward pass in FP16 (uses Tensor Cores!)
+        Y_fp16 = model_gpu(X_replicated)
+        
+        # Convert back to FP32 for statistics
+        Y_fp32 = Float32.(Y_fp16)
+        
+        # Disable dropout
+        Flux.testmode!(model_gpu, true)
+        
+        # Move to CPU
+        Y_normalized_all = Y_fp32 |> cpu
+        CUDA.reclaim()
+        
+        # Reshape
+        Y_normalized_all = reshape(Y_normalized_all, surrogate.n_outputs, n_samples, n_dropout_samples)
+        
+        # Denormalize and back-transform
+        Y_log_all = Y_normalized_all .* reshape(surrogate.Y_std, :, 1, 1) .+ 
+                    reshape(surrogate.Y_mean, :, 1, 1)
+        
+        Y_all = copy(Y_log_all)
+        Y_all[2, :, :] = exp.(Y_log_all[2, :, :])
+        Y_all[3, :, :] = exp.(Y_log_all[3, :, :])
+        
+        # Compute statistics
+        mean_pred = mean(Y_all, dims=3)[:, :, 1]
+        std_pred = std(Y_all, dims=3)[:, :, 1]
+        
+        if single_sample
+            return mean_pred[:, 1], std_pred[:, 1]
+        else
+            return mean_pred, std_pred
+        end
+    end
+    
+    function find_optimal_batch_size(n_inputs, n_samples; max_memory_gb=8)
+        """
+        Find optimal batch size based on GPU memory
+        
+        Rule of thumb:
+        - Larger batches = better GPU utilization but more memory
+        - Sweet spot: 32-256 for most GPUs
+        """
+        if !CUDA.functional()
+            return 32  # CPU default
+        end
+        
+        available_memory = CUDA.available_memory() / 1e9  # GB
+        
+        # Estimate memory per sample (rough heuristic)
+        # memory_per_sample ≈ n_params × hidden_size × 4 bytes × 2 (forward + backward)
+        estimated_memory_per_sample = n_inputs * 128 * 4 * 2 / 1e9  # GB
+        
+        # Use 50% of available memory for batch
+        safe_batch_size = floor(Int, available_memory * 0.5 / estimated_memory_per_sample)
+        
+        # Clamp to reasonable range
+        batch_size = clamp(safe_batch_size, 32, min(256, n_samples ÷ 10))
+        
+        println("Recommended batch size: $batch_size")
+        return batch_size
     end
 
     # ===== Data fitting =====
