@@ -22,6 +22,7 @@ module DataUtils
     using Flux: gradient
     using Statistics
     using ProgressMeter
+    # using LogExpFunctions
     
     include("./conversions.jl")
     include("./germstats.jl")
@@ -36,7 +37,6 @@ module DataUtils
     export dantigny
     export generate_dantigny_dataset
     export train_multioutput_nn_mixed_precision
-    export predict_surrogate_gpu
     export predict_with_uncertainty_mixed_precision
     export fit_dantigny_to_germination_curve
     export fit_model_to_data
@@ -470,12 +470,12 @@ module DataUtils
             n_pts (int): number of time points to generate
         outputs:
             dantigny_data (Matrix): matrix of time-dependent germination data
-            times (Vector): vector of time points
+            times (Vector): vector of time points (in seconds)
             sources (Vector): unique string identifiers of carbon sources
             densities (Vector): unique spore densities used in the data
             errs (Matrix): negative and positive offsets of p_max CIs from the mean
             p_maxs (Matrix): maximum germination percentages
-            taus (Matrix): characteristic germination times
+            taus (Matrix): characteristic germination times (in hours)
             nus (Matrix): design parameters
         """
         
@@ -829,8 +829,9 @@ module DataUtils
                         data_pts[j, s, (n_dims + 1):end, :] .= d
 
                         # Find non-identifiable τ_g and ν
-                        identifiable = dropdims(any(.!isnan.(d[2:3, :]); dims=1); dims=1)
-                        d_valid = d[:, identifiable]
+                        # identifiable = dropdims(any(.!isnan.(d[2:3, :]); dims=1); dims=1)
+                        in_bounds = (d[1, :] .> 1e-6) .&& (d[1, :] .< 1e6) .&& (d[2, :] .< 10) .&& dropdims(any(.!isnan.(d[2:3, :]); dims=1); dims=1)
+                        d_valid = d[:, in_bounds]
 
                         # Included fraction (Criterion 1)
                         π_d_new = dropdims(mean(d_valid .> CIs[i, j, :, 1] .&& d_valid .< CIs[i, j, :, 2]; dims=2); dims=2)
@@ -856,7 +857,7 @@ module DataUtils
                         if sum(d_mask) > 0
                             println("p_max: ", d_valid[1, d_mask])
                             println("tau_g: ", d_valid[2, d_mask])
-                            println("nu: ", d_valid[2, d_mask])
+                            println("nu: ", d_valid[3, d_mask])
                         end
                         if any(isnan.(Σ_d) .|| isinf.(Σ_d))
                             display(Σ_d)
@@ -878,12 +879,12 @@ module DataUtils
 
                         # Compute differences to experimental data
                         diffs_dantigny[1, :] .= d[1, :] .- lab_means[i, j, 1]
-                        diffs_dantigny[2, :][identifiable] .= d_valid[2, :] .- lab_means[i, j, 2]
-                        diffs_dantigny[3, :][identifiable] .= d_valid[3, :] .- lab_means[i, j, 3]
+                        diffs_dantigny[2, :][in_bounds] .= d_valid[2, :] .- lab_means[i, j, 2]
+                        diffs_dantigny[3, :][in_bounds] .= d_valid[3, :] .- lab_means[i, j, 3]
 
                         # Compute running z's
                         for n in 1:n_samples
-                            if identifiable[n]
+                            if in_bounds[n]
                                 z_dist[n] = dot(diffs_dantigny[:, n], Σ \ diffs_dantigny[:, n])
                                 z_acc_specific[j, n] += z_dist[n]
                             else
@@ -948,6 +949,7 @@ module DataUtils
                     for i in eachindex(densities)
                         for j in eachindex(sources)
                             valid_mask = .!any(isnan.(Y_train[:, :, i, j]), dims=1) |> vec
+                            println("$(sum(valid_mask)) valid samples")
                             X_valid = X_train[:, valid_mask, j]
                             Y_valid = Y_train[:, valid_mask, i, j]
                             
@@ -1039,6 +1041,58 @@ module DataUtils
         n_outputs::Int
     end
 
+    # struct ConstrainedMultiOutputSurrogate
+    #     model::Chain
+    #     X_mean::Vector{Float64}
+    #     X_std::Vector{Float64}
+    #     Y_mean::Vector{Float64}
+    #     Y_std::Vector{Float64}
+    #     output_ranges::Vector{Tuple{Float64, Float64}}
+    #     transforms::Vector{Symbol}  # [:logit, :log, :log] for [P_max, τ, ν]
+    #     n_inputs::Int
+    #     n_outputs::Int
+    # end
+
+    # function apply_transform(Y, transform_type)
+    #     """
+    #     Apply forward transform: original → unbounded space
+    #     """
+    #     if transform_type == :logit
+    #         # [0, 1] → (-∞, ∞)
+    #         Y_safe = clamp.(Y, 0.001, 0.999)  # Avoid singularities
+    #         return log.(Y_safe ./ (1 .- Y_safe))
+    #     elseif transform_type == :log
+    #         # (0, ∞) → (-∞, ∞)
+    #         Y_safe = max.(Y, 1e-10)  # Avoid log(0)
+    #         return log.(Y_safe)
+    #     elseif transform_type == :none
+    #         return Y
+    #     else
+    #         error("Unknown transform: $transform_type")
+    #     end
+    # end
+
+    # function inverse_transform(Y_transformed, transform_type, output_range)
+    #     """
+    #     Apply inverse transform: unbounded → original space
+    #     """
+    #     if transform_type == :logit
+    #         # (-∞, ∞) → [0, 1]
+    #         Y_original = 1 ./ (1 .+ exp.(-Y_transformed))
+    #     elseif transform_type == :log
+    #         # (-∞, ∞) → (0, ∞)
+    #         Y_original = exp.(Y_transformed)
+    #     elseif transform_type == :none
+    #         Y_original = Y_transformed
+    #     else
+    #         error("Unknown transform: $transform_type")
+    #     end
+        
+    #     # Soft clamp (gradients still flow, but keep in reasonable range)
+    #     min_val, max_val = output_range
+    #     return clamp.(Y_original, min_val, max_val)
+    # end
+
     function train_multioutput_nn_mixed_precision(
         X_train, Y_train;
         hidden_dims=[128, 64, 32],
@@ -1058,6 +1112,8 @@ module DataUtils
         - FP32 for loss computation and weight updates
         - Dynamic loss scaling to prevent underflow
         """
+
+        output_ranges = [(0, 1), (1e-6, 1e6), (0, 10)]
         
         n_inputs = size(X_train, 1)
         n_outputs = size(Y_train, 1)
@@ -1181,8 +1237,17 @@ module DataUtils
             end
             return g
         end
+
+        function range_penalty(y, min_val, max_val; α=10.0)
+            """
+            Smooth hinge-like penalty
+            """
+            below = Flux.softplus(min_val .- y)
+            above = Flux.softplus(y .- max_val)
+            return mean(below .^ 2 .+ above .^ 2)
+        end
         
-        function mixed_precision_step!(model, x_fp16, y_fp16, opt_state, scale)
+        function mixed_precision_step!(model, x_fp16, y_fp16, opt_state, scale; rp_mag=1.0)
             """
             Single training step with mixed precision
             
@@ -1197,7 +1262,7 @@ module DataUtils
                 ŷ_fp32 = Float32.(ŷ_fp16)
                 y_fp32 = Float32.(y_fp16)
                 
-                loss_fp32 = Flux.mse(ŷ_fp32, y_fp32)
+                loss_fp32 = Flux.mse(ŷ_fp32, y_fp32) + rp_mag * sum(range_penalty(ŷ_fp32[i, :], output_ranges[i]...) for i in 1:n_outputs) # penalize out-of-range
                 
                 # Scale loss to prevent gradient underflow
                 loss_fp32 * scale
@@ -1205,7 +1270,6 @@ module DataUtils
             
             # Check for overflow/NaN in gradients
             grad_model = grads[1]
-            # has_overflow = false
             has_overflow = check_overflow(grad_model)
             
             if !has_overflow
@@ -1328,49 +1392,13 @@ module DataUtils
         )
     end
     
-    function predict_surrogate_gpu(surrogate::MultiOutputSurrogate, X_new; use_gpu=false)
-        """
-        Predict with optional GPU acceleration for large batches
-        """
-        single_sample = ndims(X_new) == 1
-        if single_sample
-            X_new = reshape(X_new, :, 1)
-        end
-        
-        # Normalize
-        X_normalized = (X_new .- surrogate.X_mean) ./ surrogate.X_std
-        
-        # Move to GPU if requested and available
-        if use_gpu && CUDA.functional()
-            X_normalized_gpu = X_normalized |> gpu
-            model_gpu = surrogate.model |> gpu
-            
-            Y_normalized_pred = model_gpu(X_normalized_gpu)
-            Y_normalized_pred = Y_normalized_pred |> cpu  # Move back to CPU
-            
-            CUDA.reclaim()
-        else
-            Y_normalized_pred = surrogate.model(X_normalized)
-        end
-        
-        # Denormalize
-        Y_log_pred = Y_normalized_pred .* surrogate.Y_std .+ surrogate.Y_mean
-        
-        # Back-transform
-        Y_pred = copy(Y_log_pred)
-        Y_pred[2, :] = exp.(Y_log_pred[2, :])
-        Y_pred[3, :] = exp.(Y_log_pred[3, :])
-        
-        return single_sample ? Y_pred[:, 1] : Y_pred
-    end
-
     function predict_with_uncertainty_mixed_precision(
         surrogate::MultiOutputSurrogate,
         X_new;
         n_dropout_samples=50
     )
         """
-        Mixed precision uncertainty estimation (fastest option)
+        Mixed precision uncertainty estimation
         """
         
         single_sample = ndims(X_new) == 1
@@ -1511,16 +1539,16 @@ module DataUtils
             params[3] = exp(params[3])
 
             # Handle degenerate (flat) curves
-            if params[1] < 1e-3 || params[2] > 1e6 || isinf(params[3])
-                params[2] = NaN
-                params[3] = NaN
-            end
+            # if params[1] < 1e-3 || params[2] > 1e6 || isinf(params[3])
+            #     params[2] = NaN
+            #     params[3] = NaN
+            # end
 
-            # Handle sharp immediate steps
-            if params[2] < 1e-6
-                params[2] = 1e-6
-                params[3] = 10
-            end
+            # # Handle sharp immediate steps
+            # if params[2] < 1e-6
+            #     params[2] = 1e-6
+            #     params[3] = 10
+            # end
 
             return params, rmse
 
