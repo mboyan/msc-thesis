@@ -466,11 +466,11 @@ module DataUtils
         and parameters from a dictionary.
         inputs:
             df_germination (DataFrame): Dantigny model parameters
-            t_max (float): maximum time point in seconds
+            t_max (float): maximum time point in hours
             n_pts (int): number of time points to generate
         outputs:
             dantigny_data (Matrix): matrix of time-dependent germination data
-            times (Vector): vector of time points (in seconds)
+            times (Vector): vector of time points (in hours)
             sources (Vector): unique string identifiers of carbon sources
             densities (Vector): unique spore densities used in the data
             errs (Matrix): negative and positive offsets of p_max CIs from the mean
@@ -515,7 +515,7 @@ module DataUtils
             end
         end
 
-        return dantigny_data * 0.01, times * 3600, sources, densities, errs, p_maxs, taus, nus
+        return dantigny_data * 0.01, times, sources, densities, errs, p_maxs, taus, nus
     end
 
 
@@ -543,6 +543,7 @@ module DataUtils
         df_germination_rebuilt = parse_ijadpanahsaravi_data()
         df_germination_rebuilt = filter(row -> row[1] != "Arg", df_germination_rebuilt) # Remove "Arg" from the dataset
         dantigny_data, times, sources, densities, _, p_maxs, taus, nus = generate_dantigny_dataset(df_germination_rebuilt, t_max)
+        times_sec = times * 3600 # for matching physics variables in mechanistic model
 
         n_src = length(sources)
         n_dens = length(densities)
@@ -589,6 +590,9 @@ module DataUtils
         # χ^2 threshold
         χ_sq = 7.815
 
+        # Acceptable ranges for Dantigny data
+        output_ranges = [0 1; 1e-6 1e5; 0 20]
+
         # Precompute lab data
         data_lookup = Dict((row[1], row[2]) => row for row in eachrow(df_germination_rebuilt))
         lab_means = zeros(Float64, n_dens, n_src, 3)
@@ -612,7 +616,7 @@ module DataUtils
         input_params_all = Vector{Dict}(undef, n_src)
 
         # Record data points (input parameters + Dantigny summaries)
-        data_pts_dict = Dict()
+        # data_pts_dict = Dict()
 
         # Diagnostics
         π_d = zeros(Float64, n_dens, n_src, 3)
@@ -729,10 +733,12 @@ module DataUtils
             input_params_all .= Ref(merge(sample_params, def_params)) # Merge with default parameters
 
             # Record data points (input parameters + Dantigny summaries)
-            data_pts = zeros(Float64, n_src, n_iter, n_dims + 3, n_samples)
+            # data_pts = zeros(Float64, n_src, n_iter, n_dims + 3, n_samples)
 
             # NN training set
             X_train = zeros(n_dims, n_samples, n_src)
+            X_train[glob_tag, :, :] .= repeat(θ_glob, outer=[1, 1, 2])
+            X_train[.!glob_tag, :, :] .= permutedims(θ_spec, [2, 3, 1])
             Y_train = zeros(3, n_samples, n_dens, n_src)
 
             # Calibration loop
@@ -747,27 +753,27 @@ module DataUtils
 
                 if s > 1
                     marg_glob .= calibrate_marginals(marg_glob, θ_glob, w_glob_penalized)
-                    for (i, src) in enumerate(sources)
+                    for (j, src) in enumerate(sources)
 
                         sample_params = Dict()
 
-                        marg_spec[i, :] = calibrate_marginals(marg_spec[i, :], θ_spec[i, :, :], w_spec_penalized[i, :])
-                        copula = calibrate_copula(θ_glob, θ_spec[i, :, :], marg_glob, marg_spec[i, :], w_glob, w_spec_penalized[i, :])
+                        marg_spec[j, :] = calibrate_marginals(marg_spec[j, :], θ_spec[j, :, :], w_spec_penalized[j, :])
+                        copula = calibrate_copula(θ_glob, θ_spec[j, :, :], marg_glob, marg_spec[j, :], w_glob, w_spec_penalized[j, :])
 
                         marginals[glob_tag] .= marg_glob
-                        marginals[.!glob_tag] .= marg_spec[i, :]
+                        marginals[.!glob_tag] .= marg_spec[j, :]
 
-                        θ_glob, θ_spec[i, :, :] = sample_parameters(sobol_pts, copula, marg_glob, marg_spec[i, :], glob_tag)
-                        θ[glob_tag, :] .= θ_glob
-                        θ[.!glob_tag, :] .= θ_spec[i, :, :]
+                        θ_glob, θ_spec[j, :, :] = sample_parameters(sobol_pts, copula, marg_glob, marg_spec[j, :], glob_tag)
+                        # θ[glob_tag, :] .= θ_glob
+                        # θ[.!glob_tag, :] .= θ_spec[i, :, :]
 
-                        data_pts[i, s, 1:n_dims, :] .= θ
-                        X_train[:, :, i] .= θ
+                        # data_pts[i, s, 1:n_dims, :] .= θ
+                        # X_train[:, :, i] .= θ
 
                         # Assign new samples
                         for (k, key) in enumerate(param_keys)
                             sample_params[key] = θ[k, :]
-                            priors[key_src_strings[k, i]] = marginals[k]
+                            priors[key_src_strings[k, j]] = marginals[k]
                         end
 
                         # Transform sigmas
@@ -778,9 +784,11 @@ module DataUtils
                             end
                         end
 
-                        input_params_all[i] = merge(sample_params, def_params) # Merge with default parameters
+                        input_params_all[j] = merge(sample_params, def_params) # Merge with default parameters
                     end
                 end
+
+                println("Global parameter means: $(mean(θ_glob; dims=2))")
 
                 max_uncertainties = zeros(n_dens, n_src)
 
@@ -796,16 +804,43 @@ module DataUtils
                         if (use_surrogates == true && s == 1) || use_surrogates == false
                             for n in 1:n_samples # Iterate over random parameter samples
                                 
-                                p_out .= compute_germination_response(aliases[m], times, density_scaled, Dict(k => v[mod1(n, length(v))] for (k, v) in input_params_all[j]))
+                                p_out .= compute_germination_response(aliases[m], times_sec, density_scaled, Dict(k => v[mod1(n, length(v))] for (k, v) in input_params_all[j]))
                                 d[:, n], rmses[i, j, n] = fit_dantigny_to_germination_curve(p_out, times)
                                 Y_train[:, n, i, j] = d[:, n]
                             end
                         else # Use surrogate model to predict Dantigny summaries
+                            
+                            # Weave global and local parameters
+                            θ[glob_tag, :] .= θ_glob
+                            θ[.!glob_tag, :] .= θ_spec[j, :, :]
+                            # data_pts[j, s, 1:n_dims, :] .= θ
+                            
                             d, σ_pred = predict_with_uncertainty_mixed_precision(
                                 surrogates[(i, j)], 
                                 θ,
-                                n_dropout_samples=50
+                                n_dropout_samples=50,
+                                output_ranges=[(r[1], r[2]) for r in eachrow(output_ranges)]
                             )
+
+                            # Compare a few mechanistic model results for validation
+                            n_less_samples = round(Int, 0.05 * n_samples)
+                            random_idx_subset = sample(collect(1:n_samples))
+                            d_compare = zeros(Float64, 3, n_less_samples)
+                            for (n, ri) in enumerate(random_idx_subset)
+                                p_out .= compute_germination_response(aliases[m], times_sec, density_scaled, Dict(k => v[mod1(ri, length(v))] for (k, v) in input_params_all[j]))
+                                d_compare[:, n], _ = fit_dantigny_to_germination_curve(p_out, times)
+                            end
+
+                            diffs_compare = d[:, random_idx_subset] .- d_compare
+                            mask = .!isinf.(diffs_compare) .&& .!isnan.(diffs_compare)
+                            mean_sq_diff = mean(diffs_compare[mask].^2)
+                            println("Maximum difference from mechanistic model: $(maximum(diffs_compare[mask]))")
+                            println("Mean squared difference from mechanistic model: $mean_sq_diff")
+
+                            nan_mask = dropdims(all(.!isnan.(d_compare); dims=1); dims=1)
+                            println("Mean p_max (mechanistic): $(mean(d_compare[1, nan_mask])) ($(minimum(d_compare[1, nan_mask])) - $(maximum(d_compare[1, nan_mask])), $(sum(isnan.(d_compare[1, :]))) NaNs)")
+                            println("Mean tau_g (mechanistic): $(mean(d_compare[2, nan_mask])) ($(minimum(d_compare[2, nan_mask])) - $(maximum(d_compare[2, nan_mask])), $(sum(isnan.(d_compare[2, :]))) NaNs)")
+                            println("Mean nu (mechanistic): $(mean(d_compare[3, nan_mask])) ($(minimum(d_compare[3, nan_mask])) - $(maximum(d_compare[3, nan_mask])), $(sum(isnan.(d_compare[3, :]))) NaNs)")
                             
                             # Use uncertainty for RMSE estimate
                             rmses[i, j, :] = mean(σ_pred, dims=1) |> vec
@@ -824,14 +859,19 @@ module DataUtils
                             end
                         end
 
+                        nan_mask = dropdims(all(.!isnan.(d); dims=1); dims=1)
+                        println("Mean p_max: $(mean(d[1, nan_mask])) ($(minimum(d[1, nan_mask])) - $(maximum(d[1, nan_mask])), $(sum(isnan.(d[1, :]))) NaNs)")
+                        println("Mean tau_g: $(mean(d[2, nan_mask])) ($(minimum(d[2, nan_mask])) - $(maximum(d[2, nan_mask])), $(sum(isnan.(d[2, :]))) NaNs)")
+                        println("Mean nu: $(mean(d[3, nan_mask])) ($(minimum(d[3, nan_mask])) - $(maximum(d[3, nan_mask])), $(sum(isnan.(d[3, :]))) NaNs)")
+
                         println("Maximum RMSE: $(maximum(rmses))")
 
-                        data_pts[j, s, (n_dims + 1):end, :] .= d
+                        # data_pts[j, s, (n_dims + 1):end, :] .= d
 
-                        # Find non-identifiable τ_g and ν
-                        # identifiable = dropdims(any(.!isnan.(d[2:3, :]); dims=1); dims=1)
-                        in_bounds = (d[1, :] .> 1e-6) .&& (d[1, :] .< 1e6) .&& (d[2, :] .< 10) .&& dropdims(any(.!isnan.(d[2:3, :]); dims=1); dims=1)
+                        # Find valid Dantigny results
+                        in_bounds = dropdims(all(d .> output_ranges[:, 1] .&& d .< output_ranges[:, 2]; dims=1) .&& all(.!isnan.(d[2:3, :]); dims=1); dims=1) .&& .!isnan.(rmses[i, j, :])
                         d_valid = d[:, in_bounds]
+                        println("$(sum(in_bounds)) valid entries, $(sum(isnan.(d_valid))) are NaN.")
 
                         # Included fraction (Criterion 1)
                         π_d_new = dropdims(mean(d_valid .> CIs[i, j, :, 1] .&& d_valid .< CIs[i, j, :, 2]; dims=2); dims=2)
@@ -855,9 +895,9 @@ module DataUtils
                         # println(minimum(d_valid[3, :]), " - ", maximum(d_valid[3, :]))
                         d_mask = d_valid[3, :] .> 1e12 .|| dropdims(any(isnan.(d_valid); dims=1); dims=1)
                         if sum(d_mask) > 0
-                            println("p_max: ", d_valid[1, d_mask])
-                            println("tau_g: ", d_valid[2, d_mask])
-                            println("nu: ", d_valid[3, d_mask])
+                            println("Problematic p_max: ", d_valid[1, d_mask])
+                            println("Problematic tau_g: ", d_valid[2, d_mask])
+                            println("Problematic nu: ", d_valid[3, d_mask])
                         end
                         if any(isnan.(Σ_d) .|| isinf.(Σ_d))
                             display(Σ_d)
@@ -925,8 +965,9 @@ module DataUtils
                     # println("w_spec_penalized: $w_spec_penalized")
                     # println("w_spec: $w_spec")
                     # println("log_w_spec: $log_w_spec")
-                    println("z_acc_specific: $z_acc_specific")
-                    println("diffs_dantigny: $diffs_dantigny")
+                    println("Problematic rmses: $(rmses[:, :, isnan.(w_glob_penalized)])")
+                    println("Problematic z_acc_specific: $(z_acc_specific[:, isnan.(w_glob_penalized)])")
+                    println("Problematic diffs_dantigny: $(diffs_dantigny[:, isnan.(w_glob_penalized)])")
                 end
 
                 # Weight statistics (Criterion 5)
@@ -952,6 +993,9 @@ module DataUtils
                             println("$(sum(valid_mask)) valid samples")
                             X_valid = X_train[:, valid_mask, j]
                             Y_valid = Y_train[:, valid_mask, i, j]
+
+                            # Clamp within plausible ranges
+                            Y_valid .= clamp.(Y_valid, output_ranges[:, 1], output_ranges[:, 2])
                             
                             # Train on GPU
                             surrogates[(i, j)] = train_multioutput_nn_mixed_precision(X_valid, Y_valid; batch_size=optimal_batch_size)
@@ -979,29 +1023,29 @@ module DataUtils
                     else
                         m_d_crit_ct += 1
                     end
-                    println("π_d_crit_ct: $π_d_crit_ct")
-                    println("q_d_crit_ct: $q_d_crit_ct")
-                    println("m_d_crit_ct: $m_d_crit_ct")
-                    println("π_d: $π_d")
-                    println("π_d: $(minimum(π_d)) - $(maximum(π_d))")
-                    println("q_d: $q_d")
-                    println("m_d: $m_d")
-                    println("p_d: $p_d")
-                    println("iqr: $iqr")
-                    println("w_mean: $w_mean")
-                    println("w_std: $w_std")
-                    println("Max π_diffs: $(maximum(abs.(π_diffs)))")
-                    println("Max iqr_diff: $(maximum(abs.(iqr_diff)))")
-                    println("Max p_z_diffs: $(maximum(abs.(p_z_diffs)))")
-                    println("Max w_mean_diff: $(maximum(abs.(w_mean_diff)))")
-                    println("Max w_std_diff: $(maximum(abs.(w_std_diff)))")
-                    println("Criterion 1: $π_d_crit_new ($(π_d .> 0.2 .&& π_d .< 0.8))")
-                    println("Criterion 2: $q_d_crit_new ($(q_d .> 0.1 .&& q_d .< 0.9))")
-                    println("Criterion 3: $m_d_crit_new ($(m_d .< χ_sq))")
-                    println("Criterion 4: $(all(iqr_check))")
-                    println("Criterion 5: $(all(abs.(1.0 .- π_diffs) .< 0.1) && all(abs.(1.0 .- iqr_diff) .< 0.1) && all(abs.(1.0 .- p_z_diffs) .< 0.1) && all(abs.(1.0 .- w_mean_diff) .< 0.1) && all(abs.(1.0 .- w_std_diff) .< 0.1))")
-                    println("Criterion 6: $(all(p_d .> 1e-2))")
-                    println("Criterion 1, 2, 3 (soft): $((π_d_crit && q_d_crit && m_d_crit) || (π_d_crit_ct > 5 && q_d_crit_ct > 5 && m_d_crit_ct > 5))")
+                    # println("π_d_crit_ct: $π_d_crit_ct")
+                    # println("q_d_crit_ct: $q_d_crit_ct")
+                    # println("m_d_crit_ct: $m_d_crit_ct")
+                    # println("π_d: $π_d")
+                    # println("π_d: $(minimum(π_d)) - $(maximum(π_d))")
+                    # println("q_d: $q_d")
+                    # println("m_d: $m_d")
+                    # println("p_d: $p_d")
+                    # println("iqr: $iqr")
+                    # println("w_mean: $w_mean")
+                    # println("w_std: $w_std")
+                    # println("Max π_diffs: $(maximum(abs.(π_diffs)))")
+                    # println("Max iqr_diff: $(maximum(abs.(iqr_diff)))")
+                    # println("Max p_z_diffs: $(maximum(abs.(p_z_diffs)))")
+                    # println("Max w_mean_diff: $(maximum(abs.(w_mean_diff)))")
+                    # println("Max w_std_diff: $(maximum(abs.(w_std_diff)))")
+                    # println("Criterion 1: $π_d_crit_new ($(π_d .> 0.2 .&& π_d .< 0.8))")
+                    # println("Criterion 2: $q_d_crit_new ($(q_d .> 0.1 .&& q_d .< 0.9))")
+                    # println("Criterion 3: $m_d_crit_new ($(m_d .< χ_sq))")
+                    # println("Criterion 4: $(all(iqr_check))")
+                    # println("Criterion 5: $(all(abs.(1.0 .- π_diffs) .< 0.1) && all(abs.(1.0 .- iqr_diff) .< 0.1) && all(abs.(1.0 .- p_z_diffs) .< 0.1) && all(abs.(1.0 .- w_mean_diff) .< 0.1) && all(abs.(1.0 .- w_std_diff) .< 0.1))")
+                    # println("Criterion 6: $(all(p_d .> 1e-2))")
+                    # println("Criterion 1, 2, 3 (soft): $((π_d_crit && q_d_crit && m_d_crit) || (π_d_crit_ct > 5 && q_d_crit_ct > 5 && m_d_crit_ct > 5))")
                     if (all(iqr_check) # Criterion 4
                         && all(abs.(1.0 .- π_diffs) .< 0.1) && all(abs.(1.0 .- iqr_diff) .< 0.1) && all(abs.(1.0 .- p_z_diffs) .< 0.1) && all(abs.(1.0 .- w_mean_diff) .< 0.1) && all(abs.(1.0 .- w_std_diff) .< 0.1) # Criterion 5
                         && all(p_d .> 1e-2) # Criterion 6
@@ -1021,12 +1065,12 @@ module DataUtils
 
             priors_all[aliases[m]] = priors
             surrogates_all[aliases[m]] = surrogates
-            data_pts_dict[aliases[m]] = data_pts
+            # data_pts_dict[aliases[m]] = data_pts
         end
 
         jldsave("../src/Data/priors.jld2"; priors_all)
 
-        return data_pts_dict
+        # return data_pts_dict
     end
 
 
@@ -1035,62 +1079,11 @@ module DataUtils
         model::Chain
         X_mean::Vector{Float64}
         X_std::Vector{Float64}
-        Y_mean::Vector{Float64}
-        Y_std::Vector{Float64}
+        Y_min::Vector{Float64}
+        Y_range::Vector{Float64}
         n_inputs::Int
         n_outputs::Int
     end
-
-    # struct ConstrainedMultiOutputSurrogate
-    #     model::Chain
-    #     X_mean::Vector{Float64}
-    #     X_std::Vector{Float64}
-    #     Y_mean::Vector{Float64}
-    #     Y_std::Vector{Float64}
-    #     output_ranges::Vector{Tuple{Float64, Float64}}
-    #     transforms::Vector{Symbol}  # [:logit, :log, :log] for [P_max, τ, ν]
-    #     n_inputs::Int
-    #     n_outputs::Int
-    # end
-
-    # function apply_transform(Y, transform_type)
-    #     """
-    #     Apply forward transform: original → unbounded space
-    #     """
-    #     if transform_type == :logit
-    #         # [0, 1] → (-∞, ∞)
-    #         Y_safe = clamp.(Y, 0.001, 0.999)  # Avoid singularities
-    #         return log.(Y_safe ./ (1 .- Y_safe))
-    #     elseif transform_type == :log
-    #         # (0, ∞) → (-∞, ∞)
-    #         Y_safe = max.(Y, 1e-10)  # Avoid log(0)
-    #         return log.(Y_safe)
-    #     elseif transform_type == :none
-    #         return Y
-    #     else
-    #         error("Unknown transform: $transform_type")
-    #     end
-    # end
-
-    # function inverse_transform(Y_transformed, transform_type, output_range)
-    #     """
-    #     Apply inverse transform: unbounded → original space
-    #     """
-    #     if transform_type == :logit
-    #         # (-∞, ∞) → [0, 1]
-    #         Y_original = 1 ./ (1 .+ exp.(-Y_transformed))
-    #     elseif transform_type == :log
-    #         # (-∞, ∞) → (0, ∞)
-    #         Y_original = exp.(Y_transformed)
-    #     elseif transform_type == :none
-    #         Y_original = Y_transformed
-    #     else
-    #         error("Unknown transform: $transform_type")
-    #     end
-        
-    #     # Soft clamp (gradients still flow, but keep in reasonable range)
-    #     min_val, max_val = output_range
-    #     return clamp.(Y_original, min_val, max_val)
     # end
 
     function train_multioutput_nn_mixed_precision(
@@ -1102,7 +1095,8 @@ module DataUtils
         validation_split=0.15,
         early_stopping_patience=50,
         loss_scale=1024.0,  # Initial loss scale
-        verbose=true
+        #output_ranges=[(0, 1), (1e-6, 1e4), (0, 10)],
+        verbose=false
     )
         """
         Automatic Mixed Precision training optimized for RTX A4000
@@ -1112,8 +1106,6 @@ module DataUtils
         - FP32 for loss computation and weight updates
         - Dynamic loss scaling to prevent underflow
         """
-
-        output_ranges = [(0, 1), (1e-6, 1e6), (0, 10)]
         
         n_inputs = size(X_train, 1)
         n_outputs = size(Y_train, 1)
@@ -1137,10 +1129,18 @@ module DataUtils
         Y_log[2, :] = log.(max.(Y_train[2, :], 1e-10))
         Y_log[3, :] = log.(max.(Y_train[3, :], 1e-10))
         
-        Y_mean = mean(Y_log, dims=2) |> vec
-        Y_std = std(Y_log, dims=2) |> vec
-        Y_std[Y_std .< 1e-8] .= 1.0
-        Y_normalized = (Y_log .- Y_mean) ./ Y_std
+        # Y_mean = mean(Y_log, dims=2) |> vec
+        # Y_std = std(Y_log, dims=2) |> vec
+        # Y_std[Y_std .< 1e-8] .= 1.0
+        # Y_normalized = (Y_log .- Y_mean) ./ Y_std
+
+        # Normalize outputs to [0, 1] range for each parameter
+        Y_min = [minimum(Y_log[i, :]) for i in 1:n_outputs]
+        Y_max = [maximum(Y_log[i, :]) for i in 1:n_outputs]
+        Y_range = Y_max .- Y_min
+        Y_range[Y_range .< 1e-8] .= 1.0
+
+        Y_normalized = (Y_log .- Y_min) ./ Y_range
         
         # Train/val split
         n_val = floor(Int, validation_split * n_samples)
@@ -1166,7 +1166,7 @@ module DataUtils
             push!(layers, Dropout(0.1))
         end
         
-        push!(layers, Dense(hidden_dims[end], n_outputs))
+        push!(layers, Dense(hidden_dims[end], n_outputs), sigmoid)
         
         model = Chain(layers...)
         
@@ -1253,6 +1253,7 @@ module DataUtils
             
             Returns: (loss, had_overflow)
             """
+
             # Forward pass in FP16
             loss_val, grads = Flux.withgradient(model) do m
                 # Activations in FP16 (uses Tensor Cores!)
@@ -1262,7 +1263,7 @@ module DataUtils
                 ŷ_fp32 = Float32.(ŷ_fp16)
                 y_fp32 = Float32.(y_fp16)
                 
-                loss_fp32 = Flux.mse(ŷ_fp32, y_fp32) + rp_mag * sum(range_penalty(ŷ_fp32[i, :], output_ranges[i]...) for i in 1:n_outputs) # penalize out-of-range
+                loss_fp32 = Flux.mse(ŷ_fp32, y_fp32)# + rp_mag * sum(range_penalty(ŷ_fp32[i, :], output_ranges[i]...) for i in 1:n_outputs) # penalize out-of-range
                 
                 # Scale loss to prevent gradient underflow
                 loss_fp32 * scale
@@ -1385,8 +1386,8 @@ module DataUtils
             model_cpu,
             X_mean,
             X_std,
-            Y_mean,
-            Y_std,
+            Y_min,
+            Y_range,
             n_inputs,
             n_outputs
         )
@@ -1395,7 +1396,8 @@ module DataUtils
     function predict_with_uncertainty_mixed_precision(
         surrogate::MultiOutputSurrogate,
         X_new;
-        n_dropout_samples=50
+        n_dropout_samples=50,
+        output_ranges=[(0, 1), (1e-6, 1e4), (0, 10)]
     )
         """
         Mixed precision uncertainty estimation
@@ -1436,14 +1438,21 @@ module DataUtils
         
         # Reshape
         Y_normalized_all = reshape(Y_normalized_all, surrogate.n_outputs, n_samples, n_dropout_samples)
-        
+
         # Denormalize and back-transform
-        Y_log_all = Y_normalized_all .* reshape(surrogate.Y_std, :, 1, 1) .+ 
-                    reshape(surrogate.Y_mean, :, 1, 1)
+        # Y_log_all = Y_normalized_all .* reshape(surrogate.Y_std, :, 1, 1) .+ 
+        #             reshape(surrogate.Y_mean, :, 1, 1)
+        Y_log_all = Y_normalized_all .* reshape(surrogate.Y_range, :, 1, 1) .+ 
+                reshape(surrogate.Y_min, :, 1, 1)
         
         Y_all = copy(Y_log_all)
         Y_all[2, :, :] = exp.(Y_log_all[2, :, :])
         Y_all[3, :, :] = exp.(Y_log_all[3, :, :])
+
+        # Clamp with output ranges
+        Y_all[1, :, :] = clamp.(Y_all[1, :, :], output_ranges[1]...)
+        Y_all[2, :, :] = clamp.(Y_all[2, :, :], output_ranges[2]...)
+        Y_all[3, :, :] = clamp.(Y_all[3, :, :], output_ranges[3]...)
         
         # Compute statistics
         mean_pred = mean(Y_all, dims=3)[:, :, 1]
@@ -1485,21 +1494,7 @@ module DataUtils
     end
 
     # ===== Data fitting =====
-    function unresolved_step(y; atol=1e-3)
-        """
-        Utility function for detecting degenerate results
-        (fast step-like onset)
-        inputs:
-            y (Vector): measurements
-        output:
-            Bool: whether the measurements form a rapid step
-        """
-        Δ = abs.(diff(y))
-        return count(>(atol), Δ) ≤ 1
-    end
-
-
-    function fit_dantigny_to_germination_curve(germ_response, times)#; check_stderr=false)
+    function fit_dantigny_to_germination_curve(germ_response, times)
         """
         Fit Dantigny model to simulated germination curve
         from a mechanistic model.

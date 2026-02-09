@@ -292,7 +292,7 @@ module GermStats
         Generic wrapper function to compute the germination response.
         inputs:
             model_type (String): model type to fit
-            times (Vector{Float64}): time points to compute the germination response
+            times (Vector{Float64}): time points to compute the germination response (in seconds)
             ρₛ (float) - spore density in spores/μm^3
             n_nodes (int) - number of Gauss-Hermite nodes to use
             prms (Dict) - additional parameters for the germination response function
