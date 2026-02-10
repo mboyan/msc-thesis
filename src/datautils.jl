@@ -47,6 +47,15 @@ module DataUtils
 
 
     # ===== Statistics =====
+    function mean_log(values; dims=nothing)
+        """
+        Alternative calculation of mean
+        through logarithms (avoids overflow)
+        """
+        log_mean = mean(log.(values); dims=dims)
+        return exp.(log_mean)
+    end
+
     function weighted_median(values::Vector{T}, weights::Vector{T}) where T
         """
         Compute a weighted median from a set of values and weights.
@@ -824,7 +833,7 @@ module DataUtils
 
                             # Compare a few mechanistic model results for validation
                             n_less_samples = round(Int, 0.05 * n_samples)
-                            random_idx_subset = sample(collect(1:n_samples))
+                            random_idx_subset = sample(collect(1:n_samples), n_less_samples)
                             d_compare = zeros(Float64, 3, n_less_samples)
                             for (n, ri) in enumerate(random_idx_subset)
                                 p_out .= compute_germination_response(aliases[m], times_sec, density_scaled, Dict(k => v[mod1(ri, length(v))] for (k, v) in input_params_all[j]))
@@ -843,7 +852,7 @@ module DataUtils
                             println("Mean nu (mechanistic): $(mean(d_compare[3, nan_mask])) ($(minimum(d_compare[3, nan_mask])) - $(maximum(d_compare[3, nan_mask])), $(sum(isnan.(d_compare[3, :]))) NaNs)")
                             
                             # Use uncertainty for RMSE estimate
-                            rmses[i, j, :] = mean(σ_pred, dims=1) |> vec
+                            rmses[i, j, :] = mean_log(σ_pred, dims=1) |> vec
 
                             # Track maximum uncertainty
                             max_uncertainties[i, j] = maximum(σ_pred)
@@ -926,12 +935,11 @@ module DataUtils
                         for n in 1:n_samples
                             if in_bounds[n]
                                 z_dist[n] = dot(diffs_dantigny[:, n], Σ \ diffs_dantigny[:, n])
-                                z_acc_specific[j, n] += z_dist[n]
                             else
                                 z_dist[n] = diffs_dantigny[1, n] .^ 2 / σ_dantigny[1] .^ 2
-                                z_acc_specific[j, n] += z_dist[n]
                             end
                         end
+                        z_acc_specific[j, :] .+= z_dist # accumulate across densities
 
                         # Fraction of lab means inside joint regions (Criterion 5)
                         p_z_new = mean(z_dist .< χ_sq)
