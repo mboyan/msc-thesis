@@ -445,6 +445,7 @@ module DataUtils
             :d => d_vals,
             :d_CI_Lower => dCIlow_vals,
             :d_CI_Upper => dCIhigh_vals,
+            :RMSE => df_germination_swelling[!, 7],
             :N => df_germination_swelling[!, 8],
             :M => df_germination_swelling[!, 9]
         )
@@ -607,25 +608,37 @@ module DataUtils
         lab_means = zeros(Float64, n_dens, n_src, 3)
         CIs = zeros(Float64, n_dens, n_src, 3, 2)
         CI_widths = zeros(Float64, n_dens, n_src, 3)
+        uncert_lab = zeros(Float64, n_dens, n_src, 3) # Lab uncertainty (based on RMSE)
+
         for i in eachindex(densities)
             for j in eachindex(sources)
                 data_row = data_lookup[(sources[j], densities[i])]
                 lab_means[i, j, :] = [data_row["Pmax"] * 0.01, data_row["tau"], data_row["d"]]
                 CIs[i, j, :, :] = [
-                    data_row["Pmax_CI_Lower"] * 0.01 data_row["Pmax_CI_Upper"] * 0.01;
+                    data_row["Pmax_CI_Lower"] * 0.01 data_row["Pmax_CI_Upper"] * 0.01; # normalise from %
                     data_row["tau_CI_Lower"] data_row["tau_CI_Upper"];
                     data_row["d_CI_Lower"] data_row["d_CI_Upper"]
                     ]
                 CI_widths[i, j, :] = CIs[i, j, :, 2] .- CIs[i, j, :, 1]
+
+                uncert_base = CI_widths[i, j, :] ./ 3.92
+
+                uncert_lab[i, j, :] = sqrt.(uncert_base.^2 .+ (data_row["RMSE"] * 0.01)^2) # normalise from % and square
             end
         end
 
-        println("CI_widths: $CI_widths")
+        # println("CI_widths: $CI_widths")
 
         input_params_all = Vector{Dict}(undef, n_src)
 
         # Record data points (input parameters + Dantigny summaries)
         # data_pts_dict = Dict()
+
+        # Uncertainty of mechanistic model to Dantigny summaries
+        # uncert_mech = zeros(Float64, n_dens, n_src, n_samples)
+
+        # Total uncertainty (lab + mechanistic model)
+        # uncert_total = zeros(Float64, n_dens, n_src, n_samples)
 
         # Diagnostics
         π_d = zeros(Float64, n_dens, n_src, 3)
@@ -750,7 +763,18 @@ module DataUtils
             X_train[.!glob_tag, :, :] .= permutedims(θ_spec, [2, 3, 1])
             Y_train = zeros(3, n_samples, n_dens, n_src)
 
-            # Calibration loop
+            X_train_accumulated = Dict{Tuple{Int,Int}, Matrix{Float64}}()
+            Y_train_accumulated = Dict{Tuple{Int,Int}, Matrix{Float64}}()
+
+            # Initialise data accumulators
+            for i in eachindex(densities)
+                for j in eachindex(sources)
+                    X_train_accumulated[(i,j)] = zeros(Float64, n_dims, 0)
+                    Y_train_accumulated[(i,j)] = zeros(Float64, 3, 0)
+                end
+            end
+
+            # --- CALIBRATION LOOP ---
             @inbounds for s in 1:n_iter
 
                 # print("\rIteration $s")
@@ -773,11 +797,6 @@ module DataUtils
                         marginals[.!glob_tag] .= marg_spec[j, :]
 
                         θ_glob, θ_spec[j, :, :] = sample_parameters(sobol_pts, copula, marg_glob, marg_spec[j, :], glob_tag)
-                        # θ[glob_tag, :] .= θ_glob
-                        # θ[.!glob_tag, :] .= θ_spec[i, :, :]
-
-                        # data_pts[i, s, 1:n_dims, :] .= θ
-                        # X_train[:, :, i] .= θ
 
                         # Assign new samples
                         for (k, key) in enumerate(param_keys)
@@ -799,9 +818,39 @@ module DataUtils
 
                 println("Global parameter means: $(mean(θ_glob; dims=2))")
 
+                # --- ADAPTIVE SAMPLING STRATEGY ---
+                if (use_surrogates == true && s == 1) || use_surrogates == false
+                    # First iteration: run ALL samples on mechanistic model
+                    n_mech_samples = n_samples
+                    mech_indices = 1:n_samples
+                    use_surrogate_this_iter = false
+                else
+                    # Later iterations: strategic subsampling
+                    n_mech_samples = max(200, round(Int, 0.15 * n_samples))  # At least 200 or 15%
+                    
+                    # Sample strategically:
+                    # 1. High-weight samples (50%)
+                    # 2. Random samples (50%) for coverage
+                    n_high_weight = div(n_mech_samples, 2)
+                    n_random = n_mech_samples - n_high_weight
+                    
+                    # Get high-weight indices
+                    weight_order = sortperm(w_glob_penalized, rev=true)
+                    high_weight_idx = weight_order[1:n_high_weight]
+                    
+                    # Random samples from rest
+                    remaining_idx = setdiff(1:n_samples, high_weight_idx)
+                    random_idx = sample(remaining_idx, n_random, replace=false)
+                    
+                    mech_indices = sort([high_weight_idx; random_idx])
+                    use_surrogate_this_iter = true
+                end
+
+                 println("Running mechanistic model on $(n_mech_samples) samples ($(round(100*n_mech_samples/n_samples, digits=1))%)")
+
                 max_uncertainties = zeros(n_dens, n_src)
 
-                # Iterate over experimental conditions
+                # --- DANTIGNY SUMMARIES AND DIAGNOSTICS OVER EXPERIMENTAL CONDITIONS ---
                 @inbounds for (i, density) in enumerate(densities) # iterate over spore densities (exp. data)
 
                     # println("Running model $(aliases[m]) with density $density")
@@ -810,21 +859,43 @@ module DataUtils
 
                     @inbounds for j in eachindex(sources) # Iterate over sources
 
-                        if (use_surrogates == true && s == 1) || use_surrogates == false
-                            for n in 1:n_samples # Iterate over random parameter samples
-                                
+                        # Mechanistic uncertainty combines fit quality + prediction uncertainty
+                        uncert_mech = zeros(Float64, 3, n_samples)
+
+                        if !use_surrogate_this_iter
+                            # --- RUN ALL SAMPLES THROUGH MECHANISTIC MODEL ---
+                            for n in 1:n_samples
                                 p_out .= compute_germination_response(aliases[m], times_sec, density_scaled, Dict(k => v[mod1(n, length(v))] for (k, v) in input_params_all[j]))
                                 d[:, n], rmses[i, j, n] = fit_dantigny_to_germination_curve(p_out, times)
                                 Y_train[:, n, i, j] = d[:, n]
+
+                                uncert_mech[:, n] = rmses[i, j, n] .* [0.1, 1.0, 0.1] # Scale by typical values
                             end
-                        else # Use surrogate model to predict Dantigny summaries
-                            
+                        else
+                            # --- HYBRID APPROACH ---
+
+                            # 1. Run mechanistic model on subsample
+                            d_mech = zeros(Float64, 3, n_mech_samples)
+                            rmse_mech = zeros(Float64, n_mech_samples)
+                            for (idx_local, n_global) in enumerate(mech_indices)
+                                try
+                                    p_out .= compute_germination_response(
+                                        aliases[m], times_sec, density_scaled,
+                                        Dict(k => v[mod1(n_global, length(v))] for (k, v) in input_params_all[j])
+                                    )
+                                    d_mech[:, idx_local], rmse_mech[idx_local] = fit_dantigny_to_germination_curve(p_out, times)
+                                catch
+                                    println(Dict(k => v[mod1(n_global, length(v))] for (k, v) in input_params_all[j]))
+                                end
+                            end
+
                             # Weave global and local parameters
                             θ[glob_tag, :] .= θ_glob
                             θ[.!glob_tag, :] .= θ_spec[j, :, :]
                             # data_pts[j, s, 1:n_dims, :] .= θ
                             
-                            d, σ_pred = predict_with_uncertainty_mixed_precision(
+                            # 2. Predict all samples with surrogate
+                            d_surr, σ_pred = predict_with_uncertainty_mixed_precision(
                                 surrogates[(i, j)], 
                                 θ,
                                 n_dropout_samples=50,
@@ -832,27 +903,108 @@ module DataUtils
                             )
 
                             # Compare a few mechanistic model results for validation
-                            n_less_samples = round(Int, 0.05 * n_samples)
-                            random_idx_subset = sample(collect(1:n_samples), n_less_samples)
-                            d_compare = zeros(Float64, 3, n_less_samples)
-                            for (n, ri) in enumerate(random_idx_subset)
-                                p_out .= compute_germination_response(aliases[m], times_sec, density_scaled, Dict(k => v[mod1(ri, length(v))] for (k, v) in input_params_all[j]))
-                                d_compare[:, n], _ = fit_dantigny_to_germination_curve(p_out, times)
-                            end
+                            # n_less_samples = round(Int, 0.05 * n_samples)
+                            # random_idx_subset = sample(collect(1:n_samples), n_less_samples)
+                            # d_compare = zeros(Float64, 3, n_less_samples)
+                            # for (n, ri) in enumerate(random_idx_subset)
+                            #     p_out .= compute_germination_response(aliases[m], times_sec, density_scaled, Dict(k => v[mod1(ri, length(v))] for (k, v) in input_params_all[j]))
+                            #     d_compare[:, n], _ = fit_dantigny_to_germination_curve(p_out, times)
+                            # end
 
-                            diffs_compare = d[:, random_idx_subset] .- d_compare
-                            mask = .!isinf.(diffs_compare) .&& .!isnan.(diffs_compare)
-                            mean_sq_diff = mean(diffs_compare[mask].^2)
-                            println("Maximum difference from mechanistic model: $(maximum(diffs_compare[mask]))")
-                            println("Mean squared difference from mechanistic model: $mean_sq_diff")
+                            # diffs_compare = d[:, random_idx_subset] .- d_compare
+                            # mask = .!isinf.(diffs_compare) .&& .!isnan.(diffs_compare)
+                            # mean_sq_diff = mean(diffs_compare[mask].^2)
+                            # println("Maximum difference from mechanistic model: $(maximum(diffs_compare[mask]))")
+                            # println("Mean squared difference from mechanistic model: $mean_sq_diff")
 
-                            nan_mask = dropdims(all(.!isnan.(d_compare); dims=1); dims=1)
-                            println("Mean p_max (mechanistic): $(mean(d_compare[1, nan_mask])) ($(minimum(d_compare[1, nan_mask])) - $(maximum(d_compare[1, nan_mask])), $(sum(isnan.(d_compare[1, :]))) NaNs)")
-                            println("Mean tau_g (mechanistic): $(mean(d_compare[2, nan_mask])) ($(minimum(d_compare[2, nan_mask])) - $(maximum(d_compare[2, nan_mask])), $(sum(isnan.(d_compare[2, :]))) NaNs)")
-                            println("Mean nu (mechanistic): $(mean(d_compare[3, nan_mask])) ($(minimum(d_compare[3, nan_mask])) - $(maximum(d_compare[3, nan_mask])), $(sum(isnan.(d_compare[3, :]))) NaNs)")
+                            # nan_mask = dropdims(all(.!isnan.(d_compare); dims=1); dims=1)
+                            # println("Mean p_max (mechanistic): $(mean(d_compare[1, nan_mask])) ($(minimum(d_compare[1, nan_mask])) - $(maximum(d_compare[1, nan_mask])), $(sum(isnan.(d_compare[1, :]))) NaNs)")
+                            # println("Mean tau_g (mechanistic): $(mean(d_compare[2, nan_mask])) ($(minimum(d_compare[2, nan_mask])) - $(maximum(d_compare[2, nan_mask])), $(sum(isnan.(d_compare[2, :]))) NaNs)")
+                            # println("Mean nu (mechanistic): $(mean(d_compare[3, nan_mask])) ($(minimum(d_compare[3, nan_mask])) - $(maximum(d_compare[3, nan_mask])), $(sum(isnan.(d_compare[3, :]))) NaNs)")
                             
+                            # 3. Validate surrogate on mechanistic subsample
+                            d_surr_subsample = d_surr[:, mech_indices]
+                            validation_errors = abs.(d_mech .- d_surr_subsample)
+                            if any(isnan.(validation_errors))
+                                # println("Validation errors: $validation_errors")
+                                println("d_mech: $d_mech")
+                                println("d_surr: $d_surr")
+                            end
+                            
+                            # Compute validation metrics
+                            mae_validation = mean(validation_errors, dims=2) |> vec
+                            max_error = maximum(validation_errors, dims=2) |> vec
+                            
+                            println("  Validation MAE: P_max=$(round(mae_validation[1], digits=4)), τ=$(round(mae_validation[2], digits=2)), ν=$(round(mae_validation[3], digits=3))")
+                            println("  Validation max error: P_max=$(round(max_error[1], digits=4)), τ=$(round(max_error[2], digits=2)), ν=$(round(max_error[3], digits=3))")
+                            
+                            # 4. Decide: trust surrogate or retrain?
+                            needs_retraining = (
+                                mae_validation[1] > 0.05 ||  # P_max error > 5%
+                                mae_validation[2] > 2.0 ||   # τ error > 2 hours
+                                mae_validation[3] > 0.5 ||   # ν error > 0.5
+                                max_error[1] > 0.15 ||
+                                max_error[2] > 10.0 ||
+                                max_error[3] > 1.5
+                            )
+
+                            if needs_retraining
+                                println("  ⚠️  Surrogate validation failed - accumulating data for retraining")
+                                
+                                # Accumulate NEW mechanistic data
+                                X_new = θ[:, mech_indices]
+                                Y_new = d_mech
+                                
+                                # Filter valid samples
+                                valid_mask = .!any(isnan.(Y_new), dims=1) |> vec
+                                X_new = X_new[:, valid_mask]
+                                Y_new = Y_new[:, valid_mask]
+                                
+                                # Clamp to reasonable bounds
+                                Y_new = clamp.(Y_new, output_ranges[:, 1], output_ranges[:, 2])
+                                
+                                # Append to accumulated data
+                                X_train_accumulated[(i,j)] = hcat(X_train_accumulated[(i,j)], X_new)
+                                Y_train_accumulated[(i,j)] = hcat(Y_train_accumulated[(i,j)], Y_new)
+                                
+                                # Keep only recent N samples to avoid memory bloat
+                                max_accumulated = 8192
+                                n_accumulated = size(X_train_accumulated[(i,j)], 2)
+                                if n_accumulated > max_accumulated
+                                    # Keep most recent samples
+                                    keep_idx = (n_accumulated - max_accumulated + 1):n_accumulated
+                                    X_train_accumulated[(i,j)] = X_train_accumulated[(i,j)][:, keep_idx]
+                                    Y_train_accumulated[(i,j)] = Y_train_accumulated[(i,j)][:, keep_idx]
+                                end
+                                
+                                # Retrain with accumulated data
+                                println("  Retraining surrogate with $(size(X_train_accumulated[(i,j)], 2)) accumulated samples...")
+                                surrogates[(i,j)] = train_multioutput_nn_mixed_precision(
+                                    X_train_accumulated[(i,j)], 
+                                    Y_train_accumulated[(i,j)];
+                                    batch_size=find_optimal_batch_size(n_dims, size(X_train_accumulated[(i,j)], 2)),
+                                    epochs=500
+                                )
+                                
+                                # Re-predict with updated surrogate
+                                d_surr, σ_pred = predict_with_uncertainty_mixed_precision(
+                                    surrogates[(i, j)], 
+                                    θ,
+                                    n_dropout_samples=50
+                                )
+                            else
+                                println("  ✓ Surrogate validated successfully")
+                            end
+                            
+                            # 5. Use surrogate predictions for ALL samples
+                            d = d_surr
+
                             # Use uncertainty for RMSE estimate
                             rmses[i, j, :] = mean_log(σ_pred, dims=1) |> vec
+                            # AAAAAAAAAAAAAAAAAAAAAA!!!!!!!!!!!!!!!!!!!!!!!
+
+                            uncert_fit = mean(rmse_mech) .* [0.1, 1.0, 0.1]
+                            uncert_mech = sqrt.(uncert_fit.^2 .+ σ_pred)
 
                             # Track maximum uncertainty
                             max_uncertainties[i, j] = maximum(σ_pred)
@@ -877,8 +1029,12 @@ module DataUtils
 
                         # data_pts[j, s, (n_dims + 1):end, :] .= d
 
+                        # Total uncertainty per sample
+                        uncert_total = sqrt.(uncert_lab[i, j, :].^2 .+ uncert_mech.^2)
+
                         # Find valid Dantigny results
                         in_bounds = dropdims(all(d .> output_ranges[:, 1] .&& d .< output_ranges[:, 2]; dims=1) .&& all(.!isnan.(d[2:3, :]); dims=1); dims=1) .&& .!isnan.(rmses[i, j, :])
+                        # in_bounds = dropdims(all(.!isnan.(d[2:3, :]); dims=1); dims=1) .&& .!isnan.(rmses[i, j, :])
                         d_valid = d[:, in_bounds]
                         println("$(sum(in_bounds)) valid entries, $(sum(isnan.(d_valid))) are NaN.")
 
@@ -923,23 +1079,31 @@ module DataUtils
                         iqr_check[i, j, :] .= iqr[i, j, :] .> CI_widths[i, j, :]
 
                         # Standard deviation and covariance matrix
-                        σ_dantigny = CI_widths[i, j, :] ./ 3.92 #[Δ/1.96 for Δ in Δ_dantigny]
-                        Σ = diagm(σ_dantigny .^ 2)
+                        # σ_dantigny = CI_widths[i, j, :] ./ 3.92 #[Δ/1.96 for Δ in Δ_dantigny]
+                        # Σ = diagm(σ_dantigny .^ 2)
 
                         # Compute differences to experimental data
-                        diffs_dantigny[1, :] .= d[1, :] .- lab_means[i, j, 1]
-                        diffs_dantigny[2, :][in_bounds] .= d_valid[2, :] .- lab_means[i, j, 2]
-                        diffs_dantigny[3, :][in_bounds] .= d_valid[3, :] .- lab_means[i, j, 3]
+                        # diffs_dantigny[1, :] .= d[1, :] .- lab_means[i, j, 1]
+                        # diffs_dantigny[2, :][in_bounds] .= d_valid[2, :] .- lab_means[i, j, 2]
+                        # diffs_dantigny[3, :][in_bounds] .= d_valid[3, :] .- lab_means[i, j, 3]
 
                         # Compute running z's
                         for n in 1:n_samples
                             if in_bounds[n]
-                                z_dist[n] = dot(diffs_dantigny[:, n], Σ \ diffs_dantigny[:, n])
+                                # z_dist[n] = dot(diffs_dantigny[:, n], Σ \ diffs_dantigny[:, n])
+                                # Uncertainty-weighted Mahalanobis distance
+                                Σ_n = diagm(uncert_total[:, n].^2)
+                                diffs = d[:, n] .- lab_means[i, j, :]
+                                z_dist[n] = dot(diffs, Σ_n \ diffs)
+                                z_acc_specific[j, n] += z_dist[n]
                             else
-                                z_dist[n] = diffs_dantigny[1, n] .^ 2 / σ_dantigny[1] .^ 2
+                                # z_dist[n] = diffs_dantigny[1, n] .^ 2 / σ_dantigny[1] .^ 2
+                                # Penalty for out-of-bounds
+                                z_dist[n] = 100.0  # Large penalty
+                                z_acc_specific[j, n] += z_dist[n]
                             end
                         end
-                        z_acc_specific[j, :] .+= z_dist # accumulate across densities
+                        # z_acc_specific[j, :] .+= z_dist # accumulate across densities
 
                         # Fraction of lab means inside joint regions (Criterion 5)
                         p_z_new = mean(z_dist .< χ_sq)
@@ -954,17 +1118,17 @@ module DataUtils
                 # z_acc_specific[z_acc_specific .< χ_sq] .= 0 # Do not penalize good fits
 
                 # Penalize weights due to RMSE
-                reliabilities = exp.(-0.5 .* dropdims(mean(rmses.^2, dims=1); dims=1) ./ 0.004) # using an error scale of 2%
+                # reliabilities = exp.(-0.5 .* dropdims(mean(rmses.^2, dims=1); dims=1) ./ 0.004) # using an error scale of 2%
 
                 # Compute condition-specific weights
                 log_w_spec = -temp_param .* z_acc_specific
                 w_spec .= exp.(log_w_spec)
-                w_spec_penalized = w_spec .* reliabilities
+                w_spec_penalized = w_spec# .* reliabilities
 
                 # Compute global weights as product of specific ones
                 log_w_glob = dropdims(sum(log_w_spec, dims=1), dims=1)  # Sum of logs = log of product
                 w_glob .= exp.(log_w_glob)
-                w_glob_penalized = w_glob .* dropdims(mean(reliabilities; dims=1); dims=1)
+                w_glob_penalized = w_glob# .* dropdims(mean(reliabilities; dims=1); dims=1)
 
                 # Debugging
                 if any(isnan.(w_glob_penalized))
@@ -988,12 +1152,12 @@ module DataUtils
                 w_mean = w_mean_new
                 w_std = w_std_new
 
-                # Train separate surrogate for each (density, source) combination
-                if s == 1
+                # --- INITIAL SURROGATE TRAINING ---
+                if s == 1 && use_surrogates
                     println("Building GPU-accelerated surrogate...")
                     
                     # Determine optimal batch size
-                    optimal_batch_size = find_optimal_batch_size(n_dims, n_samples)
+                    # optimal_batch_size = find_optimal_batch_size(n_dims, n_samples)
                     
                     for i in eachindex(densities)
                         for j in eachindex(sources)
@@ -1004,9 +1168,16 @@ module DataUtils
 
                             # Clamp within plausible ranges
                             Y_valid .= clamp.(Y_valid, output_ranges[:, 1], output_ranges[:, 2])
+
+                            # Initialize accumulated data
+                            X_train_accumulated[(i,j)] = copy(X_valid)
+                            Y_train_accumulated[(i,j)] = copy(Y_valid)
                             
                             # Train on GPU
-                            surrogates[(i, j)] = train_multioutput_nn_mixed_precision(X_valid, Y_valid; batch_size=optimal_batch_size)
+                            surrogates[(i, j)] = train_multioutput_nn_mixed_precision(
+                                X_valid, Y_valid; 
+                                batch_size=find_optimal_batch_size(n_dims, sum(valid_mask))
+                            )
                         end
                     end
                 end
@@ -1448,8 +1619,6 @@ module DataUtils
         Y_normalized_all = reshape(Y_normalized_all, surrogate.n_outputs, n_samples, n_dropout_samples)
 
         # Denormalize and back-transform
-        # Y_log_all = Y_normalized_all .* reshape(surrogate.Y_std, :, 1, 1) .+ 
-        #             reshape(surrogate.Y_mean, :, 1, 1)
         Y_log_all = Y_normalized_all .* reshape(surrogate.Y_range, :, 1, 1) .+ 
                 reshape(surrogate.Y_min, :, 1, 1)
         
