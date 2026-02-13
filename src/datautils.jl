@@ -117,13 +117,14 @@ module DataUtils
         end
     end
 
-    function fit_dist(dist_current, θ, w_norm; α=0.25)
+    function fit_dist(dist_current, θ, w_norm, bounds; α=0.25)
         """
         Refit a prior distribution through a set of weighted samples
         inputs:
-            dist_current (Distribution) - current Distribution
+            dist_current (Distribution) - current distribution
             θ (Vector) - samples
             w_norm (Vector) - normalized weights
+            bounds (Tuple) - bounds for the 95% interval of the distribution
             α (Float) - learning rate
         output:
             the fitted prior distribution
@@ -148,6 +149,16 @@ module DataUtils
             μ_interp = μ_current + α * (m - μ_current)
             σ_interp = σ_current + α * (σ * exploration_factor - σ_current)
 
+            # Bound distribution
+            z_hi = μ_interp + 1.96σ_interp
+            z_lo = μ_interp - 1.96σ_interp
+
+            z_hi = min(z_hi, log(bounds[2]))
+            z_lo = max(z_lo, log(bounds[1]))
+
+            σ_interp = (z_hi - z_lo) / (2 * 1.96)
+            μ_interp = (z_hi + z_lo) / 2
+
         elseif dist_type == Normal{Float64}
             
             μ = sum(w_norm .* θ)
@@ -155,6 +166,16 @@ module DataUtils
 
             μ_interp = μ_current + α * (μ - μ_current)
             σ_interp = σ_current + α * (σ * exploration_factor - σ_current)
+
+            # Bound distribution
+            x_hi = μ_interp + 1.96σ_interp
+            x_lo = μ_interp - 1.96σ_interp
+
+            x_hi = min(x_hi, bounds[2])
+            x_lo = max(x_lo, bounds[1])
+
+            σ_interp = max((x_hi - x_lo) / (2 * 1.96), 1e-12)
+            μ_interp = (x_hi + x_lo) / 2
 
         else
             error("Invalid distribution type")
@@ -192,7 +213,7 @@ module DataUtils
         return A3
     end
 
-    function calibrate_marginals(marg_current, θ, weights)
+    function calibrate_marginals(marg_current, θ, weights, bounds)
         """
         Calibrate a set of distributions given a set of weighted samples.
         Optionally, condition-specific weights can also be used.
@@ -200,6 +221,7 @@ module DataUtils
             marg_current (Vector{Distribution}) - the current distributions
             θ (Matrix) - parameter samples
             weights (Vector) - sample weights
+            bounds (Vector{Tuple}) - bounds for the 95% IQR of the current distributions
         output:
             marginals (Vector{Distribution}) - the calibrated distributions
         """
@@ -216,12 +238,12 @@ module DataUtils
 
         marginals = Vector{Distribution}(undef, Np)
         for i in 1:Np
-            marginals[i] = fit_dist(marg_current[i], θ[i, :], weights)
+            marginals[i] = fit_dist(marg_current[i], θ[i, :], weights, bounds[i])
         end
         return marginals
     end
 
-    function to_gaussian_space(Θg, Θs, marg_g, marg_s; eps_u = nothing)
+    function to_gaussian_space(Θg, Θs, marg_g, marg_s, glob_tag; eps_u = nothing)
         """
         Transform global and condition-specific parameter
         values from given marginal distributions
@@ -231,6 +253,7 @@ module DataUtils
             Θs (Matrix) - condition-specific parameter values
             marg_g (Vector{Distribution}) - global parameter distributions
             marg_s (Vector{Distribution}) - condition-specific parameter distributions
+            glob_tag (BitVector) - boolean weaving pattern for global vs specific parameters
             eps_u (Float) - tolerance avoiding the sampling of Inf
         output:
             Z (Matrix) - transformed parameter values
@@ -244,17 +267,21 @@ module DataUtils
         if eps_u === nothing
             eps_u = 1 / (Ns + 1)
         end
-
-        for i in 1:Ng
-            u = cdf.(marg_g[i], Θg[i, :])
-            u = clamp.(u, eps_u, 1 - eps_u)
-            Z[:, i] = quantile.(Normal(), u)
-        end
-        for i in 1:Nc
-            u = cdf.(marg_s[i], Θs[i, :])
-            u = clamp.(u, eps_u, 1 - eps_u)
-            Z[:, Ng + i] =
-                quantile.(Normal(), u)
+    
+        g_st = 1
+        s_ct = 1
+        for i in 1:(Ng + Nc)
+            if glob_tag[i]
+                u = cdf.(marg_g[g_st], Θg[g_st, :])
+                u = clamp.(u, eps_u, 1 - eps_u)
+                Z[:, i] = quantile.(Normal(), u)
+                g_st += 1
+            else
+                u = cdf.(marg_s[s_ct, :], Θs[s_ct, :])
+                u = clamp.(u, eps_u, 1 - eps_u)
+                Z[:, i] = quantile.(Normal(), u)
+                s_ct += 1
+            end
         end
         return Z
     end
@@ -269,19 +296,49 @@ module DataUtils
         output:
             correlation matrix
         """
-        μ = sum(w .* Z, dims=1)
-        Σ = zeros(size(Z, 2), size(Z, 2))
+        # μ = sum(w .* Z, dims=1)
+        # Σ = zeros(size(Z, 2), size(Z, 2))
 
-        for i in eachindex(w)
-            δ = Z[i, :] .- μ
-            Σ .+= w[i] .* (δ' * δ)
+        # for i in eachindex(w)
+        #     δ = Z[i, :] .- μ
+        #     # Σ .+= w[i] .* (δ' * δ)
+        #     Σ .+= w[i] .* (δ * δ')
+        # end
+
+        # D = diagm(0 => sqrt.(diag(Σ)))
+        # return inv(D) * Σ * inv(D)
+        n_samples, n_params = size(Z)
+        w_norm = w ./ sum(w)
+        
+        # Weighted mean
+        μ = sum(Z .* w_norm, dims=1)  # Shape: (1, n_params)
+        
+        # Covariance
+        Σ = zeros(n_params, n_params)
+        for i in 1:n_samples
+            δ = Z[i, :] .- vec(μ)  # Deviation for sample i
+            Σ .+= w_norm[i] .* (δ * δ')
         end
-
-        D = diagm(0 => sqrt.(diag(Σ)))
-        return inv(D) * Σ * inv(D)
+        
+        # To correlation
+        σ = sqrt.(diag(Σ))
+        σ = max.(σ, 1e-10)  # Prevent division by zero
+        R = Σ ./ (σ * σ')
+        
+        # Clean up
+        for i in 1:n_params
+            R[i, i] = 1.0
+        end
+        R = (R + R') / 2
+        R = clamp.(R, -1.0, 1.0)
+        for i in 1:n_params
+            R[i, i] = 1.0
+        end
+        
+        return R
     end
 
-    function calibrate_copula(Θg, Θs, marg_g, marg_s, w_glob, w_spec)
+    function calibrate_copula(Θg, Θs, marg_g, marg_s, w_glob, w_spec, glob_tag)
         """
         Construct a Gaussian copula from weighted 
         parameter values and their marginal distributions.
@@ -292,6 +349,7 @@ module DataUtils
             marg_s (Vector{Distribution}) - condition-specific parameter distributions
             w_glob (Vector) - global weights
             w_spec (Matrix) - condition-specific weights
+            glob_tag (BitVector) - boolean weaving pattern for global vs specific parameters
         output:
             multivariate distribution of weighted samples
         """
@@ -299,23 +357,81 @@ module DataUtils
         w_eff = w_glob .* w_spec
         w_eff ./= sum(w_eff)
 
-        Z = to_gaussian_space(Θg, Θs, marg_g, marg_s)
-        R = weighted_correlation(Z, w_eff)
+        n_eff = 1 / sum(w_eff.^2)
+        # println("  Effective sample size for copula: $(round(n_eff, digits=1))")
+    
+        # if n_eff < 100
+        #     println("  ⚠️ Low n_eff - correlations unreliable!")
+        # end
+
+        Z = to_gaussian_space(Θg, Θs, marg_g, marg_s, glob_tag)
+        R_raw  = weighted_correlation(Z, w_eff)
 
         # Enforce symmetry
-        R = (R + R') / 2
+        R_raw = (R_raw + R_raw') / 2
+
+        # === CRITICAL: CAP CORRELATIONS ===
+        n = size(R_raw, 1)
+        max_allowed_corr = 0.95  # HARD LIMIT
+        
+        R_capped = copy(R_raw)
+        n_capped = 0
+        
+        @inbounds for i in 1:n
+            @inbounds for j in (i+1):n
+                if abs(R_raw[i,j]) > max_allowed_corr
+                    R_capped[i,j] = sign(R_raw[i,j]) * max_allowed_corr
+                    R_capped[j,i] = R_capped[i,j]
+                    n_capped += 1
+                    
+                    if abs(R_raw[i,j]) > 0.999
+                        println("    ⚠️ Extreme correlation capped: R[$i,$j] = $(round(R_raw[i,j], digits=5)) → $max_allowed_corr")
+                    end
+                end
+            end
+        end
+        
+        if n_capped > 0
+            println("  Capped $n_capped correlations")
+        end
+        
+        # Shrinkage regularization
+        λ = max(0.05, min(0.2, 1.0 - n_eff/200))
+        R_reg = (1 - λ) * R_capped + λ * I(n)
+        println("  Applied $(round(100*λ, digits=1))% shrinkage")
+        
+        # Ensure PD
+        min_eig = eigmin(Symmetric(R_reg))
+        if min_eig < 1e-6
+            R_reg = R_reg + (1e-6 - min_eig + 1e-8) * I(n)
+        end
+        
+        # Final check
+        if eigmin(Symmetric(R_reg)) <= 0
+            R_reg = nearestSPD(R_reg)
+        end
+        
+        # Verify condition number
+        eigenvalues = eigvals(Symmetric(R_reg))
+        κ = maximum(eigenvalues) / minimum(eigenvalues)
+        println("  Condition number: $(round(κ, digits=1))")
+        
+        if κ > 1000
+            println("  ⚠️ WARNING: Parameters may be non-identifiable")
+        end
 
         # Regularise
-        ϵ = 1e-6 * tr(R) / size(R,1)
-        R_reg = R + ϵ * I
+        # R = R_raw
+        # ϵ = 1e-6 * tr(R) / size(R,1)
+        # R_reg = R + ϵ * I
 
-        # Near-PD projection
-        # println("Eigenvalue: $(eigmin(R_reg))")
-        # println("max(|R - R'|) = $(maximum(abs.(R - R')))")
-        if eigmin(R_reg) <= 0#minimum(eigen(Symmetric(R)).values) <= 0
-            R_reg = nearestSPD(R_reg)
-            println("Attempting near-PD projection")
-        end
+        # # Near-PD projection
+        # # println("Eigenvalue: $(eigmin(R_reg))")
+        # # println("max(|R - R'|) = $(maximum(abs.(R - R')))")
+        # if eigmin(R_reg) <= 0#minimum(eigen(Symmetric(R)).values) <= 0
+        #     R_reg = nearestSPD(R_reg)
+        #     println("Attempting near-PD projection")
+        # end
         # if maximum(abs.(R - R')) > 1e-12 # Enforce symmetry
         #     R = (R + R') / 2
         # end
@@ -340,11 +456,13 @@ module DataUtils
 
         # Sobol → iid Gaussians
         Z0 = quantile.(Normal(), p)
+        # println("Z0: $(minimum(Z0)) - $(maximum(Z0))")
 
         # Partition Gaussians and copula
         Zg = Z0[glob_tag, :]
         Zs = Z0[.!glob_tag, :]
         Σ = copula.Σ
+        # display(Σ)
         Σgg = Σ[glob_tag, glob_tag]
         Σss = Σ[.!glob_tag, .!glob_tag]
         Σsg = Σ[.!glob_tag, glob_tag]
@@ -358,30 +476,32 @@ module DataUtils
         Zs = μs .+ L * Zs
 
         # Back to uniforms
-        # U = cdf.(Normal(), Z)
         Ug = cdf.(Normal(), Zg)
         Us = cdf.(Normal(), Zs)
+
+        # if (any(Ug .== 0) || any(Us .== 0))
+        #     println("Zeros found in Ug or Us!")
+        # end
+        p_glob = p[glob_tag, :] # delete later
+        p_spec = p[.!glob_tag, :] # delete later
 
         # Apply marginals
         θg = similar(Zg)
         for i in eachindex(marg_g)
             θg[i,:] = quantile.(marg_g[i], Ug[i,:])
+            if any(θg[i,:] .<= 0 .|| isinf.(θg[i,:]))
+                mask = θg[i,:] .<= 0 .|| isinf.(θg[i,:])
+                println("θg[$i,:] <= 0 or is Inf for marginal $(marg_g[i]),\nZg = $(Zg[i,mask])\nand Ug = $(Ug[i,mask]);\np=$(p_glob[i, mask])")
+            end
         end
         θs = similar(Zs)
         for i in eachindex(marg_s)
             θs[i,:] = quantile.(marg_s[i], Us[i,:])
+            if any(θs[i,:] .<= 0 .|| isinf.(θs[i,:]))
+                mask = θs[i,:] .<= 0 .|| isinf.(θs[i,:])
+                println("θs[$i,:] <= 0 or is Inf for marginal $(marg_s[i]),\nZs = $(Zs[i,mask])\nand θs = $(θs[i,mask]);\np=$(p_spec[i, mask])")
+            end
         end
-
-        # Apply marginals
-        # θ = zeros(d, N)
-        # for i in 1:d
-        #     θ[i, :] = quantile.(marginals[i], U[i, :])
-        # end
-
-        # Weave back parameters
-        # θ = zeros(d, N)
-        # θ[glob_tag, :] .= θg
-        # θ[.!glob_tag, :] .= θs
 
         return θg, θs
     end
@@ -530,7 +650,21 @@ module DataUtils
 
 
     # ===== Prior calibration =====
-    function calibrate_priors(n_iter, n_samples, def_params, bounds_abs, bounds_rel; temp_param=0.25, use_surrogates=true)
+    function get_temp_param(iteration, n_iter; T_init=100.0, T_final=4.0)
+        """
+        Exponential cooling schedule.
+        T_init: Initial temperature (high = flat weights)
+        T_final: Final temperature (low = sharp weights)
+        """
+        # Exponential decay
+        α = (T_final / T_init)^(1 / (n_iter - 1))
+        T = T_init * α^(iteration - 1)
+        
+        return 1.0 / T  # Return inverse temperature (your temp_param)
+    end
+
+
+    function calibrate_priors(n_iter, n_samples, def_params, bounds_abs, bounds_rel; use_surrogates=true)
         """
         Iteratively calibrates parameter priors
         based on lab-derived Dantigny summaries.
@@ -540,7 +674,6 @@ module DataUtils
             def_params (Dict) - defined parameters (not optimised)
             bounds_abs (Dict) - initial-guess distributions for the case of absolute γ-thresholds
             bounds_rel (Dict) - initial-guess distributions for the case of relative γ-thresholds
-            temp_param (float) - tempering parameter of distribution updates
             use_surrogates (bool) - whether to use a surrogate NN for mapping successive parameter values to Dantigny summaries
         """
         
@@ -627,6 +760,8 @@ module DataUtils
             end
         end
 
+        # println("Lab uncertainties: $uncert_lab")
+
         # println("CI_widths: $CI_widths")
 
         input_params_all = Vector{Dict}(undef, n_src)
@@ -689,8 +824,10 @@ module DataUtils
             # Check if model uses absolute or relative bounds
             if aliases[m] in aliases_rel
                 sample_dists = filter(p -> p[1] in param_keys, param_dists_rel)
+                abs_thresh = false
             else
                 sample_dists = filter(p -> p[1] in param_keys, param_dists_abs)
+                abs_thresh = true
             end
 
             π_d_crit_ct = 0
@@ -715,9 +852,13 @@ module DataUtils
             w_std = similar(w_mean)
 
             # Distribution placeholders
-            marginals = Vector{Distribution}(undef, n_dims)
+            marginals_temp = Vector{Distribution}(undef, n_dims)
             marg_glob = Vector{Distribution}(undef, n_glob)
             marg_spec = Matrix{Distribution}(undef, (n_src, n_spec))
+
+            # Assign global/specific parameter bounds
+            bounds_glob = Vector{Tuple}(undef, n_glob)
+            bounds_spec = Vector{Tuple}(undef, n_spec)
 
             # Generate input parameter sample
             sample_params = Dict()
@@ -732,10 +873,12 @@ module DataUtils
                     if key in params_glob_keys
                         θ_glob[g_ct, :] .= sample_params[key]
                         marg_glob[g_ct] = sample_dists[key]
+                        bounds_glob[g_ct] = abs_thresh ? bounds_abs[key] : bounds_rel[key]
                         g_ct += 1
                     else
                         θ_spec[i, s_ct, :] .= sample_params[key]
                         marg_spec[i, s_ct] = sample_dists[key]
+                        bounds_spec[s_ct] = abs_thresh ? bounds_abs[key] : bounds_rel[key]
                         s_ct += 1
                     end
 
@@ -748,7 +891,7 @@ module DataUtils
             for key in param_keys
                 if startswith(string(key), "neg_δ_")
                     suffix = string(key)[end]
-                    sample_params[Symbol("σ_" * suffix)] = sample_params[Symbol("μ_" * suffix)] .* clamp.(exp.(-sample_params[key]), 1e-12, 1e6)
+                    sample_params[Symbol("σ_" * suffix)] = abs.(sample_params[Symbol("μ_" * suffix)]) .* clamp.(exp.(-sample_params[key]), 1e-12, 1e6)
                 end
             end
 
@@ -778,37 +921,47 @@ module DataUtils
             @inbounds for s in 1:n_iter
 
                 # print("\rIteration $s")
-                println("Iteration $s")
+                println("\n===== Iteration $s =====")
                 
                 # Shuffle Sobol points
                 shuffle!(idx_shuffle)
                 sobol_pts = sobol_pts[idx_shuffle, :]
 
                 if s > 1
-                    marg_glob .= calibrate_marginals(marg_glob, θ_glob, w_glob_penalized)
+                    marg_glob .= calibrate_marginals(marg_glob, θ_glob, w_glob_penalized, bounds_glob)
+                    println("Global marginals: $marg_glob")
                     for (j, src) in enumerate(sources)
 
                         sample_params = Dict()
 
-                        marg_spec[j, :] = calibrate_marginals(marg_spec[j, :], θ_spec[j, :, :], w_spec_penalized[j, :])
-                        copula = calibrate_copula(θ_glob, θ_spec[j, :, :], marg_glob, marg_spec[j, :], w_glob, w_spec_penalized[j, :])
+                        marg_spec[j, :] = calibrate_marginals(marg_spec[j, :], θ_spec[j, :, :], w_spec_penalized[j, :], bounds_spec)
+                        println("Specific marginals: $marg_spec")
+                        copula = calibrate_copula(θ_glob, θ_spec[j, :, :], marg_glob, marg_spec[j, :], w_glob, w_spec_penalized[j, :], glob_tag)
 
-                        marginals[glob_tag] .= marg_glob
-                        marginals[.!glob_tag] .= marg_spec[j, :]
-
+                        marginals_temp[glob_tag] .= marg_glob
+                        marginals_temp[.!glob_tag] .= marg_spec[j, :]
+                        
                         θ_glob, θ_spec[j, :, :] = sample_parameters(sobol_pts, copula, marg_glob, marg_spec[j, :], glob_tag)
 
                         # Assign new samples
+                        g_ct = 1
+                        s_ct = 1
                         for (k, key) in enumerate(param_keys)
-                            sample_params[key] = θ[k, :]
-                            priors[key_src_strings[k, j]] = marginals[k]
+                            if key in params_glob_keys
+                                sample_params[key] = θ_glob[g_ct, :]
+                                g_ct += 1
+                            else
+                                sample_params[key] = θ_spec[j, s_ct, :]
+                                s_ct += 1
+                            end
+                            priors[key_src_strings[k, j]] = marginals_temp[k]
                         end
 
                         # Transform sigmas
                         for key in param_keys
                             if startswith(string(key), "neg_δ_")
                                 suffix = string(key)[end]
-                                sample_params[Symbol("σ_" * suffix)] = sample_params[Symbol("μ_" * suffix)] .* clamp.(exp.(-sample_params[key]), 1e-12, 1e6)
+                                sample_params[Symbol("σ_" * suffix)] = abs.(sample_params[Symbol("μ_" * suffix)]) .* clamp.(exp.(-sample_params[key]), 1e-12, 1e6)
                             end
                         end
 
@@ -817,6 +970,7 @@ module DataUtils
                 end
 
                 println("Global parameter means: $(mean(θ_glob; dims=2))")
+                println("Specific parameter means: $(mean(θ_spec; dims=3))")
 
                 # --- ADAPTIVE SAMPLING STRATEGY ---
                 if (use_surrogates == true && s == 1) || use_surrogates == false
@@ -862,14 +1016,23 @@ module DataUtils
                         # Mechanistic uncertainty combines fit quality + prediction uncertainty
                         uncert_mech = zeros(Float64, 3, n_samples)
 
+                        println("---- Running model $(aliases[m]) with density $density and source $(sources[j]) -----")
+
+                        # println("Input parameters: $(input_params_all[j])")
+
                         if !use_surrogate_this_iter
                             # --- RUN ALL SAMPLES THROUGH MECHANISTIC MODEL ---
                             for n in 1:n_samples
                                 p_out .= compute_germination_response(aliases[m], times_sec, density_scaled, Dict(k => v[mod1(n, length(v))] for (k, v) in input_params_all[j]))
-                                d[:, n], rmses[i, j, n] = fit_dantigny_to_germination_curve(p_out, times)
+                                d[:, n], rmses[i, j, n], uncert_mech[:, n] = fit_dantigny_to_germination_curve(p_out, times)
                                 Y_train[:, n, i, j] = d[:, n]
 
-                                uncert_mech[:, n] = rmses[i, j, n] .* [0.1, 1.0, 0.1] # Scale by typical values
+                                # if any(isnan.(d[:, n]))
+                                #     println("Fitting returned NaN results $(d[:, n]) with $(Dict(k => v[mod1(n_samples, length(v))] for (k, v) in input_params_all[j]))")
+                                # end
+                                # if any(isnan.(uncert_mech[:, n]))
+                                #     println("Fitting returned NaN uncertainties $(uncert_mech[:, n]) with $(Dict(k => v[mod1(n_samples, length(v))] for (k, v) in input_params_all[j]))")
+                                # end
                             end
                         else
                             # --- HYBRID APPROACH ---
@@ -877,13 +1040,21 @@ module DataUtils
                             # 1. Run mechanistic model on subsample
                             d_mech = zeros(Float64, 3, n_mech_samples)
                             rmse_mech = zeros(Float64, n_mech_samples)
+                            uncert_params = zeros(Float64, 3, n_mech_samples)
                             for (idx_local, n_global) in enumerate(mech_indices)
                                 try
                                     p_out .= compute_germination_response(
                                         aliases[m], times_sec, density_scaled,
                                         Dict(k => v[mod1(n_global, length(v))] for (k, v) in input_params_all[j])
                                     )
-                                    d_mech[:, idx_local], rmse_mech[idx_local] = fit_dantigny_to_germination_curve(p_out, times)
+                                    d_mech[:, idx_local], rmse_mech[idx_local], uncert_params[:, idx_local] = fit_dantigny_to_germination_curve(p_out, times)
+                                    
+                                    # if any(isnan.(d_mech[:, idx_local]))
+                                    #     println("Fitting returned NaN results $(d_mech[:, idx_local]) with $(Dict(k => v[mod1(n_global, length(v))] for (k, v) in input_params_all[j]))")
+                                    # end
+                                    # if any(isnan.(uncert_params[:, idx_local]))
+                                    #     println("Fitting returned NaN uncertainties $(uncert_params[:, idx_local]) with $(Dict(k => v[mod1(n_global, length(v))] for (k, v) in input_params_all[j]))")
+                                    # end
                                 catch
                                     println(Dict(k => v[mod1(n_global, length(v))] for (k, v) in input_params_all[j]))
                                 end
@@ -902,28 +1073,60 @@ module DataUtils
                                 output_ranges=[(r[1], r[2]) for r in eachrow(output_ranges)]
                             )
 
-                            # Compare a few mechanistic model results for validation
-                            # n_less_samples = round(Int, 0.05 * n_samples)
-                            # random_idx_subset = sample(collect(1:n_samples), n_less_samples)
-                            # d_compare = zeros(Float64, 3, n_less_samples)
-                            # for (n, ri) in enumerate(random_idx_subset)
-                            #     p_out .= compute_germination_response(aliases[m], times_sec, density_scaled, Dict(k => v[mod1(ri, length(v))] for (k, v) in input_params_all[j]))
-                            #     d_compare[:, n], _ = fit_dantigny_to_germination_curve(p_out, times)
+                            # DIAGNOSTICS
+                            # if any(isnan.(d_surr))
+                            #     println("🔍 NaN Diagnostics for density=$i, source=$j")
+                                
+                            #     # Check which outputs are NaN
+                            #     nan_samples = any(isnan.(d_surr), dims=1) |> vec
+                            #     println("  $(sum(nan_samples)) samples have NaN predictions")
+                                
+                            #     # Check input parameter ranges
+                            #     θ_min = minimum(θ, dims=2) |> vec
+                            #     θ_max = maximum(θ, dims=2) |> vec
+                            #     println("  θ ranges this iteration:")
+                            #     for (idx, (mn, mx)) in enumerate(zip(θ_min, θ_max))
+                            #         println("    Param $idx: $mn to $mx")
+                            #     end
+                                
+                            #     # Compare to training data ranges
+                            #     X_train_this = X_train_accumulated[(i,j)]
+                            #     if size(X_train_this, 2) > 0
+                            #         X_train_min = minimum(X_train_this, dims=2) |> vec
+                            #         X_train_max = maximum(X_train_this, dims=2) |> vec
+                            #         println("  Training data ranges:")
+                            #         for (idx, (mn, mx)) in enumerate(zip(X_train_min, X_train_max))
+                            #             println("    Param $idx: $mn to $mx")
+                            #         end
+                                    
+                            #         # Check extrapolation
+                            #         extrapolating = (θ_min .< X_train_min) .| (θ_max .> X_train_max)
+                            #         if any(extrapolating)
+                            #             println("  ⚠️ Extrapolating on parameters: $(findall(extrapolating))")
+                            #         end
+                            #     end
+                                
+                            #     # Check which outputs are problematic
+                            #     for out_idx in 1:3
+                            #         if any(isnan.(d_surr[out_idx, :]))
+                            #             println("  Output $out_idx has $(sum(isnan.(d_surr[out_idx, :]))) NaNs")
+                            #             # Check non-NaN range
+                            #             valid_vals = d_surr[out_idx, .!isnan.(d_surr[out_idx, :])]
+                            #             if length(valid_vals) > 0
+                            #                 println("    Valid range: $(minimum(valid_vals)) to $(maximum(valid_vals))")
+                            #             end
+                            #         end
+                            #     end
                             # end
-
-                            # diffs_compare = d[:, random_idx_subset] .- d_compare
-                            # mask = .!isinf.(diffs_compare) .&& .!isnan.(diffs_compare)
-                            # mean_sq_diff = mean(diffs_compare[mask].^2)
-                            # println("Maximum difference from mechanistic model: $(maximum(diffs_compare[mask]))")
-                            # println("Mean squared difference from mechanistic model: $mean_sq_diff")
-
-                            # nan_mask = dropdims(all(.!isnan.(d_compare); dims=1); dims=1)
-                            # println("Mean p_max (mechanistic): $(mean(d_compare[1, nan_mask])) ($(minimum(d_compare[1, nan_mask])) - $(maximum(d_compare[1, nan_mask])), $(sum(isnan.(d_compare[1, :]))) NaNs)")
-                            # println("Mean tau_g (mechanistic): $(mean(d_compare[2, nan_mask])) ($(minimum(d_compare[2, nan_mask])) - $(maximum(d_compare[2, nan_mask])), $(sum(isnan.(d_compare[2, :]))) NaNs)")
-                            # println("Mean nu (mechanistic): $(mean(d_compare[3, nan_mask])) ($(minimum(d_compare[3, nan_mask])) - $(maximum(d_compare[3, nan_mask])), $(sum(isnan.(d_compare[3, :]))) NaNs)")
                             
                             # 3. Validate surrogate on mechanistic subsample
                             d_surr_subsample = d_surr[:, mech_indices]
+                            # valid_subsample = any(isnan.(d_mech); dims=1) |> vec
+                            valid_mask = .!any(isnan.(d_mech), dims=1) |> vec
+                            println(sum(valid_mask), " valid mechanistic model subsamples")
+                            d_mech = d_mech[:, valid_mask]
+                            d_surr_subsample = d_surr_subsample[:, valid_mask]
+                            uncert_params = uncert_params[:, valid_mask]
                             validation_errors = abs.(d_mech .- d_surr_subsample)
                             if any(isnan.(validation_errors))
                                 # println("Validation errors: $validation_errors")
@@ -956,9 +1159,11 @@ module DataUtils
                                 Y_new = d_mech
                                 
                                 # Filter valid samples
-                                valid_mask = .!any(isnan.(Y_new), dims=1) |> vec
+                                # valid_mask = .!any(isnan.(Y_new), dims=1) |> vec
                                 X_new = X_new[:, valid_mask]
-                                Y_new = Y_new[:, valid_mask]
+                                # Y_new = Y_new[:, valid_mask]
+
+                                # println("$(sum(isnan.(X_new))) NaN elements in X_new, $(sum(isnan.(Y_new))) NaN elements in Y_new")
                                 
                                 # Clamp to reasonable bounds
                                 Y_new = clamp.(Y_new, output_ranges[:, 1], output_ranges[:, 2])
@@ -966,6 +1171,8 @@ module DataUtils
                                 # Append to accumulated data
                                 X_train_accumulated[(i,j)] = hcat(X_train_accumulated[(i,j)], X_new)
                                 Y_train_accumulated[(i,j)] = hcat(Y_train_accumulated[(i,j)], Y_new)
+
+                                # println("$(sum(isnan.(X_train_accumulated[(i,j)]))) NaN elements in accumulated X, $(sum(isnan.(Y_train_accumulated[(i,j)]))) NaN elements in accumulated Y")
                                 
                                 # Keep only recent N samples to avoid memory bloat
                                 max_accumulated = 8192
@@ -987,23 +1194,71 @@ module DataUtils
                                 )
                                 
                                 # Re-predict with updated surrogate
+                                # println("θ: $θ")
                                 d_surr, σ_pred = predict_with_uncertainty_mixed_precision(
                                     surrogates[(i, j)], 
                                     θ,
-                                    n_dropout_samples=50
+                                    n_dropout_samples=50,
+                                    output_ranges=[(r[1], r[2]) for r in eachrow(output_ranges)]
                                 )
+
+                                # DIAGNOSTICS AGAIN
+                                # if any(isnan.(d_surr))
+                                #     println("🔍 NaN Diagnostics (retraining) for density=$i, source=$j")
+                                    
+                                #     # Check which outputs are NaN
+                                #     nan_samples = any(isnan.(d_surr), dims=1) |> vec
+                                #     println("  $(sum(nan_samples)) samples have NaN predictions")
+                                    
+                                #     # Check input parameter ranges
+                                #     θ_min = minimum(θ, dims=2) |> vec
+                                #     θ_max = maximum(θ, dims=2) |> vec
+                                #     println("  θ ranges this iteration:")
+                                #     for (idx, (mn, mx)) in enumerate(zip(θ_min, θ_max))
+                                #         println("    Param $idx: $mn to $mx")
+                                #     end
+                                    
+                                #     # Compare to training data ranges
+                                #     X_train_this = X_train_accumulated[(i,j)]
+                                #     if size(X_train_this, 2) > 0
+                                #         X_train_min = minimum(X_train_this, dims=2) |> vec
+                                #         X_train_max = maximum(X_train_this, dims=2) |> vec
+                                #         println("  Training data ranges:")
+                                #         for (idx, (mn, mx)) in enumerate(zip(X_train_min, X_train_max))
+                                #             println("    Param $idx: $mn to $mx")
+                                #         end
+                                        
+                                #         # Check extrapolation
+                                #         extrapolating = (θ_min .< X_train_min) .| (θ_max .> X_train_max)
+                                #         if any(extrapolating)
+                                #             println("  ⚠️ Extrapolating on parameters: $(findall(extrapolating))")
+                                #         end
+                                #     end
+                                    
+                                #     # Check which outputs are problematic
+                                #     for out_idx in 1:3
+                                #         if any(isnan.(d_surr[out_idx, :]))
+                                #             println("  Output $out_idx has $(sum(isnan.(d_surr[out_idx, :]))) NaNs")
+                                #             # Check non-NaN range
+                                #             valid_vals = d_surr[out_idx, .!isnan.(d_surr[out_idx, :])]
+                                #             if length(valid_vals) > 0
+                                #                 println("    Valid range: $(minimum(valid_vals)) to $(maximum(valid_vals))")
+                                #             end
+                                #         end
+                                #     end
+                                # end
                             else
                                 println("  ✓ Surrogate validated successfully")
                             end
                             
                             # 5. Use surrogate predictions for ALL samples
                             d = d_surr
+                            # println("d: $d")
 
                             # Use uncertainty for RMSE estimate
                             rmses[i, j, :] = mean_log(σ_pred, dims=1) |> vec
-                            # AAAAAAAAAAAAAAAAAAAAAA!!!!!!!!!!!!!!!!!!!!!!!
 
-                            uncert_fit = mean(rmse_mech) .* [0.1, 1.0, 0.1]
+                            uncert_fit = mean(uncert_params; dims=2)
                             uncert_mech = sqrt.(uncert_fit.^2 .+ σ_pred)
 
                             # Track maximum uncertainty
@@ -1019,24 +1274,27 @@ module DataUtils
                                 println("    Consider retraining surrogate or using mechanistic model")
                             end
                         end
-
-                        nan_mask = dropdims(all(.!isnan.(d); dims=1); dims=1)
+                        
+                        nan_mask = all(.!isnan.(d); dims=1) |> vec
+                        println("$(sum(nan_mask)) valid Dantigny summaries")
                         println("Mean p_max: $(mean(d[1, nan_mask])) ($(minimum(d[1, nan_mask])) - $(maximum(d[1, nan_mask])), $(sum(isnan.(d[1, :]))) NaNs)")
                         println("Mean tau_g: $(mean(d[2, nan_mask])) ($(minimum(d[2, nan_mask])) - $(maximum(d[2, nan_mask])), $(sum(isnan.(d[2, :]))) NaNs)")
                         println("Mean nu: $(mean(d[3, nan_mask])) ($(minimum(d[3, nan_mask])) - $(maximum(d[3, nan_mask])), $(sum(isnan.(d[3, :]))) NaNs)")
 
-                        println("Maximum RMSE: $(maximum(rmses))")
+                        # println("Maximum RMSE: $(maximum(rmses))")
 
                         # data_pts[j, s, (n_dims + 1):end, :] .= d
 
                         # Total uncertainty per sample
                         uncert_total = sqrt.(uncert_lab[i, j, :].^2 .+ uncert_mech.^2)
+                        valid_uncert = all(.!isnan.(uncert_total); dims=1) |>vec
+                        println("Invalid uncertainties: $(sum(.!valid_uncert))")
 
                         # Find valid Dantigny results
-                        in_bounds = dropdims(all(d .> output_ranges[:, 1] .&& d .< output_ranges[:, 2]; dims=1) .&& all(.!isnan.(d[2:3, :]); dims=1); dims=1) .&& .!isnan.(rmses[i, j, :])
-                        # in_bounds = dropdims(all(.!isnan.(d[2:3, :]); dims=1); dims=1) .&& .!isnan.(rmses[i, j, :])
+                        println("$(sum(((all(d .> output_ranges[:, 1] .&& d .< output_ranges[:, 2]; dims=1) .&& all(.!isnan.(d[2:3, :]); dims=1)) |> vec))) in bounds")
+                        in_bounds = ((all(d .> output_ranges[:, 1] .&& d .< output_ranges[:, 2]; dims=1) .&& all(.!isnan.(d[2:3, :]); dims=1)) |> vec) .&& valid_uncert
                         d_valid = d[:, in_bounds]
-                        println("$(sum(in_bounds)) valid entries, $(sum(isnan.(d_valid))) are NaN.")
+                        # println("$(sum(in_bounds)) valid entries, $(sum(isnan.(d_valid))) are NaN.")
 
                         # Included fraction (Criterion 1)
                         π_d_new = dropdims(mean(d_valid .> CIs[i, j, :, 1] .&& d_valid .< CIs[i, j, :, 2]; dims=2); dims=2)
@@ -1049,7 +1307,7 @@ module DataUtils
                         p_d[i, j] = mean(all(d_valid .> CIs[i, j, :, 1] .&& d_valid .< CIs[i, j, :, 2], dims=1))
 
                         # Lab mean quantiles (Criterion 2)
-                        q_d[i, j, :] = dropdims(mean(d_valid .< lab_means[i, j, :]; dims=2); dims=2)
+                        q_d[i, j, :] = mean(d_valid .< lab_means[i, j, :]; dims=2) |> vec
 
                         # Mahalanobis distance (Criterion 3)
                         μ_d = mean(d_valid, dims=2) |> vec
@@ -1058,7 +1316,7 @@ module DataUtils
                         # println("Identifiable: $(sum(identifiable))")
                         # println("NaNs: $(sum(isnan.(d_valid)))")
                         # println(minimum(d_valid[3, :]), " - ", maximum(d_valid[3, :]))
-                        d_mask = d_valid[3, :] .> 1e12 .|| dropdims(any(isnan.(d_valid); dims=1); dims=1)
+                        d_mask = d_valid[3, :] .> 1e12 .|| (any(isnan.(d_valid); dims=1) |> vec)
                         if sum(d_mask) > 0
                             println("Problematic p_max: ", d_valid[1, d_mask])
                             println("Problematic tau_g: ", d_valid[2, d_mask])
@@ -1078,15 +1336,6 @@ module DataUtils
                         iqr[i, j, :] .= iqr_new
                         iqr_check[i, j, :] .= iqr[i, j, :] .> CI_widths[i, j, :]
 
-                        # Standard deviation and covariance matrix
-                        # σ_dantigny = CI_widths[i, j, :] ./ 3.92 #[Δ/1.96 for Δ in Δ_dantigny]
-                        # Σ = diagm(σ_dantigny .^ 2)
-
-                        # Compute differences to experimental data
-                        # diffs_dantigny[1, :] .= d[1, :] .- lab_means[i, j, 1]
-                        # diffs_dantigny[2, :][in_bounds] .= d_valid[2, :] .- lab_means[i, j, 2]
-                        # diffs_dantigny[3, :][in_bounds] .= d_valid[3, :] .- lab_means[i, j, 3]
-
                         # Compute running z's
                         for n in 1:n_samples
                             if in_bounds[n]
@@ -1099,11 +1348,10 @@ module DataUtils
                             else
                                 # z_dist[n] = diffs_dantigny[1, n] .^ 2 / σ_dantigny[1] .^ 2
                                 # Penalty for out-of-bounds
-                                z_dist[n] = 100.0  # Large penalty
+                                z_dist[n] = 1e6  # Large penalty
                                 z_acc_specific[j, n] += z_dist[n]
                             end
                         end
-                        # z_acc_specific[j, :] .+= z_dist # accumulate across densities
 
                         # Fraction of lab means inside joint regions (Criterion 5)
                         p_z_new = mean(z_dist .< χ_sq)
@@ -1121,13 +1369,17 @@ module DataUtils
                 # reliabilities = exp.(-0.5 .* dropdims(mean(rmses.^2, dims=1); dims=1) ./ 0.004) # using an error scale of 2%
 
                 # Compute condition-specific weights
-                log_w_spec = -temp_param .* z_acc_specific
+                # println(z_acc_specific)
+                log_w_spec = -get_temp_param(s, n_iter) .* z_acc_specific
                 w_spec .= exp.(log_w_spec)
                 w_spec_penalized = w_spec# .* reliabilities
 
                 # Compute global weights as product of specific ones
-                log_w_glob = dropdims(sum(log_w_spec, dims=1), dims=1)  # Sum of logs = log of product
+                log_w_glob = sum(log_w_spec, dims=1) |> vec  # Sum of logs = log of product
                 w_glob .= exp.(log_w_glob)
+                # println(w_glob)
+                # println(w_spec[1,:])
+                # println(w_spec[2,:])
                 w_glob_penalized = w_glob# .* dropdims(mean(reliabilities; dims=1); dims=1)
 
                 # Debugging
@@ -1182,6 +1434,10 @@ module DataUtils
                     end
                 end
 
+                # println("w_mean: $w_mean")
+                # println("w_std: $w_std")
+                # println("$(sum(w_spec_penalized .> w_mean; dims=2)) weights above mean")
+
                 # Termination criteria
                 π_d_crit_new = all(π_d .> 0.2 .&& π_d .< 0.8) # Criterion 1
                 q_d_crit_new = all(q_d .> 0.1 .&& q_d .< 0.9) # Criterion 2
@@ -1202,29 +1458,27 @@ module DataUtils
                     else
                         m_d_crit_ct += 1
                     end
-                    # println("π_d_crit_ct: $π_d_crit_ct")
-                    # println("q_d_crit_ct: $q_d_crit_ct")
-                    # println("m_d_crit_ct: $m_d_crit_ct")
-                    # println("π_d: $π_d")
-                    # println("π_d: $(minimum(π_d)) - $(maximum(π_d))")
-                    # println("q_d: $q_d")
-                    # println("m_d: $m_d")
-                    # println("p_d: $p_d")
-                    # println("iqr: $iqr")
-                    # println("w_mean: $w_mean")
-                    # println("w_std: $w_std")
-                    # println("Max π_diffs: $(maximum(abs.(π_diffs)))")
-                    # println("Max iqr_diff: $(maximum(abs.(iqr_diff)))")
-                    # println("Max p_z_diffs: $(maximum(abs.(p_z_diffs)))")
-                    # println("Max w_mean_diff: $(maximum(abs.(w_mean_diff)))")
-                    # println("Max w_std_diff: $(maximum(abs.(w_std_diff)))")
-                    # println("Criterion 1: $π_d_crit_new ($(π_d .> 0.2 .&& π_d .< 0.8))")
-                    # println("Criterion 2: $q_d_crit_new ($(q_d .> 0.1 .&& q_d .< 0.9))")
-                    # println("Criterion 3: $m_d_crit_new ($(m_d .< χ_sq))")
-                    # println("Criterion 4: $(all(iqr_check))")
-                    # println("Criterion 5: $(all(abs.(1.0 .- π_diffs) .< 0.1) && all(abs.(1.0 .- iqr_diff) .< 0.1) && all(abs.(1.0 .- p_z_diffs) .< 0.1) && all(abs.(1.0 .- w_mean_diff) .< 0.1) && all(abs.(1.0 .- w_std_diff) .< 0.1))")
-                    # println("Criterion 6: $(all(p_d .> 1e-2))")
-                    # println("Criterion 1, 2, 3 (soft): $((π_d_crit && q_d_crit && m_d_crit) || (π_d_crit_ct > 5 && q_d_crit_ct > 5 && m_d_crit_ct > 5))")
+                    println("π_d_crit_ct: $π_d_crit_ct")
+                    println("q_d_crit_ct: $q_d_crit_ct")
+                    println("m_d_crit_ct: $m_d_crit_ct")
+                    println("π_d: $π_d")
+                    println("π_d: $(minimum(π_d)) - $(maximum(π_d))")
+                    println("q_d: $q_d")
+                    println("m_d: $m_d")
+                    println("p_d: $p_d")
+                    println("iqr: $iqr")
+                    println("Max π_diffs: $(maximum(abs.(π_diffs)))")
+                    println("Max iqr_diff: $(maximum(abs.(iqr_diff)))")
+                    println("Max p_z_diffs: $(maximum(abs.(p_z_diffs)))")
+                    println("Max w_mean_diff: $(maximum(abs.(w_mean_diff)))")
+                    println("Max w_std_diff: $(maximum(abs.(w_std_diff)))")
+                    println("Criterion 1: $π_d_crit_new ($(π_d .> 0.2 .&& π_d .< 0.8))")
+                    println("Criterion 2: $q_d_crit_new ($(q_d .> 0.1 .&& q_d .< 0.9))")
+                    println("Criterion 3: $m_d_crit_new ($(m_d .< χ_sq))")
+                    println("Criterion 4: $(all(iqr_check))")
+                    println("Criterion 5: $(all(abs.(1.0 .- π_diffs) .< 0.1) && all(abs.(1.0 .- iqr_diff) .< 0.1) && all(abs.(1.0 .- p_z_diffs) .< 0.1) && all(abs.(1.0 .- w_mean_diff) .< 0.1) && all(abs.(1.0 .- w_std_diff) .< 0.1))")
+                    println("Criterion 6: $(all(p_d .> 1e-2))")
+                    println("Criterion 1, 2, 3 (soft): $((π_d_crit && q_d_crit && m_d_crit) || (π_d_crit_ct > 5 && q_d_crit_ct > 5 && m_d_crit_ct > 5))")
                     if (all(iqr_check) # Criterion 4
                         && all(abs.(1.0 .- π_diffs) .< 0.1) && all(abs.(1.0 .- iqr_diff) .< 0.1) && all(abs.(1.0 .- p_z_diffs) .< 0.1) && all(abs.(1.0 .- w_mean_diff) .< 0.1) && all(abs.(1.0 .- w_std_diff) .< 0.1) # Criterion 5
                         && all(p_d .> 1e-2) # Criterion 6
@@ -1312,6 +1566,8 @@ module DataUtils
         # Y_std = std(Y_log, dims=2) |> vec
         # Y_std[Y_std .< 1e-8] .= 1.0
         # Y_normalized = (Y_log .- Y_mean) ./ Y_std
+
+        # println("There are $(sum(isnan.(Y_log))) NaN Y_log in the training")
 
         # Normalize outputs to [0, 1] range for each parameter
         Y_min = [minimum(Y_log[i, :]) for i in 1:n_outputs]
@@ -1589,6 +1845,9 @@ module DataUtils
         
         n_samples = size(X_new, 2)
         
+        # println("X_std is zero: $(any(iszero, surrogate.X_std))")
+        # println("Minimum X_std: $(minimum(surrogate.X_std))")
+        
         # Normalize
         X_normalized = (X_new .- surrogate.X_mean) ./ surrogate.X_std
         
@@ -1614,6 +1873,10 @@ module DataUtils
         # Move to CPU
         Y_normalized_all = Y_fp32 |> cpu
         CUDA.reclaim()
+
+        # println("Y_normalized_all range from $(minimum(Y_normalized_all)) to $(maximum(Y_normalized_all))")
+        # println("Surrogate Y range: $(surrogate.Y_range)")
+        # println("Surrogate Y minimum: $(surrogate.Y_min)")
         
         # Reshape
         Y_normalized_all = reshape(Y_normalized_all, surrogate.n_outputs, n_samples, n_dropout_samples)
@@ -1622,6 +1885,8 @@ module DataUtils
         Y_log_all = Y_normalized_all .* reshape(surrogate.Y_range, :, 1, 1) .+ 
                 reshape(surrogate.Y_min, :, 1, 1)
         
+        # println(sum(isnan.(Y_log_all)), " NaN Y_log_all")
+
         Y_all = copy(Y_log_all)
         Y_all[2, :, :] = exp.(Y_log_all[2, :, :])
         Y_all[3, :, :] = exp.(Y_log_all[3, :, :])
@@ -1630,6 +1895,8 @@ module DataUtils
         Y_all[1, :, :] = clamp.(Y_all[1, :, :], output_ranges[1]...)
         Y_all[2, :, :] = clamp.(Y_all[2, :, :], output_ranges[2]...)
         Y_all[3, :, :] = clamp.(Y_all[3, :, :], output_ranges[3]...)
+
+        # println(sum(isnan.(Y_log_all)), " NaN Y_all")
         
         # Compute statistics
         mean_pred = mean(Y_all, dims=3)[:, :, 1]
@@ -1700,6 +1967,7 @@ module DataUtils
             fit = curve_fit(dantigny_wrapper, times, germ_response, p0)
             params = coef(fit)
             rmse = sqrt(mean(residuals(fit) .^ 2))
+            param_uncertainties = stderror(fit)
 
             # if rmse > 0.03 # average deviation > 3 percentage points in germination
             #     println("High RMSE: $rmse")
@@ -1722,11 +1990,11 @@ module DataUtils
             #     params[3] = 10
             # end
 
-            return params, rmse
+            return params, rmse, param_uncertainties
 
         catch
             # Handle sharp immediate steps
-            return [germ_response[end], NaN, NaN], 0.0
+            return [germ_response[end], NaN, NaN], NaN, [NaN, NaN, NaN]
         end
     end
 
