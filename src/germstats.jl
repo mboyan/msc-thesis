@@ -133,6 +133,8 @@ module GermStats
         """
         
         models = Dict(
+            "T" => ["test",                                                                     "Toy model for testing\n",
+                        [:Pₛ, :neg_δ_γ, :μ_γ]],
             "0" => ["independent",                                                              "Independent inducer/inhibitor model\n",
                         [:K_cC, :Pₛ, :Pₛ_cs, :neg_δ_γ, :neg_δ_ω, :μ_γ, :μ_ω]],
             "Ai" => ["feedback_inhibitor_inducer_perm",                                         "Inhibitor-dependent germination with\ninducer-dependent permeability",
@@ -307,7 +309,7 @@ module GermStats
 
         # Determine number of nodes depending on the integral dimension (if not specified)
         if isnothing(n_nodes)
-            if model_type in ["independent", "inhibitor", "inhibitor_thresh", "inhibitor_perm",
+            if model_type in ["test", "independent", "inhibitor", "inhibitor_thresh", "inhibitor_perm",
                                 "combined_inhibitor", "combined_inhibitor_thresh", "combined_inhibitor_perm"]
                 n_nodes = 36 # 2D integral
             elseif model_type in ["inducer", "inducer_thresh", "inducer_signal", 
@@ -372,6 +374,8 @@ module GermStats
             W3 = reshape(hw, n_nodes,1,1) .* reshape(hw, 1,n_nodes,1) .* reshape(hw, 1,1,n_nodes)
         elseif model_type in ["special_inducer", "special_combined", "special_thresh", "special_signal"]
             W4 = reshape(hw, n_nodes,1,1,1) .* reshape(hw, 1,n_nodes,1,1) .* reshape(hw, 1,1,n_nodes,1) .* reshape(hw, 1,1,1,n_nodes)
+        elseif model_type == "test"
+            W = hw
         end
 
         # Construct distributions and geometric samples
@@ -862,6 +866,9 @@ module GermStats
             @note_param thresh_sds = [prms[:σ_γ], prms[:σ_ω]]
             @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I], prms[:k_C]], n=prms[:n])
             
+        elseif model_type == "test"
+            @note_param germ_response = [germ_response_test(u, W, t, ρₛ, prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:μ_γ], prms[:σ_γ]) for t in times]
+          
         end
 
         if debug
@@ -1002,6 +1009,38 @@ module GermStats
     end
 
 
+    function germ_response_test(u, W, t, ρₛ, d_hp, ξ, κ, Pₛ, μ_γ, σ_γ)
+        """
+        Test model with 3 free parameters.
+        inputs:
+            u - transformed Gauss-Hermite nodes
+            W - transformed Gauss-Hermite weights (matrix)
+            t - time in seconds
+            ρₛ - spore density in spores/μm^3
+            c₀_cs - initial concentration of carbon source in M
+            d_hp - thickness of the hydrophobin layer in μm
+            ξ - spore radius in μm
+            κ - cell wall thickness in μm
+            Pₛ - permeation constant for the inhibitor in μm/s
+            μ_γ - mean inhibition threshold
+            σ_γ - standard deviation of inhibition threshold
+        output:
+            the germination response for the given parameters (normalized)
+        """
+
+        # Distributions
+        dist_γ = Normal(μ_γ, σ_γ)
+
+        # Signals
+        V, A, V_cw = calc_geom_variables(ξ, d_hp, κ)
+        β = calc_beta(V, A, Pₛ, ρₛ, t)
+        
+        tail = 1 .- cdf.(dist_γ, β)
+        
+        return sum(W .* tail)
+    end
+    
+    
     function germ_response_independent_factors_gh(u, W, t, ρₛ, c₀_cs, d_hp, ξ, κ, Pₛ, Pₛ_cs, K_cC, μ_γ, σ_γ, μ_ω, σ_ω)
         """
         Compute the germination response for independent

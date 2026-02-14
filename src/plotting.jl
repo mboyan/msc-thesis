@@ -11,6 +11,7 @@ __precompile__(false)
     using GeometryBasics
     using CurveFit
     using Printf
+    using Statistics
 
     include("./setup.jl")
     include("./conversions.jl")
@@ -40,6 +41,7 @@ __precompile__(false)
     export compare_time_course_to_dantigny
     export plot_germination_data_fit
     export plot_germination_data_fit_all
+    export plot_prior_calibration
 
 
     function generate_ax_grid_pyplot(n_rows, n_cols, figsize=(8, 4))
@@ -1044,77 +1046,6 @@ __precompile__(false)
         # Compute RMSE
         rmse = sqrt(error_total / (length(sources_data) * length(densities_data) * length(times)))
 
-        # Model labels
-        # model_labels = Dict(
-        #     "independent" => "Independent inducer/inhibitor model\n",
-        #     "inhibitor" => "Inducer-dependent inhibitor threshold and release\n",
-        #     "inhibitor_thresh" => "Inducer-dependent inhibition threshold\n",
-        #     "inhibitor_perm" => "Inducer-dependent inhibitor release\n",
-        #     "inducer" => "Inhibitor-dependent induction threshold and signal\n",
-        #     "inducer_thresh" => "Inhibitor-dependent induction threshold\n",
-        #     "inducer_signal" => "Inhibitor-dependent induction signal\n",
-        #     "combined_inhibitor" => "Combined model with inducer-dependent inhibitor\nthreshold and release",
-        #     "combined_inhibitor_thresh" => "Combined model with inducer-dependent\ninhibitor threshold",
-        #     "combined_inhibitor_perm" => "Combined model with inducer-dependent\ninhibitor release",
-        #     "combined_inducer" => "Combined model with inhibitor-dependent\ninduction threshold and signal",
-        #     "combined_inducer_thresh" => "Combined model with inhibitor-dependent\ninduction threshold",
-        #     "combined_inducer_signal" => "Combined model with inhibitor-dependent\ninduction signal",
-        #     "special_inhibitor" => "Inducer-dependent inhibition (varying permeability)\n",
-        #     "special_inducer" => "Inhibitor-dependent induction (varying permeability)\n",
-        #     "special_independent" => "Independent inducer/inhibitor model\n(varying permeability)",
-        #     "special_combined" => "Combined model with inhibitor-dependent\ninduction (var. permeability)",
-        #     "special_combined_thresh" => "Combined model with inhibitor-dependent\ninduction threshold (var. permeability)",
-        #     "special_combined_signal" => "Combined model with inhibitor-dependent\ninduction signal (var. permeability)",
-        #     "feedback_inhibitor_inducer_perm" => "Inhibitor-dependent germination with\n inducer-dependent permeability",
-        #     "feedback_combined_inducer_perm" => "2-factor germination with\n inducer-dependent permeability",
-        #     "feedback_inducer_inhibitor_perm" => "Inducer-dependent germination with\n inhibitor-dependent permeability",
-        #     "feedback_combined_inhibitor_perm" => "2-factor germination with\n inhibitor-dependent permeability",
-        #     "feedback_inhibitor_inducer_perm_thresh" => "Inhibitor-dependent germination with\ninducer-dependent permeability/threshold",
-        #     "feedback_combined_inducer_perm_thresh" => "2-factor germination with\ninducer-dependent permeability/threshold",
-        #     "feedback_inhibitor_inducer_perm_inhibitor_signal" => "Inhibitor-dependent germination with\ninducer-dep. permeability / inhibitor-dep. signal",
-        #     "feedback_inducer_inducer_perm_inhibitor_signal" => "Inducer-dependent germination with\ninducer-dep. permeability / inhibitor-dep. signal",
-        #     "feedback_combined_inducer_perm_inhibitor_signal" => "2-factor germination with\ninducer-dep. permeability / inhibitor-dep. signal",
-        #     "feedback_inhibitor_inhibitor_inducer_perm" => "Inhibitor-dependent germination with\ninhibitor+inducer-dependent permeability",
-        #     "feedback_inducer_inhibitor_inducer_perm" => "Inducer-dependent germination with\ninhibitor+inducer-dependent permeability",
-        #     "feedback_combined_inhibitor_inducer_perm" => "2-factor germination with\ninhibitor+inducer-dependent permeability",
-        #     "feedback_inducer_inhibitor_thresh_inducer_perm" => "Inducer-dependent germination with\ninhibitor-dep. thresh., inducer-dep. perm.",
-        #     "feedback_combined_inhibitor_thresh_inducer_perm" => "2-factor germination with\ninhibitor-dep. thresh., inducer-dep. perm.",
-        #     "inhibitor_thresh_inducer_signal" => "Inhibitor-dependent germination with\ninhibitor-dep. signal, inducer-dep. thresh", 
-        #     "combined_inhibitor_thresh_inducer_signal" => "2-factor germination with\ninhibitor-dep. signal, inducer-dep. thresh",
-        #     "feedback_inhibitor_inducer_thresh_inhibitor_perm" => "Inhibitor-dependent germination with\ninducer-dep. thresh, inhibitor-dep. perm.",
-        #     "feedback_combined_inducer_thresh_inhibitor_perm" => "2-factor germination with\ninducer-dep. thresh., inhibitor-dep. perm.",
-        #     "combined_inhibitor_thresh_inducer_thresh" => "2-factor germination with\ninducer-dep. thresh., inhibitor-dep. thresh.",
-        #     "feedback_inducer_inhibitor_perm_signal" => "Inducer-dependent germination with\ninhibitor-dependent perm. and induction signal",
-        #     "feedback_combined_inhibitor_perm_signal" => "2-factor germination with\ninhibitor-dependent perm. and induction signal",
-        #     "feedback_inducer_inhibitor_perm_thresh" => "Inducer-dependent germination with\ninhibitor-dependent perm. and induction thresh.",
-        #     "feedback_combined_inhibitor_perm_thresh" => "2-factor germination with\ninhibitor-dependent perm. and induction thresh.",
-        #     "feedback_inhibitor_inducer_perm_thresh_inhibitor_signal" => "Inhibitor-dependent germination with\ninducer-dep. perm./thresh., inhibitor-dep. signal",
-        #     "feedback_combined_inducer_perm_thresh_inhibitor_signal" => "2-factor germination with\ninducer-dep. perm./thresh., inhibitor-dep. signal",
-        #     "feedback_inhibitor_inducer_perm_thresh_inhibitor_perm" => "Inhibitor-dependent germination with\ninducer-dep. perm./thresh., inhibitor-dep. perm.",
-        #     "feedback_combined_inducer_perm_thresh_inhibitor_perm" => "2-factor germination with\ninducer-dep. perm./thresh., inhibitor-dep. perm.",
-        #     "feedback_combined_inducer_perm_thresh_inhibitor_thresh" => "2-factor germination with\ninducer-dep. pern./thresh., inhibitor-dep. thresh.",
-        #     "feedback_inhibitor_inhibitor_inducer_perm_inhibitor_signal" => "Inhibitor-dependent germination with\ninhibitor/inducer-dep. perm, inhibitor-dep. signal",
-        #     "feedback_inducer_inhibitor_inducer_perm_inhibitor_signal" => "Inducer-dependent germination with\ninhibitor/inducer-dep. perm, inhibitor-dep. signal",
-        #     "feedback_combined_inhibitor_inducer_perm_inhibitor_signal" => "2-factor germination with\ninhibitor/inducer-dep. perm, inhibitor-dep. signal",
-        #     "feedback_inducer_inducer_perm_inhibitor_thresh_signal" => "Inducer-dependent germination with\ninducer-dep. perm., inhbitor-dep. thresh./signal",
-        #     "feedback_combined_inducer_perm_inhibitor_thresh_signal" => "2-factor germination with\ninducer-dep. perm., inhbitor-dep. thresh./signal",
-        #     "feedback_inhibitor_inhibitor_inducer_perm_inhibitor_thresh" => "Inhibitor-dependent germination with\ninhibitor/inducer-dep. perm, inhibitor-dep thresh.",
-        #     "feedback_combined_inhibitor_inducer_perm_inhibitor_thresh" => "2-factor germination with\ninhibitor/inducer-dep. perm, inhibitor-dep thresh.",
-        #     "feedback_inhibitor_inducer_thresh_inhibitor_perm_signal" => "Inhibitor-dependent germination with\ninducer-dep. thresh., inhibitor-dep. perm./signal",
-        #     "feedback_combined_inducer_thresh_inhibitor_perm_signal" => "2-factor germination with\ninducer-dep. thresh., inhibitor-dep. perm./signal",
-        #     "combined_inhibitor_thresh_signal_inducer_thresh" => "2-factor germination with\ninhibitor-dep. thresh./signal, inducer-dep. thresh",
-        #     "feedback_combined_inhibitor_perm_thresh_inducer_thresh" => "2-factor germination with\ninhibitor-dep. perm./thresh., inducer-dep. thresh.",
-        #     "feedback_inducer_inhibitor_perm_thresh_signal" => "Inducer-dependent germination with\ninhibitor-dep. perm./thresh./signal",
-        #     "feedback_combined_inhibitor_perm_thresh_signal" => "2-factor germination with\ninhibitor-dep. perm./thresh./signal",
-        #     "feedback_inhibitor_inducer_perm_thresh_inhibitor_perm_signal" => "Inhibitor-dependent germination with\ninducer-dep. perm./thresh., inhibitor-dep. perm./signal", 
-        #     "feedback_combined_inducer_perm_thresh_inhibitor_perm_signal" => "2-factor germination with\ninducer-dep. perm./thresh., inhibitor-dep. perm./signal",
-        #     "feedback_combined_inhibitor_thresh_signal_inducer_perm_thresh" => "2-factor germination with inhibitor-dep.\nthresh./signal, inducer-dep. perm./thresh.",
-        #     "feedback_combined_inhibitor_perm_thresh_inducer_perm_thresh" => "2-factor germination with inhibitor/inducer-dep. perm,\ninhibitor/inducer-dep. thresholds",
-        #     "feedback_inducer_inhibitor_perm_thresh_signal_inducer_perm" => "Inducer-dependent germination with inhibitor/inducer-dep.\nperm., inhibitor-dep. thresh./signal",
-        #     "feedback_combined_inhibitor_perm_thresh_signal_inducer_perm" => "2-factor germination with inhibitor/inducer-dep. perm.,\ninhibitor-dep. thresh./signal",
-        #     "feedback_combined_inhibitor_perm_thresh_signal_inducer_thresh" => "2-factor germination with inhibitor/inducer-dep. thresh.,\ninhibitor-dep. perm./signal",
-        #     "feedback_combined_inhibitor_perm_thresh_signal_inducer_perm_thresh" => "2-factor germination with inhibitor/inducer-dep.\nperm./thresh., inhibitor-dep. signal"
-        # )
         model_labels = Dict()
         for (i, alias) in enumerate(model_collection[1])
             model_labels[alias] = model_collection[3][i]
@@ -1127,5 +1058,134 @@ __precompile__(false)
         # tight_layout()
         gcf()
 
+    end
+
+
+    function plot_prior_calibration(param_vals, dantigny_vals, param_keys, weights; src_idx=1)
+        """
+        Plot the evolution of three parameter priors
+        as sample points on a 3D plot, with
+        colours corresponding to the scaled
+        distances to lab data.
+        inputs:
+            param_vals (Matrix) - input parameter values over time
+            dantigny_vals (Matrix) - output Dantigny summaries over time
+            param_keys (Vector{Symbol}) - names of the parameters
+            weights (Matrix) - per-sample weights over time
+            src_idx (Int) - index of carbon source
+        """
+
+        n_iter = size(param_vals, 2)
+
+        t_max = 48 # hours
+
+        # Load data
+        aliases, combination_IDs, descriptions, param_key_sets = load_model_collection()
+        times, sources, densities, lab_means, CIs, CI_widths, uncert_lab = unpack_ijadpanahsaravi_data()
+
+        σ_data = dropdims(mean(CI_widths[:, src_idx, :] ./ 3.92, dims=1); dims=1)
+
+        fig = figure(figsize=(12, 3*n_iter))
+
+        xlim_param = (minimum(param_vals[src_idx, :, 1, :]), maximum(param_vals[src_idx, :, 1, :]))
+        ylim_param = (minimum(param_vals[src_idx, :, 2, :]), maximum(param_vals[src_idx, :, 2, :]))
+        zlim_param = (minimum(param_vals[src_idx, :, 3, :]), maximum(param_vals[src_idx, :, 3, :]))
+
+        mask = dropdims(all(.!isnan.(dantigny_vals[src_idx, :, :, :]); dims=2); dims=2)
+        xlim_dantigny = (minimum(dantigny_vals[src_idx, :, 1, :][mask]), maximum(dantigny_vals[src_idx, :, 1, :][mask]))
+        ylim_dantigny = (minimum(dantigny_vals[src_idx, :, 2, :][mask]), maximum(dantigny_vals[src_idx, :, 2, :][mask]))
+        zlim_dantigny = (minimum(dantigny_vals[src_idx, :, 3, :][mask]), maximum(dantigny_vals[src_idx, :, 3, :][mask]))
+
+        println(xlim_dantigny, ylim_dantigny, zlim_dantigny)
+
+        cmap = get_cmap("viridis")
+        dantigny_tags = [L"p_\max", L"\tau_g", L"\nu"]
+        w_min = minimum(weights)
+        w_max = maximum(weights)
+        println("Weights range from $w_min to $w_max")
+        
+        for i in 1:n_iter
+            println("Mean parameters for iteration $i: $(mean(param_vals[src_idx, i, :, :]; dims=2))")
+
+            # Parameter space
+            ax = fig.add_subplot(n_iter, 3, (i-1)*3+1, projection="3d")
+            # ax.set_xscale(:log)
+            # ax.set_yscale(:log)
+            ax.set_xlim(xlim_param)
+            ax.set_ylim(ylim_param)
+            ax.set_zlim(zlim_param)
+            ax.set_xlabel(param_keys[1])
+            ax.set_ylabel(param_keys[2])
+            ax.set_zlabel(param_keys[3])
+
+            ax.set_title("Iteration $i: Parameter space")
+
+            w_min = minimum(weights[src_idx, i, :])
+            w_max = maximum(weights[src_idx, i, :])
+            println("Weights range from $w_min to $w_max")
+            
+            w_norm = (weights[src_idx, i, :] .- w_min) ./ (w_max - w_min)
+            
+            ax.scatter(param_vals[src_idx, i, 1, :], param_vals[src_idx, i, 2, :], param_vals[src_idx, i, 3, :], color=cmap(w_norm))#, color=cmap(0.1*dantigny_vals[src_idx, i, j, :]/σ_data[j]))
+            
+            # Dantigny space
+            ax = fig.add_subplot(n_iter, 3, (i-1)*3+2, projection="3d")
+            ax.set_xlim(xlim_dantigny)
+            ax.set_ylim(ylim_dantigny)
+            ax.set_zlim(zlim_dantigny)
+            ax.set_xlabel(dantigny_tags[1])
+            ax.set_ylabel(dantigny_tags[2])
+            ax.set_zlabel(dantigny_tags[3])
+
+            ax.set_title("Iteration $i: Dantigny summaries")
+
+            ax.scatter(dantigny_vals[src_idx, i, 1, :], dantigny_vals[src_idx, i, 2, :], dantigny_vals[src_idx, i, 3, :], color=cmap(w_norm))
+
+            # Dantigny space (close-up)
+            ax = fig.add_subplot(n_iter, 3, i*3, projection="3d")
+            ax.set_xlim(0, 1)
+            ax.set_ylim(0, 10)
+            ax.set_zlim(0, 10)
+            ax.set_xlabel(dantigny_tags[1])
+            ax.set_ylabel(dantigny_tags[2])
+            ax.set_zlabel(dantigny_tags[3])
+
+            ax.set_title("Iteration $i: Dantigny summaries (close-up)")
+
+            in_bounds = all(dantigny_vals[src_idx, i, :, :] .< 10; dims=1) |> vec
+            ax.scatter(dantigny_vals[src_idx, i, 1, :][in_bounds], dantigny_vals[src_idx, i, 2, :][in_bounds], dantigny_vals[src_idx, i, 3, :][in_bounds], color=cmap(w_norm[in_bounds]))
+
+            for k in 1:length(densities)
+                # Define corners of CI box
+                box_corners = [
+                    (CIs[k, src_idx, 1, 1], CIs[k, src_idx, 2, 1], CIs[k, src_idx, 3, 1]), (CIs[k, src_idx, 1, 2], CIs[k, src_idx, 2, 1], CIs[k, src_idx, 3, 1]),
+                    (CIs[k, src_idx, 1, 2], CIs[k, src_idx, 2, 2], CIs[k, src_idx, 3, 1]), (CIs[k, src_idx, 1, 1], CIs[k, src_idx, 2, 2], CIs[k, src_idx, 3, 1]),
+                    (CIs[k, src_idx, 1, 1], CIs[k, src_idx, 2, 1], CIs[k, src_idx, 3, 2]), (CIs[k, src_idx, 1, 2], CIs[k, src_idx, 2, 1], CIs[k, src_idx, 3, 2]),
+                    (CIs[k, src_idx, 1, 2], CIs[k, src_idx, 2, 2], CIs[k, src_idx, 3, 2]), (CIs[k, src_idx, 1, 1], CIs[k, src_idx, 2, 2], CIs[k, src_idx, 3, 2])
+                ]
+                # println(box_corners)
+
+                # Lines connecting the corners to form a box
+                lines = [
+                    [box_corners[1], box_corners[2]], [box_corners[2], box_corners[3]], [box_corners[3], box_corners[4]], [box_corners[4], box_corners[1]],
+                    [box_corners[5], box_corners[6]], [box_corners[6], box_corners[7]], [box_corners[7], box_corners[8]], [box_corners[8], box_corners[5]],
+                    [box_corners[1], box_corners[5]], [box_corners[2], box_corners[6]], [box_corners[3], box_corners[7]], [box_corners[4], box_corners[8]]
+                ]
+
+                # Draw the box
+                for line in lines
+                    # ax.plot3D(line[1][1], line[1][2], line[1][3], linestyle="-", color="red", linewidth=10)
+                    # ax.plot3D(line[2][1], line[2][2], line[2][3], linestyle="-", color="red", linewidth=10)
+                    x_values = [line[1][1], line[2][1]]
+                    y_values = [line[1][2], line[2][2]]
+                    z_values = [line[1][3], line[2][3]]
+                    
+                    ax.plot3D(x_values, y_values, z_values, linestyle="-", color="red", linewidth=2)
+                end
+            end
+        end
+
+        tight_layout()
+        gcf()
     end
 end
