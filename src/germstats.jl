@@ -134,7 +134,7 @@ module GermStats
         
         models = Dict(
             "T" => ["test",                                                                     "Toy model for testing\n",
-                        [:Pₛ, :neg_δ_γ, :μ_γ]],
+                        [:Pₛ, :neg_δ_ω, :μ_ω]],
             "0" => ["independent",                                                              "Independent inducer/inhibitor model\n",
                         [:K_cC, :Pₛ, :Pₛ_cs, :neg_δ_γ, :neg_δ_ω, :μ_γ, :μ_ω]],
             "Ai" => ["feedback_inhibitor_inducer_perm",                                         "Inhibitor-dependent germination with\ninducer-dependent permeability",
@@ -867,7 +867,7 @@ module GermStats
             @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I], prms[:k_C]], n=prms[:n])
             
         elseif model_type == "test"
-            @note_param germ_response = [germ_response_test(u, W, t, ρₛ, prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:μ_γ], prms[:σ_γ]) for t in times]
+            @note_param germ_response = [germ_response_test(u, W, t, ρₛ, prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:μ_ω], prms[:σ_ω]) for t in times]
           
         end
 

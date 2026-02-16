@@ -483,25 +483,25 @@ module DataUtils
         # if (any(Ug .== 0) || any(Us .== 0))
         #     println("Zeros found in Ug or Us!")
         # end
-        p_glob = p[glob_tag, :] # delete later
-        p_spec = p[.!glob_tag, :] # delete later
+        # p_glob = p[glob_tag, :] # delete later
+        # p_spec = p[.!glob_tag, :] # delete later
 
         # Apply marginals
         θg = similar(Zg)
         for i in eachindex(marg_g)
             θg[i,:] = quantile.(marg_g[i], Ug[i,:])
-            if any(θg[i,:] .<= 0 .|| isinf.(θg[i,:]))
-                mask = θg[i,:] .<= 0 .|| isinf.(θg[i,:])
-                println("θg[$i,:] <= 0 or is Inf for marginal $(marg_g[i]),\nZg = $(Zg[i,mask])\nand Ug = $(Ug[i,mask]);\np=$(p_glob[i, mask])")
-            end
+            # if any(θg[i,:] .<= 0 .|| isinf.(θg[i,:]))
+            #     mask = θg[i,:] .<= 0 .|| isinf.(θg[i,:])
+            #     println("θg[$i,:] <= 0 or is Inf for marginal $(marg_g[i]),\nZg = $(Zg[i,mask])\nand Ug = $(Ug[i,mask]);\np=$(p_glob[i, mask])")
+            # end
         end
         θs = similar(Zs)
         for i in eachindex(marg_s)
             θs[i,:] = quantile.(marg_s[i], Us[i,:])
-            if any(θs[i,:] .<= 0 .|| isinf.(θs[i,:]))
-                mask = θs[i,:] .<= 0 .|| isinf.(θs[i,:])
-                println("θs[$i,:] <= 0 or is Inf for marginal $(marg_s[i]),\nZs = $(Zs[i,mask])\nand θs = $(θs[i,mask]);\np=$(p_spec[i, mask])")
-            end
+            # if any(θs[i,:] .<= 0 .|| isinf.(θs[i,:]))
+            #     mask = θs[i,:] .<= 0 .|| isinf.(θs[i,:])
+            #     println("θs[$i,:] <= 0 or is Inf for marginal $(marg_s[i]),\nZs = $(Zs[i,mask])\nand θs = $(θs[i,mask]);\np=$(p_spec[i, mask])")
+            # end
         end
 
         return θg, θs
@@ -720,7 +720,7 @@ module DataUtils
             use_surrogates (bool) - whether to use a surrogate NN for mapping successive parameter values to Dantigny summaries
         """
         
-        # Random.seed!(1236) #1236
+        Random.seed!(1236)
 
         # t_max = 48 # hours
 
@@ -732,7 +732,7 @@ module DataUtils
         times, sources, densities, lab_means, CIs, CI_widths, uncert_lab = unpack_ijadpanahsaravi_data()
         times_sec = times * 3600 # for matching physics variables in mechanistic model
 
-        println("Lab uncertainties: $uncert_lab")
+        # println("Lab uncertainties: $uncert_lab")
 
         n_src = length(sources)
         n_dens = length(densities)
@@ -849,7 +849,17 @@ module DataUtils
         w_glob_final_all = Dict()
         w_spec_final_all = Dict()
         w_spec_record_all = Dict()
-        for m in 59:59#eachindex(aliases)
+        debug_vals = Dict(
+            :d => zeros(Float64, n_iter, n_dens, n_src, n_samples, 3),
+            :lab_means => zeros(Float64, n_iter, n_dens, n_src, n_samples, 3),
+            :diffs => zeros(Float64, n_iter, n_dens, n_src, n_samples, 3),
+            :z_dist => zeros(Float64, n_iter, n_dens, n_src, n_samples),
+            :w_spec => zeros(Float64, n_iter, n_src, n_samples),
+            # :params => zeros(Float64, n_iter, n_src, 3, n_samples),
+            :penalties => zeros(Float64, n_iter, n_dens, n_src, n_samples),
+            :d_alt => zeros(Float64, n_iter, n_dens, n_src, 3, n_samples),
+        )
+        for m in 1:1#59:59#eachindex(aliases)
 
             println("Running $(aliases[m])")
 
@@ -916,16 +926,17 @@ module DataUtils
                 s_ct = 1
                 for (k, key) in enumerate(param_keys)
 
-                    sample_params[key] = quantile.(sample_dists[key], sobol_pts[k, :]) # limit to sampling to 95% within bounds
+                    sample_param = quantile.(sample_dists[key], sobol_pts[k, :]) # limit to sampling to 95% within bounds
+                    sample_params[key] = sample_param
 
                     # Split in general and inducer-specific parameters
                     if key in params_glob_keys
-                        θ_glob[g_ct, :] .= sample_params[key]
+                        θ_glob[g_ct, :] .= sample_param
                         marg_glob[g_ct] = sample_dists[key]
                         bounds_glob[g_ct] = abs_thresh ? bounds_abs[key] : bounds_rel[key]
                         g_ct += 1
                     else
-                        θ_spec[i, s_ct, :] .= sample_params[key]
+                        θ_spec[i, s_ct, :] .= sample_param
                         marg_spec[i, s_ct] = sample_dists[key]
                         bounds_spec[s_ct] = abs_thresh ? bounds_abs[key] : bounds_rel[key]
                         s_ct += 1
@@ -972,8 +983,8 @@ module DataUtils
                 println("\n===== Iteration $s =====")
                 
                 # Shuffle Sobol points
-                shuffle!(idx_shuffle)
-                sobol_pts = sobol_pts[idx_shuffle, :]
+                # shuffle!(idx_shuffle)
+                # sobol_pts = sobol_pts[idx_shuffle, :]
 
                 if s > 1
                     marg_glob .= calibrate_marginals(marg_glob, θ_glob, w_glob_penalized, bounds_glob)
@@ -989,7 +1000,15 @@ module DataUtils
                         marginals_temp[glob_tag] .= marg_glob
                         marginals_temp[.!glob_tag] .= marg_spec[j, :]
                         
-                        θ_glob, θ_spec[j, :, :] = sample_parameters(sobol_pts, copula, marg_glob, marg_spec[j, :], glob_tag)
+                        # θ_glob, θ_spec[j, :, :] = sample_parameters(sobol_pts, copula, marg_glob, marg_spec[j, :], glob_tag) # USES COPULA
+                        for (k, marg) in enumerate(marg_glob)
+                            θ_glob[k, :] .= quantile.(marg, sobol_pts[glob_tag, :][k, :])
+                        end
+                        for (k, marg) in enumerate(marg_spec[j, :])
+                            θ_spec[j, k, :] .= quantile.(marg, sobol_pts[.!glob_tag, :][k, :])
+                        end
+
+                        # println("Specific parameters for source $src: $(θ_spec[j, :, :])")
 
                         # Assign new samples
                         g_ct = 1
@@ -1028,8 +1047,8 @@ module DataUtils
                     use_surrogate_this_iter = false
                 else
                     # Later iterations: strategic subsampling
-                    # n_mech_samples = max(200, round(Int, 0.15 * n_samples))  # At least 200 or 15%
-                    n_mech_samples = max(50, round(Int, 0.15 * n_samples))  # JUST TESTING! REVERT TO ABOVE ONE!!!
+                    n_mech_samples = max(200, round(Int, 0.15 * n_samples))  # At least 200 or 15%
+                    # n_mech_samples = max(50, round(Int, 0.15 * n_samples))  # JUST TESTING! REVERT TO ABOVE ONE!!!
                     
                     # Sample strategically:
                     # 1. High-weight samples (50%)
@@ -1049,7 +1068,7 @@ module DataUtils
                     use_surrogate_this_iter = true
                 end
 
-                 println("Running mechanistic model on $(n_mech_samples) samples ($(round(100*n_mech_samples/n_samples, digits=1))%)")
+                println("Running mechanistic model on $(n_mech_samples) samples ($(round(100*n_mech_samples/n_samples, digits=1))%)")
 
                 max_uncertainties = zeros(n_dens, n_src)
 
@@ -1068,6 +1087,11 @@ module DataUtils
                         println("---- Running model $(aliases[m]) with density $density and source $(sources[j]) -----")
 
                         # println("Input parameters: $(input_params_all[j])")
+
+                        # Weave global and local parameters
+                        θ[glob_tag, :] .= θ_glob
+                        θ[.!glob_tag, :] .= θ_spec[j, :, :]
+                        data_pts[j, s, 1:n_dims, :] .= θ
 
                         if !use_surrogate_this_iter
                             # --- RUN ALL SAMPLES THROUGH MECHANISTIC MODEL ---
@@ -1110,11 +1134,6 @@ module DataUtils
                                     println(Dict(k => v[mod1(n_global, length(v))] for (k, v) in input_params_all[j]))
                                 end
                             end
-
-                            # Weave global and local parameters
-                            θ[glob_tag, :] .= θ_glob
-                            θ[.!glob_tag, :] .= θ_spec[j, :, :]
-                            data_pts[j, s, 1:n_dims, :] .= θ
                             
                             # 2. Predict all samples with surrogate
                             d_surr, σ_pred = predict_with_uncertainty_mixed_precision(
@@ -1303,7 +1322,7 @@ module DataUtils
                             end
                             
                             # 5. Use surrogate predictions for ALL samples
-                            d = d_surr
+                            d .= d_surr
                             # println("d: $d")
 
                             # Use uncertainty for RMSE estimate
@@ -1326,7 +1345,8 @@ module DataUtils
                             end
                         end
 
-                        data_pts[j, s, (n_dims + 1):end, :] .= d
+                        # data_pts[j, s, (n_dims + 1):end, :] .= d
+                        # debug_vals[:d_alt][s, i, j, :, :] .= d
                         
                         nan_mask = all(.!isnan.(d); dims=1) |> vec
                         println("$(sum(nan_mask)) valid Dantigny summaries")
@@ -1391,41 +1411,63 @@ module DataUtils
                         # Covariance matrix
                         Σ_lab = diagm(uncert_lab[i, j, :].^2)
 
+                        # @show d
                         # Compute running z's
                         for n in 1:n_samples
                             if in_bounds[n]
-                                # z_dist[n] = dot(diffs_dantigny[:, n], Σ \ diffs_dantigny[:, n])
-                                # Uncertainty-weighted Mahalanobis distance
-                                # Σ_n = diagm(uncert_total[:, n].^2)
-                                # println("Correlation Matrix at $n:")
-                                # display(Σ_n)
                                 diffs = d[:, n] .- lab_means[i, j, :]
-                                z_deviation = dot(diffs, Σ_lab \ diffs)
+                                debug_vals[:lab_means][s, i, j, n, :] .= lab_means[i, j, :]
+                                debug_vals[:diffs][s, i, j, n, :] .= diffs
+                                if s == 1
+                                    # z_dist[n] = dot(diffs_dantigny[:, n], Σ \ diffs_dantigny[:, n])
+                                    # Uncertainty-weighted Mahalanobis distance
+                                    # Σ_n = diagm(uncert_total[:, n].^2)
+                                    # println("Correlation Matrix at $n:")
+                                    # display(Σ_n)
+                                    
+                                    z_dev = dot(diffs, Σ_lab \ diffs)
+                                    
+                                    # Unreliability penalty from SE
+                                    # se_penalty = sum(max.(0.0, uncert_mech[:, n] ./ uncert_lab[i, j, :] .- 1.0).^2)
+                                    se_penalty = sum(log.(uncert_mech[:, n] ./ uncert_lab[i, j, :]).^2)
+                                    
+                                    # RMSE penalty
+                                    # rmse_penalty = (rmses[i, j, n] / 0.02)^2
+                                    
+                                    # z_dist[n] = min(z_dev + se_penalty + rmse_penalty, 1e6) # ADD RMSE LATER!!!!
+                                    z_dist[n] = min(z_dev + se_penalty, 1e6)
+                                    # z_dist[n] = min(z_dev * se_penalty, 1e6)
 
-                                # Unreliability penalty
-                                reliability_penalty = 0.0
-        
-                                for k in 1:3
-                                    se_ratio = uncert_mech[k, n] / uncert_lab[i, j, k]
-                                    if se_ratio > 1.0
-                                        # SE larger than lab precision → parameter poorly identified
-                                        reliability_penalty += (se_ratio - 1.0)^2
-                                    end
+                                    # println("$n: z_dist for $(d[:, n]) is $(z_dist[n]), reliability penalty is $(se_penalty).")
+                                    debug_vals[:penalties][s, i, j, n] = se_penalty
+
+                                    # z_dist[n] = z_deviation + min(reliability_penalty, 1e5) # Cap extreme penalties
+
+                                    # z_dist[n] = dot(diffs, Σ_n \ diffs)
+                                    # z_acc_specific[j, n] += z_dist[n]
+                                else
+                                    z_dist[n] = dot(diffs_dantigny[:, n], Σ_lab \ diffs_dantigny[:, n])
+                                    # Uncertainty-weighted Mahalanobis distance
+                                    Σ_n = diagm(uncert_total[:, n].^2)
+                                    z_dist[n] = dot(diffs, Σ_n \ diffs)
+                                    # println("$n: z_dist for $(d[:, n]) is $(z_dist[n]).")
                                 end
-
-                                z_dist[n] = z_deviation + reliability_penalty
-
-                                # z_dist[n] = dot(diffs, Σ_n \ diffs)
-                                z_acc_specific[j, n] += z_dist[n]
                                 # println("Distance for $(d[:, n]) is $(z_dist[n]).")
+                                z_acc_specific[j, n] += z_dist[n]
                             else
                                 # z_dist[n] = diffs_dantigny[1, n] .^ 2 / σ_dantigny[1] .^ 2
                                 # Penalty for out-of-bounds
-                                # println("Large penalty at $n !")
+                                # println("$n: Large penalty!")
                                 z_dist[n] = 1e6  # Large penalty
                                 z_acc_specific[j, n] += z_dist[n]
+                                # println("$n: z_dist for $(d[:, n]) is $(z_dist[n]).")
                             end
                         end
+
+                        debug_vals[:d][s, i, j, :, :] .= d'
+                        debug_vals[:z_dist][s, i, j, :] .= z_dist
+                        # debug_vals[:params][s, j, :, :] .= θ
+                        if i == 1 data_pts[j, s, (n_dims + 1):end, :] .= d end
 
                         # Fraction of lab means inside joint regions (Criterion 5)
                         p_z_new = mean(z_dist .< χ_sq)
@@ -1437,6 +1479,8 @@ module DataUtils
                 end
 
                 z_acc_specific ./= n_dens
+                # println("Unique z_acc_specific: $(unique(z_acc_specific; dims=2))")
+                println("Mean z_acc_specific: $(mean(z_acc_specific; dims=2))")
                 # z_acc_specific[z_acc_specific .< χ_sq] .= 0 # Do not penalize good fits
 
                 # Penalize weights due to RMSE
@@ -1444,16 +1488,19 @@ module DataUtils
 
                 # Compute condition-specific weights
                 # println(z_acc_specific)
-                temp_param = get_temp_param(s, n_iter)
+                temp_param = get_temp_param(s, n_iter, T_init=10000.0, T_final=100.0)
                 println("Tempering parameter: $temp_param")
                 log_w_spec = -temp_param .* z_acc_specific
+                # println("Unique log_w_glob: $(unique(log_w_spec; dims=2))")
                 w_spec .= exp.(log_w_spec)
                 w_spec_penalized = w_spec# .* reliabilities
                 
                 w_spec_record[:, s, :] .= w_spec_penalized
+                debug_vals[:w_spec][s, :, :] .= w_spec_penalized
 
                 # Compute global weights as product of specific ones
                 log_w_glob = sum(log_w_spec, dims=1) |> vec  # Sum of logs = log of product
+                # println("Unique log_w_glob: $(unique(log_w_glob))")
                 w_glob .= exp.(log_w_glob)
                 # println(w_glob)
                 # println(w_spec[1,:])
@@ -1586,7 +1633,7 @@ module DataUtils
             w_spec_record_all[aliases[m]] = w_spec_record
         end
 
-        jldsave("../src/Data/priors.jld2"; priors_all, priors_running_all, surrogates_all, θ_final_all, w_glob_final_all, w_spec_final_all, data_pts_dict, w_spec_record_all)
+        jldsave("../src/Data/priors.jld2"; priors_all, priors_running_all, surrogates_all, θ_final_all, w_glob_final_all, w_spec_final_all, data_pts_dict, w_spec_record_all, debug_vals)
 
         return data_pts_dict
     end

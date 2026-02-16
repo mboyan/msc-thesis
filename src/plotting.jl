@@ -1061,7 +1061,7 @@ __precompile__(false)
     end
 
 
-    function plot_prior_calibration(param_vals, dantigny_vals, param_keys, weights; src_idx=1)
+    function plot_prior_calibration(param_vals, dantigny_vals, param_keys, weights; src_idx=1, query_pt_idx=nothing)
         """
         Plot the evolution of three parameter priors
         as sample points on a 3D plot, with
@@ -1073,6 +1073,7 @@ __precompile__(false)
             param_keys (Vector{Symbol}) - names of the parameters
             weights (Matrix) - per-sample weights over time
             src_idx (Int) - index of carbon source
+            query_pt_idx (Int) - index of point to hightlight in Dantigny space
         """
 
         n_iter = size(param_vals, 2)
@@ -1091,10 +1092,10 @@ __precompile__(false)
         ylim_param = (minimum(param_vals[src_idx, :, 2, :]), maximum(param_vals[src_idx, :, 2, :]))
         zlim_param = (minimum(param_vals[src_idx, :, 3, :]), maximum(param_vals[src_idx, :, 3, :]))
 
-        mask = dropdims(all(.!isnan.(dantigny_vals[src_idx, :, :, :]); dims=2); dims=2)
-        xlim_dantigny = (minimum(dantigny_vals[src_idx, :, 1, :][mask]), maximum(dantigny_vals[src_idx, :, 1, :][mask]))
-        ylim_dantigny = (minimum(dantigny_vals[src_idx, :, 2, :][mask]), maximum(dantigny_vals[src_idx, :, 2, :][mask]))
-        zlim_dantigny = (minimum(dantigny_vals[src_idx, :, 3, :][mask]), maximum(dantigny_vals[src_idx, :, 3, :][mask]))
+        mask = dropdims(all(.!isnan.(dantigny_vals[src_idx, 2:end, :, :]); dims=2); dims=2)
+        xlim_dantigny = (0, 1)
+        ylim_dantigny = (minimum(dantigny_vals[src_idx, 2:end, 2, :][mask]), min(maximum(dantigny_vals[src_idx, 2:end, 2, :][mask]), 50))
+        zlim_dantigny = (0, min(maximum(dantigny_vals[src_idx, 2:end, 2, :][mask]), 10))
 
         println(xlim_dantigny, ylim_dantigny, zlim_dantigny)
 
@@ -1120,9 +1121,9 @@ __precompile__(false)
 
             ax.set_title("Iteration $i: Parameter space")
 
-            w_min = minimum(weights[src_idx, i, :])
-            w_max = maximum(weights[src_idx, i, :])
-            println("Weights range from $w_min to $w_max")
+            # w_min = minimum(weights[src_idx, i, :])
+            # w_max = maximum(weights[src_idx, i, :])
+            # println("Weights range from $w_min to $w_max")
             
             w_norm = (weights[src_idx, i, :] .- w_min) ./ (w_max - w_min)
             
@@ -1140,20 +1141,6 @@ __precompile__(false)
             ax.set_title("Iteration $i: Dantigny summaries")
 
             ax.scatter(dantigny_vals[src_idx, i, 1, :], dantigny_vals[src_idx, i, 2, :], dantigny_vals[src_idx, i, 3, :], color=cmap(w_norm))
-
-            # Dantigny space (close-up)
-            ax = fig.add_subplot(n_iter, 3, i*3, projection="3d")
-            ax.set_xlim(0, 1)
-            ax.set_ylim(0, 10)
-            ax.set_zlim(0, 10)
-            ax.set_xlabel(dantigny_tags[1])
-            ax.set_ylabel(dantigny_tags[2])
-            ax.set_zlabel(dantigny_tags[3])
-
-            ax.set_title("Iteration $i: Dantigny summaries (close-up)")
-
-            in_bounds = all(dantigny_vals[src_idx, i, :, :] .< 10; dims=1) |> vec
-            ax.scatter(dantigny_vals[src_idx, i, 1, :][in_bounds], dantigny_vals[src_idx, i, 2, :][in_bounds], dantigny_vals[src_idx, i, 3, :][in_bounds], color=cmap(w_norm[in_bounds]))
 
             for k in 1:length(densities)
                 # Define corners of CI box
@@ -1182,6 +1169,14 @@ __precompile__(false)
                     
                     ax.plot3D(x_values, y_values, z_values, linestyle="-", color="red", linewidth=2)
                 end
+            end
+
+            if !isnothing(query_pt_idx)
+                query_pt = dantigny_vals[src_idx, i, :, query_pt_idx]
+                println("Iteration $i: Query point: $query_pt with weight $(weights[src_idx, i, query_pt_idx])")
+                ax.plot3D([0, query_pt[1]], [query_pt[2], query_pt[2]], [query_pt[3], query_pt[3]], linestyle="--", color="green", linewidth=1)
+                ax.plot3D([query_pt[1], query_pt[1]], [0, query_pt[2]], [query_pt[3], query_pt[3]], linestyle="--", color="green", linewidth=1)
+                ax.plot3D([query_pt[1], query_pt[1]], [query_pt[2], query_pt[2]], [0, query_pt[3]], linestyle="--", color="green", linewidth=1)
             end
         end
 
