@@ -300,6 +300,8 @@ module GermStats
             prms (Dict) - additional parameters for the germination response function
             n_nodes (int) - number of Gauss-Hermite nodes to use
             debug (bool) - whether to print additional debugging messages
+        output:
+            p_out (Vector{Float64}) - germination fractions
         """
 
         @argcheck model_type in load_model_collection()[1]
@@ -319,7 +321,7 @@ module GermStats
             elseif model_type in ["special_inducer", "special_combined", "special_thresh", "special_signal"]
                 n_nodes = 6 # 4D integral
             elseif startswith(model_type, "feedback")
-                n_nodes = 4#512#1024
+                n_nodes = 1024
             end
         end
 
@@ -867,7 +869,7 @@ module GermStats
             @note_param germ_response = germ_response_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I], prms[:k_C]], n=prms[:n])
             
         elseif model_type == "test"
-            @note_param germ_response = [germ_response_test(u, W, t, ρₛ, prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:μ_ω], prms[:σ_ω]) for t in times]
+            @note_param germ_response = [germ_response_test(u, W, t, ρₛ, prms[:d_hp], ξ2, κ2, prms[:Pₛ], prms[:μ_ω], prms[:σ_ω]) for t in times] # DELETE LATER!!!
           
         end
 

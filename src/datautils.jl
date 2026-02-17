@@ -36,6 +36,7 @@ module DataUtils
     export unpack_ijadpanahsaravi_data
     export calibrate_priors
     export dantigny
+    export infer_dantigny_parameters
     export generate_dantigny_dataset
     export train_multioutput_nn_mixed_precision
     export predict_with_uncertainty_mixed_precision
@@ -118,7 +119,7 @@ module DataUtils
         end
     end
 
-    function fit_dist(dist_current, θ, w_norm, bounds; α=0.3)
+    function fit_dist(dist_current, θ, w_norm, bounds; α=0.0)
         """
         Refit a prior distribution through a set of weighted samples
         inputs:
@@ -138,7 +139,7 @@ module DataUtils
         ess = 1 / sum(w_norm .^ 2) # effective sample size
         ess_ratio = ess / length(w_norm)
         exploration_factor = 1.0 + ess_ratio * 0.5
-        # println("ESS: $ess, exploration factor: $exploration_factor")
+        println("ESS: $ess, exploration factor: $exploration_factor")
 
         if dist_type == LogNormal{Float64}
 
@@ -228,13 +229,6 @@ module DataUtils
         """
         Np = size(θ, 1)
 
-        # if isnothing(w_spec) # Global marginal calibration
-        #     w_eff = w_glob ./ sum(w_glob)
-        # else
-        #     w_eff = w_glob .* w_spec # Specific marginal calibration
-        #     w_eff ./= sum(w_eff)
-        # end
-
         weights ./= sum(weights)
 
         marginals = Vector{Distribution}(undef, Np)
@@ -297,17 +291,7 @@ module DataUtils
         output:
             correlation matrix
         """
-        # μ = sum(w .* Z, dims=1)
-        # Σ = zeros(size(Z, 2), size(Z, 2))
 
-        # for i in eachindex(w)
-        #     δ = Z[i, :] .- μ
-        #     # Σ .+= w[i] .* (δ' * δ)
-        #     Σ .+= w[i] .* (δ * δ')
-        # end
-
-        # D = diagm(0 => sqrt.(diag(Σ)))
-        # return inv(D) * Σ * inv(D)
         n_samples, n_params = size(Z)
         w_norm = w ./ sum(w)
         
@@ -420,22 +404,6 @@ module DataUtils
         if κ > 1000
             println("  ⚠️ WARNING: Parameters may be non-identifiable")
         end
-
-        # Regularise
-        # R = R_raw
-        # ϵ = 1e-6 * tr(R) / size(R,1)
-        # R_reg = R + ϵ * I
-
-        # # Near-PD projection
-        # # println("Eigenvalue: $(eigmin(R_reg))")
-        # # println("max(|R - R'|) = $(maximum(abs.(R - R')))")
-        # if eigmin(R_reg) <= 0#minimum(eigen(Symmetric(R)).values) <= 0
-        #     R_reg = nearestSPD(R_reg)
-        #     println("Attempting near-PD projection")
-        # end
-        # if maximum(abs.(R - R')) > 1e-12 # Enforce symmetry
-        #     R = (R + R') / 2
-        # end
         
         return MvNormal(zeros(size(R_reg,1)), R_reg)
     end
@@ -457,7 +425,6 @@ module DataUtils
 
         # Sobol → iid Gaussians
         Z0 = quantile.(Normal(), p)
-        # println("Z0: $(minimum(Z0)) - $(maximum(Z0))")
 
         # Partition Gaussians and copula
         Zg = Z0[glob_tag, :]
@@ -480,28 +447,14 @@ module DataUtils
         Ug = cdf.(Normal(), Zg)
         Us = cdf.(Normal(), Zs)
 
-        # if (any(Ug .== 0) || any(Us .== 0))
-        #     println("Zeros found in Ug or Us!")
-        # end
-        # p_glob = p[glob_tag, :] # delete later
-        # p_spec = p[.!glob_tag, :] # delete later
-
         # Apply marginals
         θg = similar(Zg)
         for i in eachindex(marg_g)
             θg[i,:] = quantile.(marg_g[i], Ug[i,:])
-            # if any(θg[i,:] .<= 0 .|| isinf.(θg[i,:]))
-            #     mask = θg[i,:] .<= 0 .|| isinf.(θg[i,:])
-            #     println("θg[$i,:] <= 0 or is Inf for marginal $(marg_g[i]),\nZg = $(Zg[i,mask])\nand Ug = $(Ug[i,mask]);\np=$(p_glob[i, mask])")
-            # end
         end
         θs = similar(Zs)
         for i in eachindex(marg_s)
             θs[i,:] = quantile.(marg_s[i], Us[i,:])
-            # if any(θs[i,:] .<= 0 .|| isinf.(θs[i,:]))
-            #     mask = θs[i,:] .<= 0 .|| isinf.(θs[i,:])
-            #     println("θs[$i,:] <= 0 or is Inf for marginal $(marg_s[i]),\nZs = $(Zs[i,mask])\nand θs = $(θs[i,mask]);\np=$(p_spec[i, mask])")
-            # end
         end
 
         return θg, θs
@@ -633,6 +586,63 @@ module DataUtils
     end
 
 
+    function infer_dantigny_parameters(germ_response, times)
+        """
+        Infer the effective Dantigny parameters
+        p_max, τ_g and ν from a germination time series
+        inputs:
+            germ_response (Vector) - germination fractions over time
+            times (Vector) - time points for germination fractions (in hours)
+            smooth_rad (Int) - radius of smoothing around τ_g
+        output:
+            p_max (Float36) - saturation germination fraction
+            τ_g (Float36) - germination half-saturation time
+            ν (Float36) - onset steepness parameter
+        """
+
+        @assert length(germ_response) == length(times)
+
+        dt = times[2] - times[1]
+
+        # Saturation fraction as end value if saturation is reached
+        close_to_unity = 1.0 - germ_response[end] < 0.05
+        if germ_response[end] - germ_response[end - 1] < dt / 36 || close_to_unity
+            
+            p_max = close_to_unity ? 1.0 : germ_response[end]
+
+            min_val, half_sat_idx = findmin(abs.(germ_response .- 0.5 * p_max))
+            τ_g = times[half_sat_idx]
+
+            # Smooth middle of curve
+            diffs = diff(germ_response)
+            smooth_rad = round(Int, sum(diffs .> mean(diffs)) * 0.1)
+            println("Smoothing radius: $smooth_rad")
+            germ_response_smooth = copy(germ_response)
+            for n in 1:100
+                mix_idx = max(2, half_sat_idx - smooth_rad)
+                max_idx = min(length(times) - 1, half_sat_idx + smooth_rad)
+                for i in mix_idx:max_idx
+                    germ_response_smooth[i] = 0.5 * (germ_response_smooth[i - 1] + germ_response_smooth[i + 1])
+                end
+            end
+
+            # Approximate derivative at half-saturation time
+            deriv = (germ_response_smooth[half_sat_idx + 1] - germ_response_smooth[half_sat_idx]) / dt
+
+            ν = 4 * τ_g * deriv / p_max
+        else
+            pmax0 = min(0.9, germ_response[end]*2)
+            τ0 = times[end]
+            ν0 = 2.0
+            d, rmse, uncert = fit_dantigny_to_germination_curve(germ_response, times; p0=[pmax0, τ0, ν0])
+            p_max, τ_g, ν = d
+            println("Dantigny summaries fitted with RMSE $rmse and uncertainties $uncert")
+        end
+
+        return p_max, τ_g, ν
+    end
+
+
     function generate_dantigny_dataset(df_germination, t_max, n_pts=1000)
         """
         Generate time-dependent germination data using the Dantigny model
@@ -722,22 +732,13 @@ module DataUtils
         
         Random.seed!(1236)
 
-        # t_max = 48 # hours
-
         # Load data
         aliases, combination_IDs, descriptions, param_key_sets = load_model_collection()
-        # df_germination_rebuilt = parse_ijadpanahsaravi_data()
-        # df_germination_rebuilt = filter(row -> row[1] != "Arg", df_germination_rebuilt) # Remove "Arg" from the dataset
-        # _, times, sources, densities, _, _, _, _ = generate_dantigny_dataset(df_germination_rebuilt, t_max)
         times, sources, densities, lab_means, CIs, CI_widths, uncert_lab = unpack_ijadpanahsaravi_data()
         times_sec = times * 3600 # for matching physics variables in mechanistic model
 
-        # println("Lab uncertainties: $uncert_lab")
-
         n_src = length(sources)
         n_dens = length(densities)
-
-        # println(df_germination_rebuilt)
 
         # Determine relative vs absolute threshold models
         aliases_rel = ["0", "B", "Bi"]
@@ -782,36 +783,6 @@ module DataUtils
         # Acceptable ranges for Dantigny data
         output_ranges = [0 1; 1e-6 1e5; 0 20]
 
-        # # Precompute lab data
-        # data_lookup = Dict((row[1], row[2]) => row for row in eachrow(df_germination_rebuilt))
-        # lab_means = zeros(Float64, n_dens, n_src, 3)
-        # CIs = zeros(Float64, n_dens, n_src, 3, 2)
-        # CI_widths = zeros(Float64, n_dens, n_src, 3)
-        # uncert_lab = zeros(Float64, n_dens, n_src, 3) # Lab uncertainty (based on RMSE)
-
-        # for i in eachindex(densities)
-        #     for j in eachindex(sources)
-        #         data_row = data_lookup[(sources[j], densities[i])]
-        #         lab_means[i, j, :] = [data_row["Pmax"] * 0.01, data_row["tau"], data_row["d"]]
-        #         CIs[i, j, :, :] = [
-        #             data_row["Pmax_CI_Lower"] * 0.01 data_row["Pmax_CI_Upper"] * 0.01; # normalise from %
-        #             data_row["tau_CI_Lower"] data_row["tau_CI_Upper"];
-        #             data_row["d_CI_Lower"] data_row["d_CI_Upper"]
-        #             ]
-        #         CI_widths[i, j, :] = CIs[i, j, :, 2] .- CIs[i, j, :, 1]
-
-        #         uncert_base = CI_widths[i, j, :] ./ 3.92
-
-        #         uncert_lab[i, j, :] = sqrt.(uncert_base.^2 .+ (data_row["RMSE"] * 0.01)^2) # normalise from % and square
-        #     end
-        # end
-
-        # println("Lab uncertainties: $uncert_lab")
-
-        # println("CI_widths: $CI_widths")
-
-        input_params_all = Vector{Dict}(undef, n_src)
-
         # Record data points (input parameters + Dantigny summaries)
         data_pts_dict = Dict()
 
@@ -832,6 +803,7 @@ module DataUtils
         m_d_crit = zeros(Bool, n_dens, n_src, 3)
 
         # Placeholders
+        input_params_all = Vector{Dict}(undef, n_src)
         p_out = Vector{Float64}(undef, length(times))
         diffs_dantigny = zeros(3, n_samples)
         p_maxs = zeros(Float64, n_samples)
@@ -842,7 +814,7 @@ module DataUtils
         z_acc_specific = zeros(n_src, n_samples)
         rmses = zeros(Float64, n_dens, n_src, n_samples)
 
-        # Iterate over models
+        # Data collection
         priors_running_all = Dict()
         priors_running = Vector{Dict}(undef, n_iter)
         θ_final_all = Dict()
@@ -859,20 +831,23 @@ module DataUtils
             :penalties => zeros(Float64, n_iter, n_dens, n_src, n_samples),
             :d_alt => zeros(Float64, n_iter, n_dens, n_src, 3, n_samples),
         )
+
+        # Iterate over models
         for m in 1:1#59:59#eachindex(aliases)
 
             println("Running $(aliases[m])")
 
+            # Parameter keys
             param_keys = param_key_sets[m]
             key_src_strings = [Symbol(string(key) * " " * src) for key in param_keys, src in sources]
 
+            # Dimensions and bitvectors
             n_dims = length(param_keys)
             glob_tag = [key in params_glob_keys for key in param_keys]
             n_glob = sum(glob_tag)
             n_spec = n_dims - n_glob
 
-            idx_shuffle = collect(1:n_dims)
-
+            # Data collection
             priors = Dict()
             surrogates = Dict()
 
@@ -884,7 +859,8 @@ module DataUtils
                 sample_dists = filter(p -> p[1] in param_keys, param_dists_abs)
                 abs_thresh = true
             end
-
+            
+            # Initiate criteria stability counters
             π_d_crit_ct = 0
             q_d_crit_ct = 0
             m_d_crit_ct = 0
@@ -895,14 +871,15 @@ module DataUtils
             # Shrink samples to 95%
             sobol_pts = 0.025 .+ 0.95 .* sobol_pts
 
+            # Sobol point indices
+            idx_shuffle = collect(1:n_dims)
+
             # Parameter and weights placeholders
             θ = similar(sobol_pts)
             θ_glob = zeros(Float64, n_glob, n_samples)
             θ_spec = zeros(Float64, n_src, n_spec, n_samples)
             w_spec = zeros(Float64, n_src, n_samples)
-            w_spec_penalized = similar(w_spec)
             w_glob = zeros(Float64, n_samples)
-            w_glob_penalized = zeros(Float64, n_samples)
             w_mean = zeros(Float64, n_src)
             w_std = similar(w_mean)
 
@@ -919,7 +896,7 @@ module DataUtils
             data_pts = zeros(Float64, n_src, n_iter, n_dims + 3, n_samples)
             w_spec_record = zeros(Float64, n_src, n_iter, n_samples)
 
-            # Generate input parameter sample
+            # --- GENERATE INPUT PARAMETER SAMPLE ---
             sample_params = Dict()
             for (i, src) in enumerate(sources)
                 g_ct = 1
@@ -957,9 +934,10 @@ module DataUtils
                 end
             end
 
-            input_params_all .= Ref(merge(sample_params, def_params)) # Merge with default parameters
+            # Merge with default parameters
+            input_params_all .= Ref(merge(sample_params, def_params))
 
-            # NN training set
+            # --- NN TRAINING SET ---
             X_train = zeros(n_dims, n_samples, n_src)
             X_train[glob_tag, :, :] .= repeat(θ_glob, outer=[1, 1, 2])
             X_train[.!glob_tag, :, :] .= permutedims(θ_spec, [2, 3, 1])
@@ -987,15 +965,15 @@ module DataUtils
                 # sobol_pts = sobol_pts[idx_shuffle, :]
 
                 if s > 1
-                    marg_glob .= calibrate_marginals(marg_glob, θ_glob, w_glob_penalized, bounds_glob)
-                    println("Global marginals: $marg_glob")
+                    marg_glob .= calibrate_marginals(marg_glob, θ_glob, w_glob, bounds_glob)
+                    println("\nGlobal marginals: $marg_glob")
                     for (j, src) in enumerate(sources)
 
                         sample_params = Dict()
 
-                        marg_spec[j, :] = calibrate_marginals(marg_spec[j, :], θ_spec[j, :, :], w_spec_penalized[j, :], bounds_spec)
+                        marg_spec[j, :] = calibrate_marginals(marg_spec[j, :], θ_spec[j, :, :], w_spec[j, :], bounds_spec)
                         println("Specific marginals: $marg_spec")
-                        copula = calibrate_copula(θ_glob, θ_spec[j, :, :], marg_glob, marg_spec[j, :], w_glob, w_spec_penalized[j, :], glob_tag)
+                        copula = calibrate_copula(θ_glob, θ_spec[j, :, :], marg_glob, marg_spec[j, :], w_glob, w_spec[j, :], glob_tag)
 
                         marginals_temp[glob_tag] .= marg_glob
                         marginals_temp[.!glob_tag] .= marg_spec[j, :]
@@ -1007,8 +985,6 @@ module DataUtils
                         for (k, marg) in enumerate(marg_spec[j, :])
                             θ_spec[j, k, :] .= quantile.(marg, sobol_pts[.!glob_tag, :][k, :])
                         end
-
-                        # println("Specific parameters for source $src: $(θ_spec[j, :, :])")
 
                         # Assign new samples
                         g_ct = 1
@@ -1048,7 +1024,6 @@ module DataUtils
                 else
                     # Later iterations: strategic subsampling
                     n_mech_samples = max(200, round(Int, 0.15 * n_samples))  # At least 200 or 15%
-                    # n_mech_samples = max(50, round(Int, 0.15 * n_samples))  # JUST TESTING! REVERT TO ABOVE ONE!!!
                     
                     # Sample strategically:
                     # 1. High-weight samples (50%)
@@ -1057,7 +1032,7 @@ module DataUtils
                     n_random = n_mech_samples - n_high_weight
                     
                     # Get high-weight indices
-                    weight_order = sortperm(w_glob_penalized, rev=true)
+                    weight_order = sortperm(w_glob, rev=true)
                     high_weight_idx = weight_order[1:n_high_weight]
                     
                     # Random samples from rest
@@ -1074,9 +1049,6 @@ module DataUtils
 
                 # --- DANTIGNY SUMMARIES AND DIAGNOSTICS OVER EXPERIMENTAL CONDITIONS ---
                 @inbounds for (i, density) in enumerate(densities) # iterate over spore densities (exp. data)
-
-                    # println("Running model $(aliases[m]) with density $density")
-
                     density_scaled = inverse_mL_to_cubic_um(density)
 
                     @inbounds for j in eachindex(sources) # Iterate over sources
@@ -1084,7 +1056,7 @@ module DataUtils
                         # Mechanistic uncertainty combines fit quality + prediction uncertainty
                         uncert_mech = zeros(Float64, 3, n_samples)
 
-                        println("---- Running model $(aliases[m]) with density $density and source $(sources[j]) -----")
+                        println("\n---- Running model $(aliases[m]) with density $density and source $(sources[j]) -----")
 
                         # println("Input parameters: $(input_params_all[j])")
 
@@ -1094,21 +1066,14 @@ module DataUtils
                         data_pts[j, s, 1:n_dims, :] .= θ
 
                         if !use_surrogate_this_iter
+
                             # --- RUN ALL SAMPLES THROUGH MECHANISTIC MODEL ---
                             for n in 1:n_samples
                                 p_out .= compute_germination_response(aliases[m], times_sec, density_scaled, Dict(k => v[mod1(n, length(v))] for (k, v) in input_params_all[j]))
                                 d[:, n], rmses[i, j, n], uncert_mech[:, n] = fit_dantigny_to_germination_curve(p_out, times)
-                                Y_train[:, n, i, j] = d[:, n]
-
-                                # if any(isnan.(d[:, n]))
-                                #     println("Fitting returned NaN results $(d[:, n]) with $(Dict(k => v[mod1(n_samples, length(v))] for (k, v) in input_params_all[j]))")
-                                # end
-                                # if any(isnan.(uncert_mech[:, n]))
-                                #     println("Fitting returned NaN uncertainties $(uncert_mech[:, n]) with $(Dict(k => v[mod1(n_samples, length(v))] for (k, v) in input_params_all[j]))")
-                                # end
+                                Y_train[:, n, i, j] .= d[:, n] # Save to training data
                             end
 
-                            # data_pts[j, s, (n_dims + 1):end, :] .= d
                         else
                             # --- HYBRID APPROACH ---
 
@@ -1123,13 +1088,6 @@ module DataUtils
                                         Dict(k => v[mod1(n_global, length(v))] for (k, v) in input_params_all[j])
                                     )
                                     d_mech[:, idx_local], rmse_mech[idx_local], uncert_params[:, idx_local] = fit_dantigny_to_germination_curve(p_out, times)
-                                    
-                                    # if any(isnan.(d_mech[:, idx_local]))
-                                    #     println("Fitting returned NaN results $(d_mech[:, idx_local]) with $(Dict(k => v[mod1(n_global, length(v))] for (k, v) in input_params_all[j]))")
-                                    # end
-                                    # if any(isnan.(uncert_params[:, idx_local]))
-                                    #     println("Fitting returned NaN uncertainties $(uncert_params[:, idx_local]) with $(Dict(k => v[mod1(n_global, length(v))] for (k, v) in input_params_all[j]))")
-                                    # end
                                 catch
                                     println(Dict(k => v[mod1(n_global, length(v))] for (k, v) in input_params_all[j]))
                                 end
@@ -1191,18 +1149,14 @@ module DataUtils
                             
                             # 3. Validate surrogate on mechanistic subsample
                             d_surr_subsample = d_surr[:, mech_indices]
-                            # valid_subsample = any(isnan.(d_mech); dims=1) |> vec
                             valid_mask = .!any(isnan.(d_mech), dims=1) |> vec
-                            println(sum(valid_mask), " valid mechanistic model subsamples")
+                            
                             d_mech = d_mech[:, valid_mask]
                             d_surr_subsample = d_surr_subsample[:, valid_mask]
                             uncert_params = uncert_params[:, valid_mask]
                             validation_errors = abs.(d_mech .- d_surr_subsample)
-                            if any(isnan.(validation_errors))
-                                # println("Validation errors: $validation_errors")
-                                println("d_mech: $d_mech")
-                                println("d_surr: $d_surr")
-                            end
+
+                            println(sum(valid_mask), " valid mechanistic model subsamples")
                             
                             # Compute validation metrics
                             mae_validation = mean(validation_errors, dims=2) |> vec
@@ -1229,11 +1183,7 @@ module DataUtils
                                 Y_new = d_mech
                                 
                                 # Filter valid samples
-                                # valid_mask = .!any(isnan.(Y_new), dims=1) |> vec
                                 X_new = X_new[:, valid_mask]
-                                # Y_new = Y_new[:, valid_mask]
-
-                                # println("$(sum(isnan.(X_new))) NaN elements in X_new, $(sum(isnan.(Y_new))) NaN elements in Y_new")
                                 
                                 # Clamp to reasonable bounds
                                 Y_new = clamp.(Y_new, output_ranges[:, 1], output_ranges[:, 2])
@@ -1241,8 +1191,6 @@ module DataUtils
                                 # Append to accumulated data
                                 X_train_accumulated[(i,j)] = hcat(X_train_accumulated[(i,j)], X_new)
                                 Y_train_accumulated[(i,j)] = hcat(Y_train_accumulated[(i,j)], Y_new)
-
-                                # println("$(sum(isnan.(X_train_accumulated[(i,j)]))) NaN elements in accumulated X, $(sum(isnan.(Y_train_accumulated[(i,j)]))) NaN elements in accumulated Y")
                                 
                                 # Keep only recent N samples to avoid memory bloat
                                 max_accumulated = 8192
@@ -1264,7 +1212,6 @@ module DataUtils
                                 )
                                 
                                 # Re-predict with updated surrogate
-                                # println("θ: $θ")
                                 d_surr, σ_pred = predict_with_uncertainty_mixed_precision(
                                     surrogates[(i, j)], 
                                     θ,
@@ -1323,7 +1270,6 @@ module DataUtils
                             
                             # 5. Use surrogate predictions for ALL samples
                             d .= d_surr
-                            # println("d: $d")
 
                             # Use uncertainty for RMSE estimate
                             # rmses[i, j, :] = mean_log(σ_pred, dims=1) |> vec
@@ -1344,9 +1290,6 @@ module DataUtils
                                 println("    Consider retraining surrogate or using mechanistic model")
                             end
                         end
-
-                        # data_pts[j, s, (n_dims + 1):end, :] .= d
-                        # debug_vals[:d_alt][s, i, j, :, :] .= d
                         
                         nan_mask = all(.!isnan.(d); dims=1) |> vec
                         println("$(sum(nan_mask)) valid Dantigny summaries")
@@ -1363,20 +1306,17 @@ module DataUtils
                         println("Invalid uncertainties: $(sum(.!valid_uncert))")
 
                         # Find valid Dantigny results
-                        println("$(sum(((all(d .> output_ranges[:, 1] .&& d .< output_ranges[:, 2]; dims=1) .&& all(.!isnan.(d[2:3, :]); dims=1)) |> vec))) in bounds & valid")
-                        in_bounds = ((all(d .> output_ranges[:, 1] .&& d .< output_ranges[:, 2]; dims=1) .&& all(.!isnan.(d[2:3, :]); dims=1)) |> vec) .&& valid_uncert
-                        d_valid = d[:, in_bounds]
-                        # println("$(sum(in_bounds)) valid entries, $(sum(isnan.(d_valid))) are NaN.")
+                        in_bounds_and_full = ((all(d .> output_ranges[:, 1] .&& d .< output_ranges[:, 2]; dims=1) .&& all(.!isnan.(d[2:3, :]); dims=1)) |> vec)
+                        println("$(sum(in_bounds_and_full)) summaries in bounds & full")
+                        valid_summary = in_bounds_and_full .&& valid_uncert
+                        d_valid = d[:, valid_summary]
 
                         # Included fraction (Criterion 1)
                         π_d_new = dropdims(mean(d_valid .> CIs[i, j, :, 1] .&& d_valid .< CIs[i, j, :, 2]; dims=2); dims=2)
                         if s > 1 # Criterion 5
-                            π_diffs[i, j, :] = π_d_new ./ (π_d[i, j, :] .+ 1e-6)
+                            π_diffs[i, j, :] = π_d_new ./ max.(π_d[i, j, :], 1e-6)
                         end
                         π_d[i, j, :] .= π_d_new
-
-                        # Total predictive probability (Criterion 6)
-                        p_d[i, j] = mean(all(d_valid .> CIs[i, j, :, 1] .&& d_valid .< CIs[i, j, :, 2], dims=1))
 
                         # Lab mean quantiles (Criterion 2)
                         q_d[i, j, :] = mean(d_valid .< lab_means[i, j, :]; dims=2) |> vec
@@ -1385,15 +1325,8 @@ module DataUtils
                         μ_d = mean(d_valid, dims=2) |> vec
                         Σ_d = cov(d_valid', corrected=false)
                         diff_d = lab_means[i, j, :] .- μ_d
-                        # println("Identifiable: $(sum(identifiable))")
-                        # println("NaNs: $(sum(isnan.(d_valid)))")
-                        # println(minimum(d_valid[3, :]), " - ", maximum(d_valid[3, :]))
-                        d_mask = d_valid[3, :] .> 1e12 .|| (any(isnan.(d_valid); dims=1) |> vec)
-                        if sum(d_mask) > 0
-                            println("Problematic p_max: ", d_valid[1, d_mask])
-                            println("Problematic tau_g: ", d_valid[2, d_mask])
-                            println("Problematic nu: ", d_valid[3, d_mask])
-                        end
+
+                        # Debug covariance matrix
                         if any(isnan.(Σ_d) .|| isinf.(Σ_d))
                             display(Σ_d)
                         end
@@ -1403,7 +1336,7 @@ module DataUtils
                         d_vecs = [vec(di) for di in eachrow(d_valid)]
                         iqr_new = quantile.(d_vecs, 0.75) .- quantile.(d_vecs, 0.25)
                         if s > 1 # Criterion 5
-                            iqr_diff[i, j, :] = iqr_new ./ (iqr[i, j, :] .+ 1e-6)
+                            iqr_diff[i, j, :] = iqr_new ./ max.(iqr[i, j, :], 1e-6)
                         end
                         iqr[i, j, :] .= iqr_new
                         iqr_check[i, j, :] .= iqr[i, j, :] .> CI_widths[i, j, :]
@@ -1411,117 +1344,85 @@ module DataUtils
                         # Covariance matrix
                         Σ_lab = diagm(uncert_lab[i, j, :].^2)
 
-                        # @show d
-                        # Compute running z's
-                        for n in 1:n_samples
-                            if in_bounds[n]
+                        # Compute running deviations
+                        @inbounds for n in 1:n_samples
+                            if valid_summary[n]
+                                
                                 diffs = d[:, n] .- lab_means[i, j, :]
                                 debug_vals[:lab_means][s, i, j, n, :] .= lab_means[i, j, :]
                                 debug_vals[:diffs][s, i, j, n, :] .= diffs
+                                
                                 if s == 1
-                                    # z_dist[n] = dot(diffs_dantigny[:, n], Σ \ diffs_dantigny[:, n])
-                                    # Uncertainty-weighted Mahalanobis distance
-                                    # Σ_n = diagm(uncert_total[:, n].^2)
-                                    # println("Correlation Matrix at $n:")
-                                    # display(Σ_n)
                                     
                                     z_dev = dot(diffs, Σ_lab \ diffs)
                                     
                                     # Unreliability penalty from SE
-                                    # se_penalty = sum(max.(0.0, uncert_mech[:, n] ./ uncert_lab[i, j, :] .- 1.0).^2)
-                                    se_penalty = sum(log.(uncert_mech[:, n] ./ uncert_lab[i, j, :]).^2)
+                                    se_penalty = sum(max.(0.0, uncert_mech[:, n] ./ uncert_lab[i, j, :] .- 1.0).^2)
+                                    # se_penalty = sum(log.(uncert_mech[:, n] ./ uncert_lab[i, j, :]).^2)
                                     
                                     # RMSE penalty
                                     # rmse_penalty = (rmses[i, j, n] / 0.02)^2
                                     
                                     # z_dist[n] = min(z_dev + se_penalty + rmse_penalty, 1e6) # ADD RMSE LATER!!!!
-                                    z_dist[n] = min(z_dev + se_penalty, 1e6)
-                                    # z_dist[n] = min(z_dev * se_penalty, 1e6)
+                                    z_dist[n] = min(z_dev + se_penalty, 1e8)
 
                                     # println("$n: z_dist for $(d[:, n]) is $(z_dist[n]), reliability penalty is $(se_penalty).")
                                     debug_vals[:penalties][s, i, j, n] = se_penalty
 
-                                    # z_dist[n] = z_deviation + min(reliability_penalty, 1e5) # Cap extreme penalties
-
-                                    # z_dist[n] = dot(diffs, Σ_n \ diffs)
-                                    # z_acc_specific[j, n] += z_dist[n]
                                 else
-                                    z_dist[n] = dot(diffs_dantigny[:, n], Σ_lab \ diffs_dantigny[:, n])
                                     # Uncertainty-weighted Mahalanobis distance
                                     Σ_n = diagm(uncert_total[:, n].^2)
                                     z_dist[n] = dot(diffs, Σ_n \ diffs)
-                                    # println("$n: z_dist for $(d[:, n]) is $(z_dist[n]).")
                                 end
-                                # println("Distance for $(d[:, n]) is $(z_dist[n]).")
+
                                 z_acc_specific[j, n] += z_dist[n]
+
                             else
-                                # z_dist[n] = diffs_dantigny[1, n] .^ 2 / σ_dantigny[1] .^ 2
-                                # Penalty for out-of-bounds
-                                # println("$n: Large penalty!")
-                                z_dist[n] = 1e6  # Large penalty
+
+                                z_dist[n] = 1e8  # Large penalty
                                 z_acc_specific[j, n] += z_dist[n]
-                                # println("$n: z_dist for $(d[:, n]) is $(z_dist[n]).")
+
                             end
                         end
 
                         debug_vals[:d][s, i, j, :, :] .= d'
                         debug_vals[:z_dist][s, i, j, :] .= z_dist
-                        # debug_vals[:params][s, j, :, :] .= θ
                         if i == 1 data_pts[j, s, (n_dims + 1):end, :] .= d end
 
                         # Fraction of lab means inside joint regions (Criterion 5)
                         p_z_new = mean(z_dist .< χ_sq)
                         if s > 1
-                            p_z_diffs[i, j] = p_z_new / (p_z[i, j] .+ 1e-6)
+                            p_z_diffs[i, j] = p_z_new / max(p_z[i, j], 1e-6)
                         end
                         p_z[i, j] = p_z_new
+
+                        # Total predictive probability (Criterion 6)
+                        p_d[i, j] = mean(all(d_valid .> CIs[i, j, :, 1] .&& d_valid .< CIs[i, j, :, 2], dims=1))
                     end
                 end
 
                 z_acc_specific ./= n_dens
-                # println("Unique z_acc_specific: $(unique(z_acc_specific; dims=2))")
                 println("Mean z_acc_specific: $(mean(z_acc_specific; dims=2))")
-                # z_acc_specific[z_acc_specific .< χ_sq] .= 0 # Do not penalize good fits
 
                 # Penalize weights due to RMSE
                 # reliabilities = exp.(-0.5 .* dropdims(mean(rmses.^2, dims=1); dims=1) ./ 0.004) # using an error scale of 2%
 
                 # Compute condition-specific weights
-                # println(z_acc_specific)
                 temp_param = get_temp_param(s, n_iter, T_init=10000.0, T_final=100.0)
                 println("Tempering parameter: $temp_param")
                 log_w_spec = -temp_param .* z_acc_specific
-                # println("Unique log_w_glob: $(unique(log_w_spec; dims=2))")
                 w_spec .= exp.(log_w_spec)
-                w_spec_penalized = w_spec# .* reliabilities
                 
-                w_spec_record[:, s, :] .= w_spec_penalized
-                debug_vals[:w_spec][s, :, :] .= w_spec_penalized
+                w_spec_record[:, s, :] .= w_spec
+                debug_vals[:w_spec][s, :, :] .= w_spec
 
                 # Compute global weights as product of specific ones
                 log_w_glob = sum(log_w_spec, dims=1) |> vec  # Sum of logs = log of product
-                # println("Unique log_w_glob: $(unique(log_w_glob))")
                 w_glob .= exp.(log_w_glob)
-                # println(w_glob)
-                # println(w_spec[1,:])
-                # println(w_spec[2,:])
-                w_glob_penalized = w_glob# .* dropdims(mean(reliabilities; dims=1); dims=1)
-
-                # Debugging
-                if any(isnan.(w_glob_penalized))
-                    # println("w_glob: $w_glob")
-                    # println("log_w_glob: $log_w_glob")
-                    # println("w_spec_penalized: $w_spec_penalized")
-                    # println("w_spec: $w_spec")
-                    # println("log_w_spec: $log_w_spec")
-                    println("Problematic rmses: $(rmses[:, :, isnan.(w_glob_penalized)])")
-                    println("Problematic z_acc_specific: $(z_acc_specific[:, isnan.(w_glob_penalized)])")
-                    println("Problematic diffs_dantigny: $(diffs_dantigny[:, isnan.(w_glob_penalized)])")
-                end
 
                 # Weight statistics (Criterion 5)
-                w_mean_new = dropdims(mean(w_spec_penalized, dims=2); dims=2)
-                w_std_new = dropdims(std(w_spec_penalized, dims=2); dims=2)
+                w_mean_new = mean(w_spec, dims=2) |> vec
+                w_std_new = std(w_spec, dims=2) |> vec
                 if s > 1
                     w_mean_diff = w_mean_new / w_mean
                     w_std_diff = w_std_new / w_std
@@ -1533,13 +1434,12 @@ module DataUtils
                 if s == 1 && use_surrogates
                     println("Building GPU-accelerated surrogate...")
                     
-                    # Determine optimal batch size
-                    # optimal_batch_size = find_optimal_batch_size(n_dims, n_samples)
-                    
                     for i in eachindex(densities)
                         for j in eachindex(sources)
+
                             valid_mask = .!any(isnan.(Y_train[:, :, i, j]), dims=1) |> vec
                             println("$(sum(valid_mask)) valid samples")
+
                             X_valid = X_train[:, valid_mask, j]
                             Y_valid = Y_train[:, valid_mask, i, j]
 
@@ -1561,7 +1461,7 @@ module DataUtils
 
                 println("w_mean: $w_mean")
                 println("w_std: $w_std")
-                println("$(sum(w_spec_penalized .> w_mean; dims=2)) weights above mean")
+                println("$(sum(w_spec .> w_mean; dims=2)) weights above mean")
 
                 # Termination criteria
                 π_d_crit_new = all(π_d .> 0.2 .&& π_d .< 0.8) # Criterion 1
@@ -1583,6 +1483,7 @@ module DataUtils
                     else
                         m_d_crit_ct += 1
                     end
+                    println("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
                     println("π_d_crit_ct: $π_d_crit_ct")
                     println("q_d_crit_ct: $q_d_crit_ct")
                     println("m_d_crit_ct: $m_d_crit_ct")
@@ -1594,11 +1495,12 @@ module DataUtils
                     println("m_d: $(minimum(m_d)) - $(maximum(m_d))")
                     # println("iqr: $iqr")
                     println("iqr: $(minimum(iqr)) - $(maximum(iqr))")
-                    println("Max π_diffs: $(maximum(abs.(π_diffs)))")
-                    println("Max iqr_diff: $(maximum(abs.(iqr_diff)))")
-                    println("Max p_z_diffs: $(maximum(abs.(p_z_diffs)))")
-                    println("Max w_mean_diff: $(maximum(abs.(w_mean_diff)))")
-                    println("Max w_std_diff: $(maximum(abs.(w_std_diff)))")
+                    println("Max π_diffs: $(maximum(π_diffs))")
+                    println("Max iqr_diff: $(maximum(iqr_diff))")
+                    println("Max p_z_diffs: $(maximum(p_z_diffs))")
+                    println("Max w_mean_diff: $(maximum(w_mean_diff))")
+                    println("Max w_std_diff: $(maximum(w_std_diff))")
+                    println("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
                     println("Criterion 1 (Fraction of means in CIs): $π_d_crit_new ($(π_d .> 0.2 .&& π_d .< 0.8))")
                     println("Criterion 2 (Quantiles of lab means): $q_d_crit_new ($(q_d .> 0.1 .&& q_d .< 0.9))")
                     println("Criterion 3 (Mahalanobis distances): $m_d_crit_new ($(m_d .< χ_sq))")
@@ -1693,13 +1595,6 @@ module DataUtils
         Y_log = copy(Y_train)
         Y_log[2, :] = log.(max.(Y_train[2, :], 1e-10))
         Y_log[3, :] = log.(max.(Y_train[3, :], 1e-10))
-        
-        # Y_mean = mean(Y_log, dims=2) |> vec
-        # Y_std = std(Y_log, dims=2) |> vec
-        # Y_std[Y_std .< 1e-8] .= 1.0
-        # Y_normalized = (Y_log .- Y_mean) ./ Y_std
-
-        # println("There are $(sum(isnan.(Y_log))) NaN Y_log in the training")
 
         # Normalize outputs to [0, 1] range for each parameter
         Y_min = [minimum(Y_log[i, :]) for i in 1:n_outputs]
@@ -1814,7 +1709,7 @@ module DataUtils
             return mean(below .^ 2 .+ above .^ 2)
         end
         
-        function mixed_precision_step!(model, x_fp16, y_fp16, opt_state, scale; rp_mag=1.0)
+        function mixed_precision_step!(model, x_fp16, y_fp16, opt_state, scale)
             """
             Single training step with mixed precision
             
@@ -1830,7 +1725,7 @@ module DataUtils
                 ŷ_fp32 = Float32.(ŷ_fp16)
                 y_fp32 = Float32.(y_fp16)
                 
-                loss_fp32 = Flux.mse(ŷ_fp32, y_fp32)# + rp_mag * sum(range_penalty(ŷ_fp32[i, :], output_ranges[i]...) for i in 1:n_outputs) # penalize out-of-range
+                loss_fp32 = Flux.mse(ŷ_fp32, y_fp32)
                 
                 # Scale loss to prevent gradient underflow
                 loss_fp32 * scale
@@ -1977,9 +1872,6 @@ module DataUtils
         
         n_samples = size(X_new, 2)
         
-        # println("X_std is zero: $(any(iszero, surrogate.X_std))")
-        # println("Minimum X_std: $(minimum(surrogate.X_std))")
-        
         # Normalize
         X_normalized = (X_new .- surrogate.X_mean) ./ surrogate.X_std
         
@@ -2005,10 +1897,6 @@ module DataUtils
         # Move to CPU
         Y_normalized_all = Y_fp32 |> cpu
         CUDA.reclaim()
-
-        # println("Y_normalized_all range from $(minimum(Y_normalized_all)) to $(maximum(Y_normalized_all))")
-        # println("Surrogate Y range: $(surrogate.Y_range)")
-        # println("Surrogate Y minimum: $(surrogate.Y_min)")
         
         # Reshape
         Y_normalized_all = reshape(Y_normalized_all, surrogate.n_outputs, n_samples, n_dropout_samples)
@@ -2016,8 +1904,6 @@ module DataUtils
         # Denormalize and back-transform
         Y_log_all = Y_normalized_all .* reshape(surrogate.Y_range, :, 1, 1) .+ 
                 reshape(surrogate.Y_min, :, 1, 1)
-        
-        # println(sum(isnan.(Y_log_all)), " NaN Y_log_all")
 
         Y_all = copy(Y_log_all)
         Y_all[2, :, :] = exp.(Y_log_all[2, :, :])
@@ -2027,8 +1913,6 @@ module DataUtils
         Y_all[1, :, :] = clamp.(Y_all[1, :, :], output_ranges[1]...)
         Y_all[2, :, :] = clamp.(Y_all[2, :, :], output_ranges[2]...)
         Y_all[3, :, :] = clamp.(Y_all[3, :, :], output_ranges[3]...)
-
-        # println(sum(isnan.(Y_log_all)), " NaN Y_all")
         
         # Compute statistics
         mean_pred = mean(Y_all, dims=3)[:, :, 1]
@@ -2070,14 +1954,15 @@ module DataUtils
     end
 
     # ===== Data fitting =====
-    function fit_dantigny_to_germination_curve(germ_response, times)
+    function fit_dantigny_to_germination_curve(germ_response, times; p0=nothing)
         """
         Fit Dantigny model to simulated germination curve
         from a mechanistic model.
         inputs:
             germ_response (Vector): germination fractions per time
-            times (Vector): time frames for germination fractions
+            times (Vector): time frames for germination fractions (in hours)
             check_stderr (Bool): whether to perform a standard error check
+            p0 (Vector): initial parameter guesses
         outputs:
             p_max (Float): maximum germination percentage
             τ (Float): half-saturation time for germination
@@ -2088,7 +1973,9 @@ module DataUtils
         dantigny_wrapper(t, p) = dantigny.(t, 1 / (1 + exp(-p[1])), exp(p[2]), exp(p[3])) # [p_max, τ, ν] after transformations to become strictly positive
 
         # Initial guesses
-        p0 = [0.5, times[Int(0.5 * length(times))], 2.0]
+        if isnothing(p0)
+            p0 = [0.5, times[Int(0.5 * length(times))], 2.0]
+        end
 
         # Transform to strictly positive scales
         p0[1] = log(p0[1]) - log1p(-p0[1])
@@ -2099,7 +1986,16 @@ module DataUtils
             fit = curve_fit(dantigny_wrapper, times, germ_response, p0)
             params = coef(fit)
             rmse = sqrt(mean(residuals(fit) .^ 2))
-            param_uncertainties = stderror(fit)
+            param_uncertainties = try
+                stderror(fit)
+            catch e
+                if isa(e, LinearAlgebra.LAPACKException)
+                    # Matrix is singular - return NaN or zeros
+                    fill(0, length(params))
+                else
+                    rethrow(e)
+                end
+            end
 
             # if rmse > 0.03 # average deviation > 3 percentage points in germination
             #     println("High RMSE: $rmse")
@@ -2109,18 +2005,6 @@ module DataUtils
             params[1] = 1 / (1 + exp(-params[1]))
             params[2] = exp(params[2])
             params[3] = exp(params[3])
-
-            # Handle degenerate (flat) curves
-            # if params[1] < 1e-3 || params[2] > 1e6 || isinf(params[3])
-            #     params[2] = NaN
-            #     params[3] = NaN
-            # end
-
-            # # Handle sharp immediate steps
-            # if params[2] < 1e-6
-            #     params[2] = 1e-6
-            #     params[3] = 10
-            # end
 
             return params, rmse, param_uncertainties
 
