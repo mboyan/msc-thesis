@@ -725,8 +725,8 @@ module DataUtils
             n_iter (int) - maximum number of calibration iterations
             n_samples (int) - size of Sobol sample
             def_params (Dict) - defined parameters (not optimised)
-            bounds_abs (Dict) - initial-guess distributions for the case of absolute γ-thresholds
-            bounds_rel (Dict) - initial-guess distributions for the case of relative γ-thresholds
+            bounds_abs (Dict) - initial-guess boundaries for the case of absolute γ-thresholds
+            bounds_rel (Dict) - initial-guess boundaries for the case of relative γ-thresholds
             use_surrogates (bool) - whether to use a surrogate NN for mapping successive parameter values to Dantigny summaries
         """
         
@@ -746,32 +746,32 @@ module DataUtils
         # Determine global vs inducer-specific parameters
         params_glob_keys = [:b, :Pₛ, :μ_γ, :neg_δ_γ, :μ_ψ, :neg_δ_ψ]
 
-        # Precompute distributions
-        param_dists_abs = Dict()
-        for (key, val) in bounds_abs
-            if startswith(string(key), "neg_δ_")
-                mean = 0.5 * (val[1] + val[2])
-                sd = (val[2] - val[1]) / (2 * 1.96)
-                param_dists_abs[key] = Normal(mean, sd)
-            else
-                mean = (log(val[1]) + log(val[2])) * 0.5
-                sd = (log(val[2]) - log(val[1])) / (2 * 1.96)
-                param_dists_abs[key] = LogNormal(mean, sd)
-            end
-        end
+        
+        # param_dists_abs = Dict()
+        # for (key, val) in bounds_abs
+        #     if startswith(string(key), "neg_δ_")
+        #         mean = 0.5 * (val[1] + val[2])
+        #         sd = (val[2] - val[1]) / (2 * 1.96)
+        #         param_dists_abs[key] = Normal(mean, sd)
+        #     else
+        #         mean = (log(val[1]) + log(val[2])) * 0.5
+        #         sd = (log(val[2]) - log(val[1])) / (2 * 1.96)
+        #         param_dists_abs[key] = LogNormal(mean, sd)
+        #     end
+        # end
 
-        param_dists_rel = Dict()
-        for (key, val) in bounds_rel
-            if startswith(string(key), "neg_δ_")
-                mean = 0.5 * (val[1] + val[2])
-                sd = (val[2] - val[1]) / (2 * 1.96)
-                param_dists_rel[key] = Normal(mean, sd)
-            else
-                mean = (log(val[1]) + log(val[2])) * 0.5
-                sd = (log(val[2]) - log(val[1])) / (2 * 1.96)
-                param_dists_rel[key] = LogNormal(mean, sd)
-            end
-        end
+        # param_dists_rel = Dict()
+        # for (key, val) in bounds_rel
+        #     if startswith(string(key), "neg_δ_")
+        #         mean = 0.5 * (val[1] + val[2])
+        #         sd = (val[2] - val[1]) / (2 * 1.96)
+        #         param_dists_rel[key] = Normal(mean, sd)
+        #     else
+        #         mean = (log(val[1]) + log(val[2])) * 0.5
+        #         sd = (log(val[2]) - log(val[1])) / (2 * 1.96)
+        #         param_dists_rel[key] = LogNormal(mean, sd)
+        #     end
+        # end
 
         # Dictionaries for saving priors and surrogate models
         priors_all = Dict()
@@ -858,6 +858,10 @@ module DataUtils
                 sample_dists = filter(p -> p[1] in param_keys, param_dists_abs)
                 abs_thresh = true
             end
+
+            # Precompute distributions
+            println("Computing distribution centers...")
+            
             
             # Initiate criteria stability counters
             π_d_crit_ct = 0
@@ -1546,7 +1550,7 @@ module DataUtils
             w_spec_record_all[aliases[m]] = w_spec_record
         end
 
-        jldsave("../src/Data/priors.jld2"; priors_all, priors_running_all, surrogates_all, θ_final_all, w_glob_final_all, w_spec_final_all, data_pts_dict, w_spec_record_all, debug_vals)
+        jldsave("../src/Data/prior_calibration.jld2"; priors_all, priors_running_all, surrogates_all, θ_final_all, w_glob_final_all, w_spec_final_all, data_pts_dict, w_spec_record_all, debug_vals)
 
         return data_pts_dict
     end
@@ -2026,7 +2030,7 @@ module DataUtils
     end
 
 
-    function fit_model_to_data(model_type, def_params, dantigny_data, times, sources, densities, bounds_dict; max_steps=10000, debug=false)
+    function fit_model_to_data(model_type, def_params, dantigny_data, times, sources, densities, bounds_dict; max_steps=10000, local_opt_max_steps=2000, debug=false)
         """
         Fit a selected germination model to the data.
         inputs:
@@ -2043,9 +2047,9 @@ module DataUtils
             params_out (Dict): optimized parameters
         """
 
-        models = load_model_collection()
+        aliases, combination_IDs, descriptions, param_key_sets = load_model_collection()
 
-        @argcheck model_type in models[1]
+        @argcheck model_type in aliases
 
         # Reshape input
         densities_tile = repeat(densities, outer=[1, length(sources), length(times)])
@@ -2130,8 +2134,8 @@ module DataUtils
         # Define number of specific parameter occurrences (general or per carbon source)
         n_src = length(sources)
         param_occurrences_dict = Dict(
-            :s_max => n_src,
-            :b_max => 1,
+            :s => n_src,
+            :b => 1,
             :Pₛ => 1,
             :Pₛ_cs => n_src,
             :k_C => n_src,
@@ -2141,18 +2145,18 @@ module DataUtils
             :K_cI => n_src,
             :n => n_src,
             :μ_γ => 1,
-            :δ_γ => 1,
+            :neg_δ_γ => 1,
             :μ_ω => n_src,
-            :δ_ω => n_src,
+            :neg_δ_ω => n_src,
             :μ_ψ => 1,	
-            :δ_ψ => 1,
+            :neg_δ_ψ => 1,
             :μ_α => 1,
-            :δ_α => 1
+            :neg_δ_α => 1
         )
 
         # Find model index and parameter keys
-        model_index = findfirst(models[1])
-        param_keys = models[2][model_index]
+        model_index = findfirst(==(model_type), aliases)
+        param_keys = param_key_sets[model_index]
         
         if model_type == "independent"
             # Independent inducer/inhibitor
@@ -3786,7 +3790,7 @@ module DataUtils
             lower_bounds!(opt, [bnd[1] for bnd in bounds])
             upper_bounds!(opt, [bnd[2] for bnd in bounds])
             xtol_rel!(opt, 1e-4)
-            maxeval!(opt, 2000)
+            maxeval!(opt, local_opt_max_steps)
             min_objective!(opt, objgrad)
 
             (best_fit, res, code) = NLopt.optimize(opt, p_opt)
