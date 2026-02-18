@@ -119,7 +119,7 @@ module DataUtils
         end
     end
 
-    function fit_dist(dist_current, θ, w_norm, bounds; α=0.0)
+    function fit_dist(dist_current, θ, w_norm, bounds; α=0.5)
         """
         Refit a prior distribution through a set of weighted samples
         inputs:
@@ -811,7 +811,6 @@ module DataUtils
         nus = zeros(Float64, n_samples)
         d = zeros(Float64, 3, n_samples)
         z_dist = zeros(Float64, n_samples)
-        z_acc_specific = zeros(n_src, n_samples)
         rmses = zeros(Float64, n_dens, n_src, n_samples)
 
         # Data collection
@@ -821,16 +820,8 @@ module DataUtils
         w_glob_final_all = Dict()
         w_spec_final_all = Dict()
         w_spec_record_all = Dict()
-        debug_vals = Dict(
-            :d => zeros(Float64, n_iter, n_dens, n_src, n_samples, 3),
-            :lab_means => zeros(Float64, n_iter, n_dens, n_src, n_samples, 3),
-            :diffs => zeros(Float64, n_iter, n_dens, n_src, n_samples, 3),
-            :z_dist => zeros(Float64, n_iter, n_dens, n_src, n_samples),
-            :w_spec => zeros(Float64, n_iter, n_src, n_samples),
-            # :params => zeros(Float64, n_iter, n_src, 3, n_samples),
-            :penalties => zeros(Float64, n_iter, n_dens, n_src, n_samples),
-            :d_alt => zeros(Float64, n_iter, n_dens, n_src, 3, n_samples),
-        )
+
+        debug_vals = Dict()
 
         # Iterate over models
         for m in 1:1#59:59#eachindex(aliases)
@@ -846,6 +837,14 @@ module DataUtils
             glob_tag = [key in params_glob_keys for key in param_keys]
             n_glob = sum(glob_tag)
             n_spec = n_dims - n_glob
+
+            debug_vals[:d] = zeros(Float64, n_iter, n_dens, n_src, n_samples, 3)
+            debug_vals[:lab_means] = zeros(Float64, n_iter, n_dens, n_src, n_samples, 3)
+            debug_vals[:diffs] = zeros(Float64, n_iter, n_dens, n_src, n_samples, 3)
+            debug_vals[:z_dist] = zeros(Float64, n_iter, n_dens, n_src, n_samples)
+            debug_vals[:w_spec] = zeros(Float64, n_iter, n_src, n_samples)
+            debug_vals[:params] = zeros(Float64, n_iter, n_src, n_dims, n_samples)
+            debug_vals[:penalties] = zeros(Float64, n_iter, n_dens, n_src, n_samples)
 
             # Data collection
             priors = Dict()
@@ -978,13 +977,13 @@ module DataUtils
                         marginals_temp[glob_tag] .= marg_glob
                         marginals_temp[.!glob_tag] .= marg_spec[j, :]
                         
-                        # θ_glob, θ_spec[j, :, :] = sample_parameters(sobol_pts, copula, marg_glob, marg_spec[j, :], glob_tag) # USES COPULA
-                        for (k, marg) in enumerate(marg_glob)
-                            θ_glob[k, :] .= quantile.(marg, sobol_pts[glob_tag, :][k, :])
-                        end
-                        for (k, marg) in enumerate(marg_spec[j, :])
-                            θ_spec[j, k, :] .= quantile.(marg, sobol_pts[.!glob_tag, :][k, :])
-                        end
+                        θ_glob, θ_spec[j, :, :] = sample_parameters(sobol_pts, copula, marg_glob, marg_spec[j, :], glob_tag) # USES COPULA
+                        # for (k, marg) in enumerate(marg_glob)
+                        #     θ_glob[k, :] .= quantile.(marg, sobol_pts[glob_tag, :][k, :])
+                        # end
+                        # for (k, marg) in enumerate(marg_spec[j, :])
+                        #     θ_spec[j, k, :] .= quantile.(marg, sobol_pts[.!glob_tag, :][k, :])
+                        # end
 
                         # Assign new samples
                         g_ct = 1
@@ -1046,6 +1045,7 @@ module DataUtils
                 println("Running mechanistic model on $(n_mech_samples) samples ($(round(100*n_mech_samples/n_samples, digits=1))%)")
 
                 max_uncertainties = zeros(n_dens, n_src)
+                z_acc_specific = zeros(n_src, n_samples)
 
                 # --- DANTIGNY SUMMARIES AND DIAGNOSTICS OVER EXPERIMENTAL CONDITIONS ---
                 @inbounds for (i, density) in enumerate(densities) # iterate over spore densities (exp. data)
@@ -1064,6 +1064,7 @@ module DataUtils
                         θ[glob_tag, :] .= θ_glob
                         θ[.!glob_tag, :] .= θ_spec[j, :, :]
                         data_pts[j, s, 1:n_dims, :] .= θ
+                        debug_vals[:params][s, j, :, :] .= θ
 
                         if !use_surrogate_this_iter
 
@@ -1352,7 +1353,7 @@ module DataUtils
                                 debug_vals[:lab_means][s, i, j, n, :] .= lab_means[i, j, :]
                                 debug_vals[:diffs][s, i, j, n, :] .= diffs
                                 
-                                if s == 1
+                                if !use_surrogate_this_iter
                                     
                                     z_dev = dot(diffs, Σ_lab \ diffs)
                                     
@@ -1408,7 +1409,7 @@ module DataUtils
                 # reliabilities = exp.(-0.5 .* dropdims(mean(rmses.^2, dims=1); dims=1) ./ 0.004) # using an error scale of 2%
 
                 # Compute condition-specific weights
-                temp_param = get_temp_param(s, n_iter, T_init=10000.0, T_final=100.0)
+                temp_param = get_temp_param(s, n_iter, T_init=10000.0, T_final=10000.0)
                 println("Tempering parameter: $temp_param")
                 log_w_spec = -temp_param .* z_acc_specific
                 w_spec .= exp.(log_w_spec)
@@ -1467,59 +1468,69 @@ module DataUtils
                 π_d_crit_new = all(π_d .> 0.2 .&& π_d .< 0.8) # Criterion 1
                 q_d_crit_new = all(q_d .> 0.1 .&& q_d .< 0.9) # Criterion 2
                 m_d_crit_new = all(m_d .< χ_sq) # Criterion 3
+
+                if (π_d_crit_new != π_d_crit)
+                    π_d_crit_ct = 0
+                else
+                    π_d_crit_ct += 1
+                end
+                if (q_d_crit_new != q_d_crit)
+                    q_d_crit_ct = 0
+                else
+                    q_d_crit_ct += 1
+                end
+                if (m_d_crit_new != m_d_crit)
+                    m_d_crit_ct = 0
+                else
+                    m_d_crit_ct += 1
+                end
+
+                π_d_crit = π_d_crit_new
+                q_d_crit = q_d_crit_new
+                m_d_crit = m_d_crit_new
+
+                if s == 1
+                    stability_crit = true
+                else
+                    stability_crit = all(abs.(1.0 .- π_diffs) .< 0.1) && all(abs.(1.0 .- iqr_diff) .< 0.1) && all(abs.(1.0 .- p_z_diffs) .< 0.1) && all(abs.(1.0 .- w_mean_diff) .< 0.1) && all(abs.(1.0 .- w_std_diff) .< 0.1)
+                end
+                println("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+                println("π_d_crit_ct: $π_d_crit_ct")
+                println("q_d_crit_ct: $q_d_crit_ct")
+                println("m_d_crit_ct: $m_d_crit_ct")
+                # println("π_d: $π_d")
+                println("π_d: $(minimum(π_d)) - $(maximum(π_d))")
+                # println("q_d: $q_d")
+                println("q_d: $(minimum(q_d)) - $(maximum(q_d))")
+                # println("m_d: $m_d")
+                println("m_d: $(minimum(m_d)) - $(maximum(m_d))")
+                # println("iqr: $iqr")
+                println("iqr: $(minimum(iqr)) - $(maximum(iqr))")
                 if s > 1
-                    if (π_d_crit_new != π_d_crit)
-                        π_d_crit_ct = 0
-                    else
-                        π_d_crit_ct += 1
-                    end
-                    if (q_d_crit_new != q_d_crit)
-                        q_d_crit_ct = 0
-                    else
-                        q_d_crit_ct += 1
-                    end
-                    if (m_d_crit_new != m_d_crit)
-                        m_d_crit_ct = 0
-                    else
-                        m_d_crit_ct += 1
-                    end
-                    println("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-                    println("π_d_crit_ct: $π_d_crit_ct")
-                    println("q_d_crit_ct: $q_d_crit_ct")
-                    println("m_d_crit_ct: $m_d_crit_ct")
-                    # println("π_d: $π_d")
-                    println("π_d: $(minimum(π_d)) - $(maximum(π_d))")
-                    # println("q_d: $q_d")
-                    println("q_d: $(minimum(q_d)) - $(maximum(q_d))")
-                    # println("m_d: $m_d")
-                    println("m_d: $(minimum(m_d)) - $(maximum(m_d))")
-                    # println("iqr: $iqr")
-                    println("iqr: $(minimum(iqr)) - $(maximum(iqr))")
                     println("Max π_diffs: $(maximum(π_diffs))")
                     println("Max iqr_diff: $(maximum(iqr_diff))")
                     println("Max p_z_diffs: $(maximum(p_z_diffs))")
                     println("Max w_mean_diff: $(maximum(w_mean_diff))")
                     println("Max w_std_diff: $(maximum(w_std_diff))")
-                    println("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-                    println("Criterion 1 (Fraction of means in CIs): $π_d_crit_new ($(π_d .> 0.2 .&& π_d .< 0.8))")
-                    println("Criterion 2 (Quantiles of lab means): $q_d_crit_new ($(q_d .> 0.1 .&& q_d .< 0.9))")
-                    println("Criterion 3 (Mahalanobis distances): $m_d_crit_new ($(m_d .< χ_sq))")
-                    println("Criterion 4 (IQR larger than CI): $(all(iqr_check))")
-                    println("Criterion 5 (Stability of diagnostics): $(all(abs.(1.0 .- π_diffs) .< 0.1) && all(abs.(1.0 .- iqr_diff) .< 0.1) && all(abs.(1.0 .- p_z_diffs) .< 0.1) && all(abs.(1.0 .- w_mean_diff) .< 0.1) && all(abs.(1.0 .- w_std_diff) .< 0.1))")
-                    println("Criterion 6 (Minimal fraction complete inclusion): $(all(p_d .> 1e-2)) ($p_d)")
-                    println("Criterion 1, 2, 3 (soft): $((π_d_crit && q_d_crit && m_d_crit) || (π_d_crit_ct > 5 && q_d_crit_ct > 5 && m_d_crit_ct > 5))")
-                    if (all(iqr_check) # Criterion 4
-                        && all(abs.(1.0 .- π_diffs) .< 0.1) && all(abs.(1.0 .- iqr_diff) .< 0.1) && all(abs.(1.0 .- p_z_diffs) .< 0.1) && all(abs.(1.0 .- w_mean_diff) .< 0.1) && all(abs.(1.0 .- w_std_diff) .< 0.1) # Criterion 5
-                        && all(p_d .> 1e-2) # Criterion 6
-                        && ((π_d_crit && q_d_crit && m_d_crit) || (π_d_crit_ct > 5 && q_d_crit_ct > 5 && m_d_crit_ct > 5))) # Soft criteria 1, 2 and 3
-                        println("Termination criteria met at iteration $s")
-                        break
-                    end
-                    println("===========================")
                 end
-                π_d_crit = π_d_crit_new
-                q_d_crit = q_d_crit_new
-                m_d_crit = m_d_crit_new
+                println("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+                println("Criterion 1 (Fraction of means in CIs): $π_d_crit_new ($(π_d .> 0.2 .&& π_d .< 0.8))")
+                println("Criterion 2 (Quantiles of lab means): $q_d_crit_new ($(q_d .> 0.1 .&& q_d .< 0.9))")
+                println("Criterion 3 (Mahalanobis distances): $m_d_crit_new ($(m_d .< χ_sq))")
+                println("Criterion 4 (IQR larger than CI): $(all(iqr_check))")
+                if s > 1
+                    println("Criterion 5 (Stability of diagnostics): $stability_crit")
+                end
+                println("Criterion 6 (Minimal fraction complete inclusion): $(all(p_d .> 1e-2)) ($p_d)")
+                println("Criterion 1, 2, 3 (soft): $((π_d_crit && q_d_crit && m_d_crit) || (π_d_crit_ct > 5 && q_d_crit_ct > 5 && m_d_crit_ct > 5))")
+                if (all(iqr_check) # Criterion 4
+                    && stability_crit # Criterion 5
+                    && all(p_d .> 1e-2) # Criterion 6
+                    && ((π_d_crit && q_d_crit && m_d_crit) || (π_d_crit_ct > 5 && q_d_crit_ct > 5 && m_d_crit_ct > 5))) # Soft criteria 1, 2 and 3
+                    println("Termination criteria met at iteration $s")
+                    break
+                end
+                println("===========================")
                 
                 @show priors
                 priors_running[s] = copy(priors)
