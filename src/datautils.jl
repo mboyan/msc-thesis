@@ -1,4 +1,5 @@
 module DataUtils
+__precompile__(false)
     """
     Contains utility functions.
     """
@@ -47,21 +48,22 @@ module DataUtils
 
     CUDA.allowscalar(false)  # Prevent slow scalar operations
 
-
+    # ======================
     # ===== Statistics =====
+    # ======================
+    """
+    Alternative calculation of mean
+    through logarithms (avoids overflow)
+    """
     function mean_log(values; dims=nothing)
-        """
-        Alternative calculation of mean
-        through logarithms (avoids overflow)
-        """
         log_mean = mean(log.(values); dims=dims)
         return exp.(log_mean)
     end
 
+    """
+    Compute a weighted median from a set of values and weights.
+    """
     function weighted_median(values::Vector{T}, weights::Vector{T}) where T
-        """
-        Compute a weighted median from a set of values and weights.
-        """
 
         # Check if the length of values and weights match
         if length(values) != length(weights)
@@ -84,16 +86,16 @@ module DataUtils
         return sorted_values[median_idx]
     end
 
+    """
+    Compute a quantile of a set of weighted values.
+    inputs:
+        x (Vector) - values
+        w (Vector) - weights
+        p (Real) - quantile
+    output:
+        the linearly interpolated value at the given quantile
+    """
     function weighted_quantile(x::AbstractVector, w::AbstractVector, p::Real)
-        """
-        Compute a quantile of a set of weighted values.
-        inputs:
-            x (Vector) - values
-            w (Vector) - weights
-            p (Real) - quantile
-        output:
-            the linearly interpolated value at the given quantile
-        """
 
         @assert length(x) == length(w)
         @assert 0 ≤ p ≤ 1
@@ -119,18 +121,18 @@ module DataUtils
         end
     end
 
+    """
+    Refit a prior distribution through a set of weighted samples
+    inputs:
+        dist_current (Distribution) - current distribution
+        θ (Vector) - samples
+        w_norm (Vector) - normalized weights
+        bounds (Tuple) - bounds for the 95% interval of the distribution
+        α (Float) - learning rate
+    output:
+        the fitted prior distribution
+    """
     function fit_dist(dist_current, θ, w_norm, bounds; α=0.5)
-        """
-        Refit a prior distribution through a set of weighted samples
-        inputs:
-            dist_current (Distribution) - current distribution
-            θ (Vector) - samples
-            w_norm (Vector) - normalized weights
-            bounds (Tuple) - bounds for the 95% interval of the distribution
-            α (Float) - learning rate
-        output:
-            the fitted prior distribution
-        """
 
         μ_current = dist_current.μ
         σ_current = dist_current.σ
@@ -186,15 +188,16 @@ module DataUtils
         return dist_type(μ_interp, σ_interp)
     end
 
+    """
+    Perform near-PD projection (e.g. for when
+    a matrix is not Cholesky factorizable)
+    inputs:
+        A (Matrix) - matrix to be corrected
+    outputs:
+        A3 (Matrix) - SPD matrix
+    """
     function nearestSPD(A)
-        """
-        Perform near-PD projection (e.g. for when
-        a matrix is not Cholesky factorizable)
-        inputs:
-            A (Matrix) - matrix to be corrected
-        outputs:
-            A3 (Matrix) - SPD matrix
-        """
+        
         B = (A + A') / 2
         _, S, V = svd(B)
         H = V * Diagonal(S) * V'
@@ -215,18 +218,18 @@ module DataUtils
         return A3
     end
 
+    """
+    Calibrate a set of distributions given a set of weighted samples.
+    Optionally, condition-specific weights can also be used.
+    inputs:
+        marg_current (Vector{Distribution}) - the current distributions
+        θ (Matrix) - parameter samples
+        weights (Vector) - sample weights
+        bounds (Vector{Tuple}) - bounds for the 95% IQR of the current distributions
+    output:
+        marginals (Vector{Distribution}) - the calibrated distributions
+    """
     function calibrate_marginals(marg_current, θ, weights, bounds)
-        """
-        Calibrate a set of distributions given a set of weighted samples.
-        Optionally, condition-specific weights can also be used.
-        inputs:
-            marg_current (Vector{Distribution}) - the current distributions
-            θ (Matrix) - parameter samples
-            weights (Vector) - sample weights
-            bounds (Vector{Tuple}) - bounds for the 95% IQR of the current distributions
-        output:
-            marginals (Vector{Distribution}) - the calibrated distributions
-        """
         Np = size(θ, 1)
 
         weights ./= sum(weights)
@@ -238,21 +241,22 @@ module DataUtils
         return marginals
     end
 
+    """
+    Transform global and condition-specific parameter
+    values from given marginal distributions
+    to Gaussian space (for computing a Gaussian copula).
+    inputs: 
+        Θg (Matrix) - global parameter values
+        Θs (Matrix) - condition-specific parameter values
+        marg_g (Vector{Distribution}) - global parameter distributions
+        marg_s (Vector{Distribution}) - condition-specific parameter distributions
+        glob_tag (BitVector) - boolean weaving pattern for global vs specific parameters
+        eps_u (Float) - tolerance avoiding the sampling of Inf
+    output:
+        Z (Matrix) - transformed parameter values
+    """
     function to_gaussian_space(Θg, Θs, marg_g, marg_s, glob_tag; eps_u = nothing)
-        """
-        Transform global and condition-specific parameter
-        values from given marginal distributions
-        to Gaussian space (for computing a Gaussian copula).
-        inputs: 
-            Θg (Matrix) - global parameter values
-            Θs (Matrix) - condition-specific parameter values
-            marg_g (Vector{Distribution}) - global parameter distributions
-            marg_s (Vector{Distribution}) - condition-specific parameter distributions
-            glob_tag (BitVector) - boolean weaving pattern for global vs specific parameters
-            eps_u (Float) - tolerance avoiding the sampling of Inf
-        output:
-            Z (Matrix) - transformed parameter values
-        """
+        
         Ng = size(Θg, 1)
         Nc = size(Θs, 1)
         Ns = size(Θg, 2)
@@ -281,16 +285,16 @@ module DataUtils
         return Z
     end
 
+    """
+    Compute the correlation of weighted
+    Gaussian-transformed parameter values.
+    inputs:
+        Z (Matrix) - transformed parameter values
+        w (Vector) - weights
+    output:
+        correlation matrix
+    """
     function weighted_correlation(Z, w)
-        """
-        Compute the correlation of weighted
-        Gaussian-transformed parameter values.
-        inputs:
-            Z (Matrix) - transformed parameter values
-            w (Vector) - weights
-        output:
-            correlation matrix
-        """
 
         n_samples, n_params = size(Z)
         w_norm = w ./ sum(w)
@@ -323,21 +327,21 @@ module DataUtils
         return R
     end
 
+    """
+    Construct a Gaussian copula from weighted 
+    parameter values and their marginal distributions.
+    inputs:
+        Θg (Matrix) - global parameter values
+        Θs (Matrix) - condition-specific parameter values
+        marg_g (Vector{Distribution}) - global parameter distributions
+        marg_s (Vector{Distribution}) - condition-specific parameter distributions
+        w_glob (Vector) - global weights
+        w_spec (Matrix) - condition-specific weights
+        glob_tag (BitVector) - boolean weaving pattern for global vs specific parameters
+    output:
+        multivariate distribution of weighted samples
+    """
     function calibrate_copula(Θg, Θs, marg_g, marg_s, w_glob, w_spec, glob_tag)
-        """
-        Construct a Gaussian copula from weighted 
-        parameter values and their marginal distributions.
-        inputs:
-            Θg (Matrix) - global parameter values
-            Θs (Matrix) - condition-specific parameter values
-            marg_g (Vector{Distribution}) - global parameter distributions
-            marg_s (Vector{Distribution}) - condition-specific parameter distributions
-            w_glob (Vector) - global weights
-            w_spec (Matrix) - condition-specific weights
-            glob_tag (BitVector) - boolean weaving pattern for global vs specific parameters
-        output:
-            multivariate distribution of weighted samples
-        """
 
         w_eff = w_glob .* w_spec
         w_eff ./= sum(w_eff)
@@ -408,18 +412,18 @@ module DataUtils
         return MvNormal(zeros(size(R_reg,1)), R_reg)
     end
 
+    """
+    Sample a multivariate distribution (Gaussian copula).
+    inputs:
+        p (Matrix) - normalized locations for sampling the copula
+        copula (MvNormal) - Gaussian copula
+        marg_g (Vector{Distribution}) - global parameter marginals
+        marg_s (Vector{Distribution}) - carbon-specific parameter marginals
+        glob_tag (Vector{Bool}) - tags whether a parameter is global or not
+    outputs:
+        Θ (Matrix) - new parameter values
+    """
     function sample_parameters(p, copula, marg_g, marg_s, glob_tag)
-        """
-        Sample a multivariate distribution (Gaussian copula).
-        inputs:
-            p (Matrix) - normalized locations for sampling the copula
-            copula (MvNormal) - Gaussian copula
-            marg_g (Vector{Distribution}) - global parameter marginals
-            marg_s (Vector{Distribution}) - carbon-specific parameter marginals
-            glob_tag (Vector{Bool}) - tags whether a parameter is global or not
-        outputs:
-            Θ (Matrix) - new parameter values
-        """
 
         d, N = size(p)
 
@@ -460,12 +464,14 @@ module DataUtils
         return θg, θs
     end
     
-
+    # ===========================
+    # ===== Data processing =====
+    # ===========================
+    """
+    Parses the dataset from Ijadpanahsaravi et al. (2023)
+    with multiple inoculum densities and returns a DataFrame.
+    """
     function parse_ijadpanahsaravi_data()
-        """
-        Parses the dataset from Ijadpanahsaravi et al. (2023)
-        with multiple incolulum densities and returns a DataFrame.
-        """
 
         df_germination = DataFrame(CSV.File("../src/Data/swelling_germination_results.csv"; header=true))
 
@@ -527,12 +533,11 @@ module DataUtils
         df_germination_rebuilt
     end
 
-
+    """
+    Extracts relevant metrics from the dataset
+    from from Ijadpanahsaravi et al. (2023)
+    """
     function unpack_ijadpanahsaravi_data(t_max=48)
-        """
-        Extracts relevant metrics from the dataset
-        from from Ijadpanahsaravi et al. (2023)
-        """
 
         # Load data
         df_germination_rebuilt = parse_ijadpanahsaravi_data()
@@ -569,36 +574,37 @@ module DataUtils
         return times, sources, densities, lab_means, CIs, CI_widths, uncert_lab
     end
 
-
+    # ==========================
+    # ===== Dantigny model =====
+    # ==========================
+    """
+    Dantigny model for the germination of a fungal culture.
+    inputs:
+        t: time (in hours)
+        p_max: maximum germination rate
+        τ: time constant (in hours)
+        ν: design parameter (dimensionless)
+    outputs:
+        p: germination rate (dimensionless)
+    """
     function dantigny(t, p_max, τ, ν)
-        """
-        Dantigny model for the germination of a fungal culture.
-        inputs:
-            t: time (in hours)
-            p_max: maximum germination rate
-            τ: time constant (in hours)
-            ν: design parameter (dimensionless)
-        outputs:
-            p: germination rate (dimensionless)
-        """
         p = p_max * (1 - 1 / (1 + (t / τ)^ν))
         return p
     end
 
-
+    """
+    Infer the effective Dantigny parameters
+    p_max, τ_g and ν from a germination time series
+    inputs:
+        germ_response (Vector) - germination fractions over time
+        times (Vector) - time points for germination fractions (in hours)
+        smooth_rad (Int) - radius of smoothing around τ_g
+    output:
+        p_max (Float36) - saturation germination fraction
+        τ_g (Float36) - germination half-saturation time
+        ν (Float36) - onset steepness parameter
+    """
     function infer_dantigny_parameters(germ_response, times)
-        """
-        Infer the effective Dantigny parameters
-        p_max, τ_g and ν from a germination time series
-        inputs:
-            germ_response (Vector) - germination fractions over time
-            times (Vector) - time points for germination fractions (in hours)
-            smooth_rad (Int) - radius of smoothing around τ_g
-        output:
-            p_max (Float36) - saturation germination fraction
-            τ_g (Float36) - germination half-saturation time
-            ν (Float36) - onset steepness parameter
-        """
 
         @assert length(germ_response) == length(times)
 
@@ -617,17 +623,17 @@ module DataUtils
             diffs = diff(germ_response)
             smooth_rad = round(Int, sum(diffs .> mean(diffs)) * 0.1)
             println("Smoothing radius: $smooth_rad")
-            germ_response_smooth = copy(germ_response)
+            gresp_smooth = copy(germ_response)
             for n in 1:100
                 mix_idx = max(2, half_sat_idx - smooth_rad)
                 max_idx = min(length(times) - 1, half_sat_idx + smooth_rad)
                 for i in mix_idx:max_idx
-                    germ_response_smooth[i] = 0.5 * (germ_response_smooth[i - 1] + germ_response_smooth[i + 1])
+                    gresp_smooth[i] = 0.5 * (gresp_smooth[i - 1] + gresp_smooth[i + 1])
                 end
             end
 
             # Approximate derivative at half-saturation time
-            deriv = (germ_response_smooth[half_sat_idx + 1] - germ_response_smooth[half_sat_idx]) / dt
+            deriv = (gresp_smooth[half_sat_idx + 1] - gresp_smooth[half_sat_idx]) / dt
 
             ν = 4 * τ_g * deriv / p_max
         else
@@ -642,25 +648,24 @@ module DataUtils
         return p_max, τ_g, ν
     end
 
-
+    """
+    Generate time-dependent germination data using the Dantigny model
+    and parameters from a dictionary.
+    inputs:
+        df_germination (DataFrame): Dantigny model parameters
+        t_max (Float): maximum time point in hours
+        n_pts (Int): number of time points to generate
+    outputs:
+        dantigny_data (Matrix): matrix of time-dependent germination data
+        times (Vector): vector of time points (in hours)
+        sources (Vector): unique string identifiers of carbon sources
+        densities (Vector): unique spore densities used in the data
+        errs (Matrix): negative and positive offsets of p_max CIs from the mean
+        p_maxs (Matrix): maximum germination percentages
+        taus (Matrix): characteristic germination times (in hours)
+        nus (Matrix): design parameters
+    """
     function generate_dantigny_dataset(df_germination, t_max, n_pts=1000)
-        """
-        Generate time-dependent germination data using the Dantigny model
-        and parameters from a dictionary.
-        inputs:
-            df_germination (DataFrame): Dantigny model parameters
-            t_max (float): maximum time point in hours
-            n_pts (int): number of time points to generate
-        outputs:
-            dantigny_data (Matrix): matrix of time-dependent germination data
-            times (Vector): vector of time points (in hours)
-            sources (Vector): unique string identifiers of carbon sources
-            densities (Vector): unique spore densities used in the data
-            errs (Matrix): negative and positive offsets of p_max CIs from the mean
-            p_maxs (Matrix): maximum germination percentages
-            taus (Matrix): characteristic germination times (in hours)
-            nus (Matrix): design parameters
-        """
         
         sources = unique(df_germination[!, :CarbonSource])
         densities = unique(df_germination[!, :Density])
@@ -701,14 +706,16 @@ module DataUtils
         return dantigny_data * 0.01, times, sources, densities, errs, p_maxs, taus, nus
     end
 
-
+    # =============================
     # ===== Prior calibration =====
+    # =============================
+    """
+    Exponential cooling schedule.
+    T_init: Initial temperature (high = flat weights)
+    T_final: Final temperature (low = sharp weights)
+    """
     function get_temp_param(iteration, n_iter; T_init=100.0, T_final=4.0)
-        """
-        Exponential cooling schedule.
-        T_init: Initial temperature (high = flat weights)
-        T_final: Final temperature (low = sharp weights)
-        """
+        
         # Exponential decay
         α = (T_final / T_init)^(1 / (n_iter - 1))
         T = T_init * α^(iteration - 1)
@@ -716,19 +723,18 @@ module DataUtils
         return 1.0 / T  # Return inverse temperature (your temp_param)
     end
 
-
-    function calibrate_priors(n_iter, n_samples, def_params, bounds_abs, bounds_rel; use_surrogates=true)
-        """
+    """
         Iteratively calibrates parameter priors
         based on lab-derived Dantigny summaries.
         inputs:
-            n_iter (int) - maximum number of calibration iterations
-            n_samples (int) - size of Sobol sample
+            n_iter (Int) - maximum number of calibration iterations
+            n_samples (Int) - size of Sobol sample
             def_params (Dict) - defined parameters (not optimised)
             bounds_abs (Dict) - initial-guess distributions for the case of absolute γ-thresholds
             bounds_rel (Dict) - initial-guess distributions for the case of relative γ-thresholds
-            use_surrogates (bool) - whether to use a surrogate NN for mapping successive parameter values to Dantigny summaries
+            use_surrogates (Bool) - whether to use a surrogate NN for mapping successive parameter values to Dantigny summaries
         """
+    function calibrate_priors(n_iter, n_samples, def_params, bounds_abs, bounds_rel; use_surrogates=true)
         
         Random.seed!(1236)
 
@@ -1562,8 +1568,15 @@ module DataUtils
         n_inputs::Int
         n_outputs::Int
     end
-    # end
 
+    """
+        Automatic Mixed Precision training optimized for RTX A4000
+        
+        Uses:
+        - FP16 for forward/backward passes (Tensor Cores)
+        - FP32 for loss computation and weight updates
+        - Dynamic loss scaling to prevent underflow
+        """
     function train_multioutput_nn_mixed_precision(
         X_train, Y_train;
         hidden_dims=[128, 64, 32],
@@ -1576,14 +1589,6 @@ module DataUtils
         #output_ranges=[(0, 1), (1e-6, 1e4), (0, 10)],
         verbose=false
     )
-        """
-        Automatic Mixed Precision training optimized for RTX A4000
-        
-        Uses:
-        - FP16 for forward/backward passes (Tensor Cores)
-        - FP32 for loss computation and weight updates
-        - Dynamic loss scaling to prevent underflow
-        """
         
         n_inputs = size(X_train, 1)
         n_outputs = size(Y_train, 1)
@@ -1710,22 +1715,12 @@ module DataUtils
             end
             return g
         end
-
-        function range_penalty(y, min_val, max_val; α=10.0)
-            """
-            Smooth hinge-like penalty
-            """
-            below = Flux.softplus(min_val .- y)
-            above = Flux.softplus(y .- max_val)
-            return mean(below .^ 2 .+ above .^ 2)
-        end
         
+        """
+        Single training step with mixed precision
+        Returns: (loss, had_overflow)
+        """
         function mixed_precision_step!(model, x_fp16, y_fp16, opt_state, scale)
-            """
-            Single training step with mixed precision
-            
-            Returns: (loss, had_overflow)
-            """
 
             # Forward pass in FP16
             loss_val, grads = Flux.withgradient(model) do m
@@ -1866,15 +1861,15 @@ module DataUtils
         )
     end
     
+    """
+    Mixed precision uncertainty estimation
+    """
     function predict_with_uncertainty_mixed_precision(
         surrogate::MultiOutputSurrogate,
         X_new;
         n_dropout_samples=50,
         output_ranges=[(0, 1), (1e-6, 1e4), (0, 10)]
     )
-        """
-        Mixed precision uncertainty estimation
-        """
         
         single_sample = ndims(X_new) == 1
         if single_sample
@@ -1936,14 +1931,15 @@ module DataUtils
         end
     end
     
+    """
+    Find optimal batch size based on GPU memory
+    
+    Rule of thumb:
+    - Larger batches = better GPU utilization but more memory
+    - Sweet spot: 32-256 for most GPUs
+    """
     function find_optimal_batch_size(n_inputs, n_samples; max_memory_gb=8)
-        """
-        Find optimal batch size based on GPU memory
-        
-        Rule of thumb:
-        - Larger batches = better GPU utilization but more memory
-        - Sweet spot: 32-256 for most GPUs
-        """
+
         if !CUDA.functional()
             return 32  # CPU default
         end
@@ -1964,22 +1960,24 @@ module DataUtils
         return batch_size
     end
 
+    # ========================
     # ===== Data fitting =====
+    # ========================
+    """
+    Fit Dantigny model to simulated germination curve
+    from a mechanistic model.
+    inputs:
+        germ_response (Vector): germination fractions per time
+        times (Vector): time frames for germination fractions (in hours)
+        check_stderr (Bool): whether to perform a standard error check
+        p0 (Vector): initial parameter guesses
+    outputs:
+        p_max (Float): maximum germination percentage
+        τ (Float): half-saturation time for germination
+        ν (Float): design parameter
+        rmse (Float): root mean-squared error
+    """
     function fit_dantigny_to_germination_curve(germ_response, times; p0=nothing)
-        """
-        Fit Dantigny model to simulated germination curve
-        from a mechanistic model.
-        inputs:
-            germ_response (Vector): germination fractions per time
-            times (Vector): time frames for germination fractions (in hours)
-            check_stderr (Bool): whether to perform a standard error check
-            p0 (Vector): initial parameter guesses
-        outputs:
-            p_max (Float): maximum germination percentage
-            τ (Float): half-saturation time for germination
-            ν (Float): design parameter
-            rmse (Float): root mean-squared error
-        """
 
         dantigny_wrapper(t, p) = dantigny.(t, 1 / (1 + exp(-p[1])), exp(p[2]), exp(p[3])) # [p_max, τ, ν] after transformations to become strictly positive
 
@@ -2026,22 +2024,22 @@ module DataUtils
     end
 
 
+    """
+    Fit a selected germination model to the data.
+    inputs:
+        model_type (String): model type to fit
+        def_params (Dict): default parameter values
+        dantigny_data (Matrix): time-dependent data from varying inducers and spore densities to fit
+        times (Vector): time points
+        sources (Vector): carbon sources
+        densities (Vector): spore densities
+        bounds_dict (Dict): bounds for the free parameters
+        max_steps (Int): maximum number of steps for the optimization
+        debug (Bool) - whether to print additional debugging messages
+    outputs:
+        params_out (Dict): optimized parameters
+    """
     function fit_model_to_data(model_type, def_params, dantigny_data, times, sources, densities, bounds_dict; max_steps=10000, debug=false)
-        """
-        Fit a selected germination model to the data.
-        inputs:
-            model_type (String): model type to fit
-            def_params (Dict): default parameter values
-            dantigny_data (Matrix): time-dependent data from varying inducers and spore densities to fit
-            times (Vector): time points
-            sources (Vector): carbon sources
-            densities (Vector): spore densities
-            bounds_dict (Dict): bounds for the free parameters
-            max_steps (int): maximum number of steps for the optimization
-            debug (bool) - whether to print additional debugging messages
-        outputs:
-            params_out (Dict): optimized parameters
-        """
 
         models = load_model_collection()
 
@@ -2157,7 +2155,7 @@ module DataUtils
         if model_type == "independent"
             # Independent inducer/inhibitor
             println("Model: independent factors")
-            wrapper = (inputs, params) -> germ_response_independent_factors_gh(
+            wrapper = (inputs, params) -> gresp_independent_factors_gh(
                 u, W,
                 inputs[1], #t
                 inputs[2], #ρₛ
@@ -2173,32 +2171,10 @@ module DataUtils
                 params[6], #μ_ω
                 params[6] * exp(params[7]) # σ_ω = μ_ω * exp(δ_ω)
             )
-            # param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
-            # param_occurrences = [1, n_src, n_src, 1, 1, n_src, n_src]
-
-        # elseif model_type == "inhibitor" # Inducer shifts inhibition threshold and modulates inhibitor permeability
-        #         println("Model: inducer-modulated inhibitor (combined)")
-        #         wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_gh(
-        #             u, W,
-        #             inputs[1], #t
-        #             inputs[2], #ρₛ
-        #             def_params[:c₀_cs],
-        #             def_params[:d_hp],
-        #             ξ2,
-        #             κ2,
-        #             params[1], #Pₛ,
-        #             params[2], #Pₛ_cs,
-        #             params[3], #K_cC,
-        #             exp(params[4]), #k_C,
-        #             params[5], #μ_γ,
-        #             params[5] * exp(params[6]), # σ_γ = μ_γ * exp(δ_γ)
-        #         )
-        #         param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :k_C, :μ_γ, :δ_γ]
-        #         param_occurrences = [1, n_src, n_src, n_src, 1, 1]
 
         elseif model_type == "inhibitor_thresh" # Inducer shifts inhibition threshold
             println("Model: inducer-modulated inhibitor (threshold)")
-            wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_thresh_gh(
+            wrapper = (inputs, params) -> Main.gresp_inducer_dep_inhibitor_thresh_gh(
                 u, W,
                 inputs[1], #t
                 inputs[2], #ρₛ
@@ -2213,33 +2189,10 @@ module DataUtils
                 params[5], #μ_γ
                 params[5] * exp(params[6]) # σ_γ = μ_γ * exp(δ_γ)
             )
-            # param_keys = [:Pₛ, :Pₛ_cs, :k_C, :K_cC, :μ_γ, :δ_γ]
-            # param_occurrences = [1, n_src, n_src, n_src, 1, 1]
-            
-            # elseif model_type_split[2] == "perm" # Inducer modulates inhibitor permeability
-            #     println("Model: inducer-modulated inhibitor (permeability)")
-            #     wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_perm_gh(
-            #         u, W,
-            #         inputs[1], #t
-            #         inputs[2], #ρₛ
-            #         def_params[:c₀_cs],
-            #         def_params[:d_hp],
-            #         ξ2,
-            #         κ2,
-            #         params[1], #Pₛ
-            #         params[2], #Pₛ_cs
-            #         params[3], #K_cC
-            #         params[4], #μ_γ
-            #         params[4] * exp(params[5]) # σ_γ = μ_γ * exp(δ_γ)
-            #     )
-            #     param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :μ_γ, :δ_γ]
-            #     param_occurrences = [1, n_src, n_src, 1, 1]
-                
-            # end
 
         elseif model_type == "inducer" # Inhibitor shifts induction threshold and modulates inducer signal strength
             println("Model: inhibitor-modulated inducer (combined)")
-            wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_gh(
+            wrapper = (inputs, params) -> Main.gresp_inhibitor_dep_inducer_gh(
                 u, W3,
                 inputs[1], #t
                 inputs[2], #ρₛ
@@ -2259,12 +2212,10 @@ module DataUtils
                 params[10], #μ_ψ
                 params[10] * exp(params[11]) # σ_ψ = μ_ψ * exp(δ_ψ)
             )
-            # param_keys = [:Pₛ, :Pₛ_cs, :k_I, :K_cI, :K_cC, :K_I, :n, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
-            # param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, n_src, n_src, 1, 1]
                 
         elseif model_type == "inducer_thresh" # Inhibitor shifts induction threshold
             println("Model: inhibitor-modulated inducer (threshold)")
-            wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_thresh_gh(
+            wrapper = (inputs, params) -> Main.gresp_inhibitor_dep_inducer_thresh_gh(
                 u, W3,
                 inputs[1], #t
                 inputs[2], #ρₛ
@@ -2282,12 +2233,10 @@ module DataUtils
                 params[8], #μ_ψ
                 params[8] * exp(params[9]) # σ_ψ = μ_ψ * exp(δ_ψ)
             )
-            # param_keys = [:Pₛ, :Pₛ_cs, :K_cI, :K_cC, :k_I, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
-            # param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, 1, 1]
             
         elseif model_type == "inducer_signal" # Inhibitor shifts induction threshold
             println("Model: inhibitor-modulated inducer (signal)")
-            wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_signal_gh(
+            wrapper = (inputs, params) -> Main.gresp_inhibitor_dep_inducer_signal_gh(
                 u, W3,
                 inputs[1], #t
                 inputs[2], #ρₛ
@@ -2305,12 +2254,10 @@ module DataUtils
                 params[8], #μ_ψ
                 params[8] * exp(params[9]) # σ_ψ = μ_ψ * exp(δ_ψ)
             )
-            # param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :K_I, :n, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
-            # param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, n_src, 1, 1]
 
         elseif model_type == "combined_inhibitor"
             println("Model: inducer-modulated inhibitor (combined)")
-            wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_2_factor_gh(
+            wrapper = (inputs, params) -> Main.gresp_inducer_dep_inhibitor_2_factor_gh(
                 u, W,
                 inputs[1], #t
                 inputs[2], #ρₛ
@@ -2327,12 +2274,10 @@ module DataUtils
                 params[7], #μ_ω,
                 params[7] * exp(params[8]) # σ_ω = μ_ω * exp(δ_ω)
             )
-            # param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :k_C, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
-            # param_occurrences = [1, n_src, n_src, n_src, 1, 1, n_src, n_src]
 
         elseif model_type == "combined_inhibitor_thresh"
             println("Model: inducer-modulated inhibitor (combined)")
-            wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_thresh_2_factor_gh(
+            wrapper = (inputs, params) -> Main.gresp_inducer_dep_inhibitor_thresh_2_factor_gh(
                 u, W,
                 inputs[1], #t
                 inputs[2], #ρₛ
@@ -2349,34 +2294,10 @@ module DataUtils
                 params[7], #μ_ω
                 params[7] * exp(params[8]) # σ_ω = μ_ω * exp(δ_ω)
             )
-            # param_keys = [:Pₛ, :Pₛ_cs, :k_C, :K_cC, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
-            # param_occurrences = [1, n_src, n_src, n_src, 1, 1, n_src, n_src]
-
-            # elseif model_type_split[3] == "perm"
-            #     println("Model: inducer-modulated inhibitor (release)")
-            #     wrapper = (inputs, params) -> Main.germ_response_inducer_dep_inhibitor_perm_2_factor_gh(
-            #         u, W,
-            #         inputs[1], #t
-            #         inputs[2], #ρₛ
-            #         def_params[:c₀_cs],
-            #         def_params[:d_hp],
-            #         ξ2,
-            #         κ2,
-            #         params[1], #Pₛ
-            #         params[2], #Pₛ_cs
-            #         params[3], #K_cC
-            #         params[4], #μ_γ
-            #         params[4] * exp(params[5]), # σ_γ = μ_γ * exp(δ_γ)
-            #         params[6], #μ_ω
-            #         params[6] * exp(params[7]) # σ_ω = μ_ω * exp(δ_ω)
-            #     )
-            #     param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
-            #     param_occurrences = [1, n_src, n_src, 1, 1, n_src, n_src]
-            # end
 
         elseif model_type == "combined_inducer"
             println("Model: inhibitor-modulated inducer (combined)")
-            wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_2_factor_gh(
+            wrapper = (inputs, params) -> Main.gresp_inhibitor_dep_inducer_2_factor_gh(
                 u, W3,
                 inputs[1], #t
                 inputs[2], #ρₛ
@@ -2398,12 +2319,10 @@ module DataUtils
                 params[12], #μ_ψ
                 params[12] * exp(params[13]) # σ_ψ = μ_ψ * exp(δ_ψ)
             )
-            # param_keys = [:Pₛ, :Pₛ_cs, :K_cI, :K_cC, :K_I, :n, :k_I, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
-            # param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1]
 
         elseif model_type == "combined_inducer_thresh"
             println("Model: inhibitor-modulated inducer (threshold)")
-            wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_thresh_2_factor_gh(
+            wrapper = (inputs, params) -> Main.gresp_inhibitor_dep_inducer_thresh_2_factor_gh(
                 u, W3,
                 inputs[1], #t
                 inputs[2], #ρₛ
@@ -2423,12 +2342,10 @@ module DataUtils
                 params[10], #μ_ψ
                 params[10] * exp(params[11]) # σ_ψ = μ_ψ * exp(δ_ψ)
             )
-            # param_keys = [:Pₛ, :Pₛ_cs, :K_cI, :K_cC, :k_I, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
-            # param_occurrences = [1, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1]
 
         elseif model_type == "combined_inducer_signal"
             println("Model: inhibitor-modulated inducer (signal)")
-            wrapper = (inputs, params) -> Main.germ_response_inhibitor_dep_inducer_signal_2_factor_gh(
+            wrapper = (inputs, params) -> Main.gresp_inhibitor_dep_inducer_signal_2_factor_gh(
                 u, W3,
                 inputs[1], #t
                 inputs[2], #ρₛ
@@ -2453,7 +2370,7 @@ module DataUtils
 
         elseif model_type == "special_inducer"
             println("Model: inhibitor-modulated inducer (combined) with varying permeability")
-            wrapper = (inputs, params) -> Main.germ_response_inducer_var_perm_gh(
+            wrapper = (inputs, params) -> Main.gresp_inducer_var_perm_gh(
                 u, W4,
                 inputs[1], #t
                 inputs[2], #ρₛ
@@ -2474,12 +2391,10 @@ module DataUtils
                 params[11], #μ_α
                 params[11] * exp(params[12]) # σ_α = μ_α * exp(δ_α)
             )
-            # param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :K_I, :k_I, :n, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ, :μ_α, :δ_α]
-            # param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, n_src, n_src, 1, 1, 1, 1]
 
         elseif model_type == "special_independent"
             println("Model: independent factors with varying permeability")
-            wrapper = (inputs, params) -> Main.germ_response_independent_factors_var_perm_gh(
+            wrapper = (inputs, params) -> Main.gresp_independent_factors_var_perm_gh(
                 u, W3,
                 inputs[1], #t
                 inputs[2], #ρₛ
@@ -2497,12 +2412,10 @@ module DataUtils
                 params[8], #μ_α
                 params[8] * exp(params[9]) # σ_α = μ_α * exp(δ_α)
             )
-            # param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_α, :δ_α]
-            # param_occurrences = [1, n_src, n_src, 1, 1, n_src, n_src, 1, 1]
 
         elseif model_type == "special_combined"
             println("Model: 2-factor germination with inhibitor-modulated inducer (combined) and varying permeability")
-            wrapper = (inputs, params) -> Main.germ_response_inducer_2_factors_var_perm_gh(
+            wrapper = (inputs, params) -> Main.gresp_inducer_2_factors_var_perm_gh(
                 u, W4,
                 inputs[1], #t
                 inputs[2], #ρₛ
@@ -2525,12 +2438,10 @@ module DataUtils
                 params[13], #μ_α
                 params[13] * exp(params[14]) # σ_α = μ_α * exp(δ_α)
             )
-            # param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :K_I, :k_I, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ, :μ_α, :δ_α]
-            # param_occurrences = [1, n_src, n_src, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1, 1, 1]
 
         elseif model_type == "special_combined_thresh"
             println("Model: 2-factor germination with inhibitor-modulated inducer (threshold) and varying permeability")
-            wrapper = (inputs, params) -> Main.germ_response_inducer_thresh_2_factors_var_perm_gh(
+            wrapper = (inputs, params) -> Main.gresp_inducer_thresh_2_factors_var_perm_gh(
                 u, W4,
                 inputs[1], #t
                 inputs[2], #ρₛ
@@ -2551,12 +2462,10 @@ module DataUtils
                 params[11], #μ_α
                 params[11] * exp(params[12]) # σ_α = μ_α * exp(δ_α)
             )
-            # param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :k_I, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ, :μ_α, :δ_α]
-            # param_occurrences = [1, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1, 1, 1]
 
         elseif model_type == "special_combined_signal"
             println("Model: 2-factor germination with inhibitor-modulated inducer (signal) and varying permeability")
-            wrapper = (inputs, params) -> Main.germ_response_inducer_signal_2_factors_var_perm_gh(
+            wrapper = (inputs, params) -> Main.gresp_inducer_signal_2_factors_var_perm_gh(
                 u, W4,
                 inputs[1], #t
                 inputs[2], #ρₛ
@@ -2578,13 +2487,11 @@ module DataUtils
                 params[12], #μ_α
                 params[12] * exp(params[13]) # σ_α = μ_α * exp(δ_α)
             )
-            # param_keys = [:Pₛ, :Pₛ_cs, :K_cC, :K_I, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ, :μ_α, :δ_α]
-            # param_occurrences = [1, n_src, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1, 1, 1]
         
             # ==================== FEEDBACK MODELS ========================
         elseif model_type == "feedback_inhibitor_inducer_perm" # A
             println("Model: inhibitor-dependent germination with inducer-dependent inhibitor/inducer permeability")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_dependent_perm!,
                 Main.thresh_criterion_inhibitor,
                 sobol_pts,
@@ -2600,12 +2507,10 @@ module DataUtils
                 [params[7]], # μ_γ
                 [params[7] * exp(params[8])] # σ_γ = μ_γ * exp(δ_γ)
             )
-            # param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ]
-            # param_occurrences = [n_src, 1, n_src, n_src, 1, 1, 1, 1]
 
         elseif model_type == "feedback_combined_inducer_perm" # A
             println("Model: 2-factor germination with inducer-dependent inhibitor/inducer permeability")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_dependent_perm!,
                 Main.thresh_criterion_combined,
                 sobol_pts,
@@ -2621,12 +2526,10 @@ module DataUtils
                 [params[7], params[9]], # [μ_γ, μ_ω]
                 [params[7] * exp(params[8]), params[9] * exp(params[10])] # [σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)]
             )
-            # param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
-            # param_occurrences = [n_src, 1, n_src, n_src, 1, 1, 1, 1, n_src, n_src]
         
         elseif model_type == "feedback_inducer_inhibitor_perm" # D
             println("Model: Inducer-dependent germination with inhibitor-dependent inhibitor/inducer permeability")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inhibitor_dependent_perm!,
                 Main.thresh_criterion_inducer,
                 sobol_pts,
@@ -2642,12 +2545,10 @@ module DataUtils
                 [params[8]], # [μ_ω]
                 [params[8] * exp(params[9])] # [σ_ω = μ_ω * exp(δ_ω)]
             )
-            # param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :μ_ψ, :δ_ψ, :μ_ω, :δ_ω]
-            # param_occurrences = [1, 1, n_src, 1, 1, 1, n_src, n_src]
         
         elseif model_type == "feedback_combined_inhibitor_perm" # D
             println("Model: 2-factor germination with inhibitor-dependent inhibitor/inducer permeability")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inhibitor_dependent_perm!,
                 Main.thresh_criterion_combined,
                 sobol_pts,
@@ -2663,12 +2564,10 @@ module DataUtils
                 [params[8], params[10]], # [μ_γ, μ_ω]
                 [params[8] * exp(params[9]), params[10] * exp(params[11])] # [σ_ω = μ_ω * exp(δ_ω)]
             )
-            # param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
-            # param_occurrences = [1, 1, n_src, 1, 1, 1, 1, 1, n_src, n_src]
         
         elseif model_type == "feedback_inhibitor_inducer_perm_thresh" # AB
             println("Model: Inhibitor-dependent germination with inducer-dependent permeability and inhibition threshold")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_dependent_perm!,
                 Main.thresh_criterion_inhibitor_shift,
                 sobol_pts,
@@ -2685,12 +2584,10 @@ module DataUtils
                 [params[7] * exp(params[8])]; # σ_γ = μ_γ * exp(δ_γ)
                 ks=[exp(params[9])] # k_C
             )
-            # param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :k_C]
-            # param_occurrences = [n_src, 1, n_src, n_src, 1, 1, 1, 1, n_src]
 
         elseif model_type == "feedback_combined_inducer_perm_thresh" # AB
             println("Model: 2-factor germination with inducer-dependent permeability and inhibition threshold")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_dependent_perm!,
                 Main.thresh_criterion_combined_inhibitor_shift,
                 sobol_pts,
@@ -2707,12 +2604,10 @@ module DataUtils
                 [params[7] * exp(params[8]), params[9] * exp(params[10])]; # [σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)]
                 ks=[exp(params[11])] # k_C
             )
-            # param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :k_C]
-            # param_occurrences = [n_src, 1, n_src, n_src, 1, 1, 1, 1, n_src, n_src, n_src]
         
         elseif model_type == "feedback_inhibitor_inducer_perm_inhibitor_signal" # AC
             println("Model: Inhibitor-dependent germination with inducer-dependent permeability and inhibitor-dependent induction signal")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_dependent_perm_inhibitor_dependent_signal!,
                 Main.thresh_criterion_inhibitor,
                 sobol_pts,
@@ -2729,12 +2624,10 @@ module DataUtils
                 [params[8] * exp(params[9])]; # σ_γ = μ_γ * exp(δ_γ)
                 n=params[10] # n
             )
-            # param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :n]
-            # param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src]
 
         elseif model_type == "feedback_inducer_inducer_perm_inhibitor_signal" # AC
             println("Model: Inducer-dependent germination with inducer-dependent permeability and inhibitor-dependent induction signal")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_dependent_perm_inhibitor_dependent_signal!,
                 Main.thresh_criterion_inducer,
                 sobol_pts,
@@ -2751,12 +2644,10 @@ module DataUtils
                 [params[8] * exp(params[9])]; # σ_ω = μ_ω * exp(δ_ω)
                 n=params[10] # n
             )
-            # param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_ω, :δ_ω, :n]
-            # param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, n_src, n_src, n_src]
             
         elseif model_type == "feedback_combined_inducer_perm_inhibitor_signal" # AC
             println("Model: 2-factor germination with inducer-dependent permeability and inhibitor-dependent induction signal")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_dependent_perm_inhibitor_dependent_signal!,
                 Main.thresh_criterion_combined,
                 sobol_pts,
@@ -2773,12 +2664,10 @@ module DataUtils
                 [params[8] * exp(params[9]), params[10] * exp(params[11])]; # [σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)]
                 n=params[12] # n
             )
-            # param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :n]
-            # param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src, n_src, n_src]
             
         elseif model_type == "feedback_inhibitor_inhibitor_inducer_perm" # AD
             println("Model: Inhibitor-dependent germination with inhibitor- and inducer-dependent inhibitor/inducer permeability")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_and_inhibitor_dependent_perm!,
                 Main.thresh_criterion_inhibitor,
                 sobol_pts,
@@ -2794,12 +2683,10 @@ module DataUtils
                 [params[9]], # μ_γ
                 [params[9] * exp(params[10])] # σ_γ = μ_γ * exp(δ_γ)
             )
-            # param_keys = [:b_max, :s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ]
-            # param_occurrences = [1, n_src, 1, n_src, 1, n_src, 1, 1, 1, 1]
         
         elseif model_type == "feedback_inducer_inhibitor_inducer_perm" # AD
             println("Model: Inducer-dependent germination with inhibitor- and inducer-dependent inhibitor/inducer permeability")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_and_inhibitor_dependent_perm!,
                 Main.thresh_criterion_inducer,
                 sobol_pts,
@@ -2815,12 +2702,10 @@ module DataUtils
                 [params[9]], # μ_ω
                 [params[9] * exp(params[10])] # σ_ω = μ_ω * exp(δ_ω)
             )
-            # param_keys = [:b_max, :s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_ω, :δ_ω]
-            # param_occurrences = [1, n_src, 1, n_src, 1, n_src, 1, 1, n_src, n_src]
         
         elseif model_type == "feedback_combined_inhibitor_inducer_perm" # AD
             println("Model: 2-factor germination with inhibitor- and inducer-dependent inhibitor/inducer permeability")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_and_inhibitor_dependent_perm!,
                 Main.thresh_criterion_combined,
                 sobol_pts,
@@ -2836,12 +2721,10 @@ module DataUtils
                 [params[9], params[11]], # μ_γ, μ_ω
                 [params[9] * exp(params[10]), params[11] * exp(params[12])] # σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)
             )
-            # param_keys = [:b_max, :s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
-            # param_occurrences = [1, n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src, n_src]
         
         elseif model_type == "feedback_inducer_inhibitor_thresh_inducer_perm" # AE
             println("Model: Inducer-dependent germination with inhibitor-dependent induction threshold and inducer-dependent inhibitor/inducer permeability")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_dependent_perm!,
                 Main.thresh_criterion_inducer_shift,
                 sobol_pts,
@@ -2858,12 +2741,10 @@ module DataUtils
                 [params[8] * exp(params[9])]; # σ_ω = μ_ω * exp(δ_ω)
                 ks=[exp(params[10])] # k_I
             )
-            # param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_ω, :δ_ω, :k_I]
-            # param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, n_src, n_src, n_src]
 
         elseif model_type == "feedback_combined_inhibitor_thresh_inducer_perm" # AE
             println("Model: 2-factor germination with inhibitor-dependent induction threshold and inducer-dependent inhibitor/inducer permeability")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_dependent_perm!,
                 Main.thresh_criterion_combined_inducer_shift,
                 sobol_pts,
@@ -2880,12 +2761,10 @@ module DataUtils
                 [params[8] * exp(params[9]), params[10] * exp(params[11])]; # σ_ω = μ_ω * exp(δ_ω)
                 ks=[exp(params[12])] # k_I
             )
-            # param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :k_I]
-            # param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src, n_src, n_src]
             
         elseif model_type == "inhibitor_thresh_inducer_signal" # BC
             println("Model: Inhibitor-dependent germination with inducer-dependent inhibition threshold and inhibitor-dependent induction signal")
-            wrapper = (inputs, params) -> Main.germ_response_inh_dep_ind_signal_ind_dep_inh_thresh_gh(
+            wrapper = (inputs, params) -> Main.gresp_inh_dep_ind_signal_ind_dep_inh_thresh_gh(
                 u, W3,
                 inputs[1], #t
                 inputs[2], #ρₛ
@@ -2904,12 +2783,10 @@ module DataUtils
                 params[9], #μ_ψ
                 params[9] * exp(params[10]) #σ_ψ
             )
-            # param_keys = [:Pₛ, :Pₛ_cs, :k_C, :K_cC, :K_I, :n, :μ_γ, :δ_γ, :μ_ψ, :δ_ψ]
-            # param_occurrences = [1, n_src, n_src, n_src, 1, n_src, 1, 1, 1, 1]
 
         elseif model_type == "combined_inhibitor_thresh_inducer_signal" # BC
             println("Model: 2-factor germination with inducer-dependent inhibition threshold and inhibitor-dependent induction signal")
-            wrapper = (inputs, params) -> Main.germ_response_inh_dep_ind_signal_ind_dep_inh_thresh_2_factor_gh(
+            wrapper = (inputs, params) -> Main.gresp_inh_dep_ind_signal_ind_dep_inh_thresh_2_factor_gh(
                 u, W3,
                 inputs[1], #t
                 inputs[2], #ρₛ
@@ -2930,12 +2807,10 @@ module DataUtils
                 params[11], #μ_ψ
                 params[11] * exp(params[12]) #σ_ψ
             )
-            # param_keys = [:Pₛ, :Pₛ_cs, :k_C, :K_cC, :K_I, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
-            # param_occurrences = [1, n_src, n_src, n_src, 1, n_src, 1, 1, n_src, n_src, 1, 1]
             
         elseif model_type == "feedback_inhibitor_inducer_thresh_inhibitor_perm" # BD
             println("Model: Inhibitor-dependent germination with inducer-dependent inhibition threshold and inhibitor-dependent inhibitor/inducer permeability")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inhibitor_dependent_perm!,
                 Main.thresh_criterion_inhibitor_shift,
                 sobol_pts,
@@ -2952,12 +2827,10 @@ module DataUtils
                 [params[8] * exp(params[9])], # [σ_γ = μ_γ * exp(δ_γ)]
                 ks=[exp(params[10])] # k_C
             )
-            # param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :k_C]
-            # param_occurrences = [1, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src]
         
         elseif model_type == "feedback_combined_inducer_thresh_inhibitor_perm" # BD
             println("Model: Inhibitor-dependent germination with inducer-dependent inhibition threshold and inhibitor-dependent inhibitor/inducer permeability")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inhibitor_dependent_perm!,
                 Main.thresh_criterion_combined_inhibitor_shift,
                 sobol_pts,
@@ -2974,12 +2847,10 @@ module DataUtils
                 [params[8] * exp(params[9]), params[10] * exp(params[11])], # [σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)]
                 ks=[exp(params[12])] # k_C
             )
-            # param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :k_C]
-            # param_occurrences = [1, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src, n_src, n_src]
         
         elseif model_type == "combined_inhibitor_thresh_inducer_thresh" # BE
             println("Model: inhibitor-modulated induction threshold / inducer-modulated inhibition threshold")
-            wrapper = (inputs, params) -> Main.germ_response_inh_dep_ind_thresh_ind_dep_inh_thresh_2_factor_gh(
+            wrapper = (inputs, params) -> Main.gresp_inh_dep_ind_thresh_ind_dep_inh_thresh_2_factor_gh(
                 u, W3,
                 inputs[1], #t
                 inputs[2], #ρₛ
@@ -3000,12 +2871,10 @@ module DataUtils
                 params[11], #μ_ψ
                 params[11] * exp(params[12]) # σ_ψ = μ_ψ * exp(δ_ψ)
             )
-            # param_keys = [:Pₛ, :Pₛ_cs, :K_cI, :K_cC, :k_I, :k_C, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
-            # param_occurrences = [1, n_src, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1]
 
         elseif model_type == "feedback_inducer_inhibitor_perm_signal" # CD
             println("Model: Inhibitor-dependent germination with inducer-dependent inhibition threshold and inhibitor-dependent inhibitor/inducer permeability")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inhibitor_dependent_perm!,
                 Main.thresh_criterion_inducer_signal,
                 sobol_pts,
@@ -3021,12 +2890,10 @@ module DataUtils
                 [params[9]], # [μ_ω]
                 [params[9] * exp(params[10])] # [σ_ω = μ_ω * exp(δ_ω)]
             )
-            # param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_ω, :δ_ω]
-            # param_occurrences = [1, 1, n_src, n_src, 1, 1, 1, n_src, n_src]
         
         elseif model_type == "feedback_combined_inhibitor_perm_signal" # CD
             println("Model: 2-factor germination with inducer-dependent inhibition threshold and inhibitor-dependent inhibitor/inducer permeability")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inhibitor_dependent_perm!,
                 Main.thresh_criterion_combined_inducer_signal,
                 sobol_pts,
@@ -3043,12 +2910,10 @@ module DataUtils
                 [params[9] * exp(params[10]), params[11] * exp(params[12])], # [σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)]
                 n=params[13] # n
             )
-            # param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω]
-            # param_occurrences = [1, 1, n_src, n_src, 1, 1, 1, 1, 1, n_src, n_src]
         
         elseif model_type == "feedback_inducer_inhibitor_perm_thresh" # DE
             println("Model: Inhibitor-dependent germination with inhibitor-dependent inhibitor/inducer permeability and induction threshold")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inhibitor_dependent_perm!,
                 Main.thresh_criterion_inducer_shift,
                 sobol_pts,
@@ -3065,12 +2930,10 @@ module DataUtils
                 [params[8] * exp(params[9])], # [σ_ω = μ_ω * exp(δ_ω)]
                 ks=[exp(params[10])] # k_I
             )
-            # param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_ω, :δ_ω, :k_I]
-            # param_occurrences = [1, 1, n_src, 1, n_src, 1, 1, n_src, n_src, n_src]
         
         elseif model_type == "feedback_combined_inhibitor_perm_thresh" # DE
             println("Model: Inhibitor-dependent germination with inhibitor-dependent inhibitor/inducer permeability and induction threshold")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inhibitor_dependent_perm!,
                 Main.thresh_criterion_combined_inducer_shift,
                 sobol_pts,
@@ -3087,12 +2950,10 @@ module DataUtils
                 [params[8] * exp(params[9]), params[10] * exp(params[11])], # [σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)]
                 ks=[exp(params[12])] # k_I
             )
-            # param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :k_I]
-            # param_occurrences = [1, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src, n_src, n_src]
         
         elseif model_type == "feedback_inhibitor_inducer_perm_thresh_inhibitor_signal" # ABC
             println("Model: Inducer-dependent germination with inducer-dependent permeability and inhibitor-dependent induction signal")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_dependent_perm_inhibitor_dependent_signal!,
                 Main.thresh_criterion_inhibitor_shift,
                 sobol_pts,
@@ -3110,12 +2971,10 @@ module DataUtils
                 ks=[exp(params[10])], # k_C
                 n=params[11] # n
             )
-            # param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :k_C, :n]
-            # param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, n_src, 1, 1, n_src]
             
         elseif model_type == "feedback_combined_inducer_perm_thresh_inhibitor_signal" # ABC
             println("Model: 2-factor germination with inducer-dependent permeability and inhibitor-dependent induction signal")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_dependent_perm_inhibitor_dependent_signal!,
                 Main.thresh_criterion_combined_inhibitor_shift,
                 sobol_pts,
@@ -3133,12 +2992,10 @@ module DataUtils
                 ks=[exp(params[12])], # k_C
                 n=params[13] # n
             )
-            # param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :k_C, :n]
-            # param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src, n_src, n_src, n_src]
             
         elseif model_type == "feedback_inhibitor_inducer_perm_thresh_inhibitor_perm" # ABD
             println("Model: Inhibitor-dependent germination with inducer-dependent inhibition threshold and inhibitor- and inducer-dependent inhibitor/inducer permeability")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_and_inhibitor_dependent_perm!,
                 Main.thresh_criterion_inhibitor_shift,
                 sobol_pts,
@@ -3155,12 +3012,10 @@ module DataUtils
                 [params[9] * exp(params[10])]; # σ_γ = μ_γ * exp(δ_γ)
                 ks=[exp(params[11])] # k_C
             )
-            # param_keys = [:b_max, :s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :k_C]
-            # param_occurrences = [1, n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src]
         
         elseif model_type == "feedback_combined_inducer_perm_thresh_inhibitor_perm" # ABD
             println("Model: 2-factor germination with inducer-dependent inhibition threshold and inhibitor- and inducer-dependent inhibitor/inducer permeability")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_and_inhibitor_dependent_perm!,
                 Main.thresh_criterion_combined_inhibitor_shift,
                 sobol_pts,
@@ -3177,12 +3032,10 @@ module DataUtils
                 [params[9] * exp(params[10]), params[11] * exp(params[12])]; # σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)
                 ks=[exp(params[13])] # k_C
             )
-            # param_keys = [:b_max, :s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :k_C]
-            # param_occurrences = [1, n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src, n_src, n_src]
         
         elseif model_type == "feedback_combined_inducer_perm_thresh_inhibitor_thresh" # ABE
             println("Model: 2-factor germination with inducer-dependent inhibitor/inducer permeability and inhibition threshold and inhibitor-dependent induction threshold")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_dependent_perm!,
                 Main.thresh_criterion_combined_shift,
                 sobol_pts,
@@ -3199,12 +3052,10 @@ module DataUtils
                 [params[8] * exp(params[9]), params[10] * exp(params[11])]; # [σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)]
                 ks=[exp(params[12]), exp(params[13])] # k_I, k_C
             )
-            # param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :k_I, :k_C]
-            # param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src, n_src, n_src, n_src]
         
         elseif model_type == "feedback_inhibitor_inhibitor_inducer_perm_inhibitor_signal" # ACD
             println("Model: Inhibitor-dependent germination with inducer/inhibitor-dependent inhibitor/inducer permeability and inhibitor-dependent induction signal")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_and_inhibitor_dependent_perm_inhibitor_dependent_signal!,
                 Main.thresh_criterion_inhibitor,
                 sobol_pts,
@@ -3221,12 +3072,10 @@ module DataUtils
                 [params[10] * exp(params[11])]; # σ_γ = μ_γ * exp(δ_γ)
                 n=params[12] # n
             )
-            # param_keys = [:b_max, :s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :n]
-            # param_occurrences = [1, n_src, 1, n_src, 1, n_src, n_src, 1, 1, 1, 1, n_src]
         
         elseif model_type == "feedback_inducer_inhibitor_inducer_perm_inhibitor_signal" # ACD
             println("Model: Inhibitor-dependent germination with inducer/inhibitor-dependent inhibitor/inducer permeability and inhibitor-dependent induction signal")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_and_inhibitor_dependent_perm_inhibitor_dependent_signal!,
                 Main.thresh_criterion_inducer,
                 sobol_pts,
@@ -3243,12 +3092,10 @@ module DataUtils
                 [params[10] * exp(params[11])]; # σ_ω = μ_ω * exp(δ_ω)
                 n=params[12] # n
             )
-            # param_keys = [:b_max, :s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_ω, :δ_ω, :n]
-            # param_occurrences = [1, n_src, 1, n_src, 1, n_src, 1, 1, n_src, n_src, n_src]
         
         elseif model_type == "feedback_combined_inhibitor_inducer_perm_inhibitor_signal" # ACD
             println("Model: 2-factor germination with inducer/inhibitor-dependent inhibitor/inducer permeability and inhibitor-dependent induction signal")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_and_inhibitor_dependent_perm_inhibitor_dependent_signal!,
                 Main.thresh_criterion_combined,
                 sobol_pts,
@@ -3265,12 +3112,10 @@ module DataUtils
                 [params[10] * exp(params[11]), params[12] * exp(params[13])]; # σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)
                 n=params[14] # n
             )
-            # param_keys = [:b_max, :s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :n]
-            # param_occurrences = [1, n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src, n_src, n_src]
         
         elseif model_type == "feedback_inducer_inducer_perm_inhibitor_thresh_signal" # ACE
             println("Model: Inducer-dependent germination with inducer-dependent permeability and inhibitor-dependent induction threshold and signal")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_dependent_perm_inhibitor_dependent_signal!,
                 Main.thresh_criterion_inducer_signal_shift,
                 sobol_pts,
@@ -3288,12 +3133,10 @@ module DataUtils
                 ks=[exp(params[11])], # k_I
                 n=params[12] # n
             )
-            # param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_ω, :δ_ω, :k_I, :n]
-            # param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, n_src, n_src, n_src, n_src]
             
         elseif model_type == "feedback_combined_inducer_perm_inhibitor_thresh_signal" # ACE
             println("Model: 2-factor germination with inducer-dependent permeability and inhibitor-dependent induction threshold and signal")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_dependent_perm_inhibitor_dependent_signal!,
                 Main.thresh_criterion_combined_inducer_signal_shift,
                 sobol_pts,
@@ -3311,12 +3154,10 @@ module DataUtils
                 ks=[exp(params[13])], # k_I
                 n=params[14] # n
             )
-            # param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :k_I, :n]
-            # param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src, n_src, n_src, n_src]
             
         elseif model_type == "feedback_inducer_inhibitor_inducer_perm_inhibitor_thresh" # ADE
             println("Model: Inhibitor-dependent germination with inhibitor- and inducer-dependent inhibitor/inducer permeability, inhibitor-dependent induction threshold")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_and_inhibitor_dependent_perm!,
                 Main.thresh_criterion_inducer_shift,
                 sobol_pts,
@@ -3333,12 +3174,10 @@ module DataUtils
                 [params[9] * exp(params[10])]; # σ_γ = μ_γ * exp(δ_γ)
                 ks=[exp(params[11])] # k_I
             )
-            #param_keys = [:b_max, :s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :k_I]
-            # param_occurrences = [1, n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src]
         
         elseif model_type == "feedback_combined_inhibitor_inducer_perm_inhibitor_thresh" # ADE
             println("Model: 2-factor germination with inhibitor- and inducer-dependent inhibitor/inducer permeability, inhibitor-dependent induction threshold")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_and_inhibitor_dependent_perm!,
                 Main.thresh_criterion_combined_inducer_shift,
                 sobol_pts,
@@ -3355,12 +3194,10 @@ module DataUtils
                 [params[9] * exp(params[10]), params[11] * exp(params[12])]; # σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)
                 ks=[exp(params[13])] # k_I
             )
-            #param_keys = [:b_max, :s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :k_I]
-            # param_occurrences = [1, n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src, n_src, n_src]
         
         elseif model_type == "feedback_inhibitor_inducer_thresh_inhibitor_perm_signal" # BCD
             println("Model: Inhibitor-dependent germination with inhibitor-dependent inhibitor/inducer permeability and inducer-dependent inhibition threshold")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inhibitor_dependent_perm!,
                 Main.thresh_criterion_inhibitor_signal_shift,
                 sobol_pts,
@@ -3378,12 +3215,10 @@ module DataUtils
                 ks=params[11], # k_C
                 n=params[12] # n
             )
-            #param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :k_C, :n]
-            # param_occurrences = [1, 1, n_src, n_src, 1, 1, 1, 1, 1, n_src, n_src]
         
         elseif model_type == "feedback_combined_inducer_thresh_inhibitor_perm_signal" # BCD
             println("Model: 2-factor germination with inhibitor-dependent inhibitor/inducer permeability and inducer-dependent inhibition threshold")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inhibitor_dependent_perm!,
                 Main.thresh_criterion_combined_inhibitor_signal_shift,
                 sobol_pts,
@@ -3401,12 +3236,10 @@ module DataUtils
                 ks=params[13], # k_C
                 n=params[14] # n
             )
-            #param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :k_C, :n]
-            # param_occurrences = [1, 1, n_src, n_src, 1, 1, 1, 1, 1, n_src, n_src, n_src, n_src]
         
         elseif model_type == "combined_inhibitor_thresh_signal_inducer_thresh" # BCE
             println("Model: inhibitor-modulated induction threshold and signal / inducer-modulated inhibition threshold")
-            wrapper = (inputs, params) -> Main.germ_response_inh_dep_ind_thresh_signal_ind_dep_inh_thresh_2_factor_gh(
+            wrapper = (inputs, params) -> Main.gresp_inh_dep_ind_thresh_signal_ind_dep_inh_thresh_2_factor_gh(
                 u, W3,
                 inputs[1], #t
                 inputs[2], #ρₛ
@@ -3429,12 +3262,10 @@ module DataUtils
                 params[13], #μ_ψ
                 params[13] * exp(params[14]) # σ_ψ = μ_ψ * exp(δ_ψ)
             )
-            #param_keys = [:Pₛ, :Pₛ_cs, :K_cI, :K_cC, :K_I, :n, :k_I, :k_C, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
-            # param_occurrences = [1, n_src, n_src, 1, n_src, n_src, n_src, 1, 1, n_src, n_src, 1, 1]
 
         elseif model_type == "feedback_combined_inhibitor_perm_thresh_inducer_thresh" # BDE
             println("Model: 2-factor germination with inhibitor-dependent inhibitor/inducer permeability and inducer threshold, inducer-dependent inhibition threshold")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inhibitor_dependent_perm!,
                 Main.thresh_criterion_combined_shift,
                 sobol_pts,
@@ -3451,12 +3282,10 @@ module DataUtils
                 [params[8] * exp(params[9]), params[10] * exp(params[11])]; # [σ_ω = μ_ω * exp(δ_ω)]
                 ks=[params[12], params[13]] # k_I, k_C
             )
-            #param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :k_I, :k_C]
-            # param_occurrences = [1, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src, n_src, n_src, n_src]
         
         elseif model_type == "feedback_inducer_inhibitor_perm_thresh_signal" # CDE
             println("Model: Inducer-dependent germination with inhibitor-dependent inhibitor/inducer permeability, induction threshold and signal")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inhibitor_dependent_perm!,
                 Main.thresh_criterion_inducer_signal_shift,
                 sobol_pts,
@@ -3474,12 +3303,10 @@ module DataUtils
                 ks=[params[11]], # k_I
                 n=params[12] # n
             )
-            #param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_ω, :δ_ω, :k_I, :n]
-            # param_occurrences = [1, 1, n_src, 1, n_src, 1, 1, 1, n_src, n_src, n_src, n_src]
         
         elseif model_type == "feedback_combined_inhibitor_perm_thresh_signal" # CDE
             println("Model: 2-factor germination with inhibitor-dependent inhibitor/inducer permeability, induction threshold and signal")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inhibitor_dependent_perm!,
                 Main.thresh_criterion_combined_inducer_signal_shift,
                 sobol_pts,
@@ -3497,12 +3324,10 @@ module DataUtils
                 ks=[params[13]], # k_I
                 n=params[14] # n
             )
-            #param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :k_I, :n]
-            # param_occurrences = [1, 1, n_src, 1, n_src, 1, 1, 1, 1, 1, n_src, n_src, n_src, n_src]
         
         elseif model_type == "feedback_inhibitor_inducer_perm_thresh_inhibitor_perm_signal" # ABCD
             println("Model: Inhibitor-dependent germination with inducer/inhibitor-dependent inhibitor/inducer permeability, inducer_dependent inhibition threshold and inhibitor-dependent induction signal")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_and_inhibitor_dependent_perm_inhibitor_dependent_signal!,
                 Main.thresh_criterion_inhibitor_shift,
                 sobol_pts,
@@ -3520,12 +3345,10 @@ module DataUtils
                 ks=[params[12]], # k_C
                 n=params[13] # n
             )
-            #param_keys = [:b_max, :s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :k_C, :n]
-            # param_occurrences = [1, n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src, n_src]
         
         elseif model_type == "feedback_combined_inducer_perm_thresh_inhibitor_perm_signal" # ABCD
             println("Model: 2-factor germination with inducer/inhibitor-dependent inhibitor/inducer permeability, inducer_dependent inhibition threshold and inhibitor-dependent induction signal")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_and_inhibitor_dependent_perm_inhibitor_dependent_signal!,
                 Main.thresh_criterion_combined_inhibitor_shift,
                 sobol_pts,
@@ -3543,12 +3366,10 @@ module DataUtils
                 ks=[params[14]], # k_C
                 n=params[15] # n
             )
-            #param_keys = [:b_max, :s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :k_C, :n]
-            # param_occurrences = [1, n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src, n_src, n_src, n_src]
         
         elseif model_type == "feedback_combined_inhibitor_thresh_signal_inducer_perm_thresh" # ABCE
             println("Model: 2-factor germination with inducer-dependent permeability/inhibition threshold and inhibitor-dependent induction signal and threshold")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_dependent_perm_inhibitor_dependent_signal!,
                 Main.thresh_criterion_combined_inhibitor_shift_inducer_signal_shift,
                 sobol_pts,
@@ -3566,12 +3387,10 @@ module DataUtils
                 ks=[params[13], params[14]],
                 n=params[15] # n
             )
-            #param_keys = [:s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :k_I, :k_C, :n]
-            # param_occurrences = [n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src, n_src, n_src]
             
         elseif model_type == "feedback_combined_inhibitor_perm_thresh_inducer_perm_thresh" # ABDE
             println("Model: 2-factor germination with inhibitor- and inducer-dependent inhibitor/inducer permeability, inhibitor- and inducer-dependent thresholds")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_and_inhibitor_dependent_perm!,
                 Main.thresh_criterion_combined_shift,
                 sobol_pts,
@@ -3588,12 +3407,10 @@ module DataUtils
                 [params[9] * exp(params[10]), params[11] * exp(params[12])]; # σ_γ = μ_γ * exp(δ_γ), σ_ω = μ_ω * exp(δ_ω)
                 ks=[params[13], params[14]] # k_I, k_C
             )
-            #param_keys = [:b_max, :s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :k_I, :k_C]
-            # param_occurrences = [1, n_src, 1, n_src, 1, n_src, 1, 1, 1, 1, n_src, n_src]
         
         elseif model_type == "feedback_inducer_inhibitor_perm_thresh_signal_inducer_perm" # ACDE
             println("Model: Inhibitor-dependent germination with inducer/inhibitor-dependent inhibitor/inducer permeability and inhibitor-dependent induction signal and threshold")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_and_inhibitor_dependent_perm_inhibitor_dependent_signal!,
                 Main.thresh_criterion_inducer_signal_shift,
                 sobol_pts,
@@ -3611,11 +3428,10 @@ module DataUtils
                 ks=[params[12]], # k_I
                 n=params[13] # n
             )
-            #param_keys = [:b_max, :s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_ω, :δ_ω, :k_I, :n]
         
         elseif model_type == "feedback_combined_inhibitor_perm_thresh_signal_inducer_perm" # ACDE
             println("Model: 2-factor germination with inducer/inhibitor-dependent inhibitor/inducer permeability and inhibitor-dependent induction signal and threshold")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_and_inhibitor_dependent_perm_inhibitor_dependent_signal!,
                 Main.thresh_criterion_combined_inducer_signal_shift,
                 sobol_pts,
@@ -3633,11 +3449,10 @@ module DataUtils
                 ks=[params[14]], # k_I
                 n=params[15] # n
             )
-            #param_keys = [:b_max, :s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :k_I, :n]
         
         elseif model_type == "feedback_combined_inhibitor_perm_thresh_signal_inducer_thresh" # BCDE
             println("Model: 2-factor germination with inhibitor-dependent inhibitor/inducer permeability, induction threshold and signal, and inducer-dependent inhibition threshold")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inhibitor_dependent_perm!,
                 Main.thresh_criterion_combined_inhibitor_shift_inducer_signal_shift,
                 sobol_pts,
@@ -3655,11 +3470,10 @@ module DataUtils
                 ks=[params[13], params[14]],
                 n=params[15]
             )
-            #param_keys = [:b_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :k_I, :k_C, :n]
         
         elseif model_type == "feedback_combined_inhibitor_perm_thresh_signal_inducer_perm_thresh" # ABCDE
             println("Model: 2-factor germination with inducer/inhibitor-dependent inhibitor/inducer permeability, inducer-dependent inhibition threshold and inhibitor-dependent induction threshold/signal")
-            wrapper = (V_out, params) -> Main.germ_response_feedback(
+            wrapper = (V_out, params) -> Main.gresp_feedback(
                 Main.ode_inducer_and_inhibitor_dependent_perm_inhibitor_dependent_signal!,
                 Main.thresh_criterion_combined_inhibitor_shift_inducer_signal_shift,
                 sobol_pts,
@@ -3677,7 +3491,6 @@ module DataUtils
                 ks=[params[14], params[15]], # k_I, k_C
                 n=params[16] # n
             )
-            #param_keys = [:b_max, :s_max, :Pₛ, :Pₛ_cs, :K_cI, :K_cC, :K_I, :μ_ψ, :δ_ψ, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :k_I, :k_C, :n]
         
         else
             error("Model type not recognized.")
@@ -3709,12 +3522,6 @@ module DataUtils
                 # Objective function
                 input_tuples =  [tuple.(times_tile[i, :, :], inverse_mL_to_cubic_um.(densities_tile[i, :, :])) for i in 1:length(sources)]
                 dantigny_data_flat = [collect(dantigny_data[i, :, :]) for i in 1:length(sources)]
-
-                # println(size(times_tile))
-                # println(size(densities_tile))
-                # println(size(input_tuples))
-                # println(size(dantigny_data))
-                # println(size(dantigny_data_flat))
 
                 obj = params -> begin
                     err = 0.0
@@ -3858,7 +3665,7 @@ module DataUtils
             bounds_dict (Dict): bounds for the free parameters
             c_ex_vals (Vector): exogenous inhibitor concentrations (optional)
             ref_density (Float): reference density for exogenous inhibitor (optional, only used when fitting both exogenous and endogenous models)
-            max_steps (int): maximum number of steps for the optimization
+            max_steps (Int): maximum number of steps for the optimization
         outputs:
             params_out (Dict): optimized parameters
         """
@@ -3881,7 +3688,7 @@ module DataUtils
 
         if model_type in ["inhibitor", "inhibitor_ex"]
             println("Model: Inducer-dependent inhibitor threshold and release")
-            wrapper = (ρₛ, params) -> Main.germ_response_inducer_dep_inhibitor_eq(
+            wrapper = (ρₛ, params) -> Main.gresp_inducer_dep_inhibitor_eq(
                 ρₛ,
                 dist_ξ,
                 params[1], #μ_γ
@@ -3890,7 +3697,7 @@ module DataUtils
             param_keys = [:μ_γ, :δ_γ]
         elseif model_type in ["combined_inducer", "combined_inducer_ex"]
             println("Model: Two-factor germination with inhibitor-dependent induction threshold and signal")
-            wrapper = (ρₛ, params) -> Main.germ_response_inhibitor_dep_inducer_2_factors_eq(
+            wrapper = (ρₛ, params) -> Main.gresp_inhibitor_dep_inducer_2_factors_eq(
                 ρₛ,
                 dist_ξ,
                 def_params[:c₀_cs],
@@ -3909,7 +3716,7 @@ module DataUtils
             param_keys = [:K_cI, :K_cC, :K_I, :k_I, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
         elseif model_type in ["combined_inducer_thresh", "combined_inducer_thresh_ex"]
             println("Model: Two-factor germination with inhibitor-dependent induction threshold")
-            wrapper = (ρₛ, params) -> Main.germ_response_inhibitor_dep_inducer_thresh_2_factors_eq(
+            wrapper = (ρₛ, params) -> Main.gresp_inhibitor_dep_inducer_thresh_2_factors_eq(
                 ρₛ,
                 dist_ξ,
                 def_params[:c₀_cs],
@@ -3925,7 +3732,7 @@ module DataUtils
             param_keys = [:K_cC, :k_I, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
         elseif model_type in ["combined_inducer_signal", "combined_inducer_signal_ex"]
             println("Model: Two-factor germination with inhibitor-dependent induction signal")
-            wrapper = (ρₛ, params) -> Main.germ_response_inhibitor_dep_inducer_signal_2_factors_eq(
+            wrapper = (ρₛ, params) -> Main.gresp_inhibitor_dep_inducer_signal_2_factors_eq(
                 ρₛ,
                 dist_ξ,
                 def_params[:c₀_cs],
@@ -3942,7 +3749,7 @@ module DataUtils
             param_keys = [:K_cC, :K_I, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
         elseif model_type in ["independent", "independent_ex"]
             println("Model: Independent factors")
-            wrapper = (ρₛ, params) -> Main.germ_response_independent_eq(
+            wrapper = (ρₛ, params) -> Main.gresp_independent_eq(
                 ρₛ,
                 dist_ξ,
                 def_params[:c₀_cs],
@@ -3956,7 +3763,7 @@ module DataUtils
         end
         if model_type == "inhibitor_ex"
             println("Model: Inducer-dependent inhibitor threshold and release (exogenous inhibitor)")
-            wrapper_ex = (c_ex, params) -> Main.germ_response_inducer_dep_inhibitor_eq_c_ex(
+            wrapper_ex = (c_ex, params) -> Main.gresp_inducer_dep_inhibitor_eq_c_ex(
                 ref_density, # Assuming single density for exogenous inhibitor
                 dist_ξ,
                 c_ex,
@@ -3968,7 +3775,7 @@ module DataUtils
             param_keys = [:μ_γ, :δ_γ, :μ_ψ, :δ_ψ]
         elseif model_type == "combined_inducer_ex"
             println("Model: Two-factor germination with inhibitor-dependent induction threshold and signal (exogenous inhibitor)")
-            wrapper_ex = (c_ex, params) -> Main.germ_response_inhibitor_dep_inducer_2_factors_eq_c_ex(
+            wrapper_ex = (c_ex, params) -> Main.gresp_inhibitor_dep_inducer_2_factors_eq_c_ex(
                 ref_density, # Assuming single density for exogenous inhibitor
                 dist_ξ,
                 c_ex,
@@ -3988,7 +3795,7 @@ module DataUtils
             param_keys = [:K_cI, :K_cC, :K_I, :k_I, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
         elseif model_type == "combined_inducer_thresh_ex"
             println("Model: Two-factor germination with inhibitor-dependent induction threshold (exogenous inhibitor)")
-            wrapper_ex = (c_ex, params) -> Main.germ_response_inhibitor_dep_inducer_thresh_2_factors_eq_c_ex(
+            wrapper_ex = (c_ex, params) -> Main.gresp_inhibitor_dep_inducer_thresh_2_factors_eq_c_ex(
                 ref_density, # Assuming single density for exogenous inhibitor
                 dist_ξ,
                 c_ex,
@@ -4006,7 +3813,7 @@ module DataUtils
             param_keys = [:K_cI, :K_cC, :k_I, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
         elseif model_type == "combined_inducer_signal_ex"
             println("Model: Two-factor germination with inhibitor-dependent induction signal (exogenous inhibitor)")
-            wrapper_ex = (c_ex, params) -> Main.germ_response_inhibitor_dep_inducer_signal_2_factors_eq_c_ex(
+            wrapper_ex = (c_ex, params) -> Main.gresp_inhibitor_dep_inducer_signal_2_factors_eq_c_ex(
                 ref_density, # Assuming single density for exogenous inhibitor
                 dist_ξ,
                 c_ex,
@@ -4024,7 +3831,7 @@ module DataUtils
             param_keys = [:K_cC, :K_I, :n, :μ_γ, :δ_γ, :μ_ω, :δ_ω, :μ_ψ, :δ_ψ]
         elseif model_type == "independent_ex"
             println("Model: Independent factors (exogenous inhibitor)")
-            wrapper_ex = (c_ex, params) -> Main.germ_response_independent_eq_c_ex(
+            wrapper_ex = (c_ex, params) -> Main.gresp_independent_eq_c_ex(
                 ref_density, # Assuming single density for exogenous inhibitor
                 dist_ξ,
                 c_ex,
@@ -4138,8 +3945,309 @@ module DataUtils
         return params_out, rmse
     end
 
-    function fit_feedback_model_to_data(model_type, def_params, dantigny_data, times, sources, densities, bounds_dict, max_steps=10000)
+    # ===============
+    # ===== BMA =====
+    # ===============
+    """
+    Parameter configuration for a single model.
+    Holds names, anchor values, and prior bounds.
+    """
+    struct ModelConfig
+        name        :: String
+        param_names :: Vector{Symbol}
+        anchor      :: Vector{Float64}      # example_params — known plausible point
+        lower       :: Vector{Float64}      # prior lower bounds (log scale for LogNormal params)
+        upper       :: Vector{Float64}      # prior upper bounds (log scale for LogNormal params)
+        log_scaled  :: Vector{Bool}         # true if parameter is LogNormal (sweep in log space)
+        target_pairs:: Vector{Tuple{Int,Int}} # pairs to test for interactions (from algebraic analysis)
+    end
 
+    """
+    Generate a 1D sweep for parameter j.
+    All other parameters held at anchor.
+    Returns (sweep_values, parameter_vectors).
+    """
+    function make_1d_sweep(config::ModelConfig, j::Int, n_points::Int=100)
+        d = length(config.anchor)
+        sweep_vals = range(config.lower[j], config.upper[j], length=n_points)
+
+        # Each column is a full parameter vector
+        param_matrix = repeat(config.anchor, 1, n_points)  # d × n_points
+        param_matrix[j, :] .= sweep_vals
+
+        return collect(sweep_vals), param_matrix
+    end
+
+    """
+    Generate a 2D grid for parameters j and k.
+    All other parameters held at anchor.
+    Returns (sweep_j, sweep_k, parameter_matrix) where
+    parameter_matrix is d × (n_j * n_k).
+    """
+    function make_2d_sweep(config::ModelConfig, j::Int, k::Int,
+                        n_j::Int=50, n_k::Int=50)
+        d = length(config.anchor)
+        sweep_j = range(config.lower[j], config.upper[j], length=n_j)
+        sweep_k = range(config.lower[k], config.upper[k], length=n_k)
+
+        n_total = n_j * n_k
+        param_matrix = repeat(config.anchor, 1, n_total)
+
+        idx = 1
+        for vj in sweep_j, vk in sweep_k
+            param_matrix[j, idx] = vj
+            param_matrix[k, idx] = vk
+            idx += 1
+        end
+
+        return collect(sweep_j), collect(sweep_k), param_matrix
+    end
+
+    """
+    Convert parameter vector from sweep space to model input space.
+    Log-scaled parameters are exponentiated before passing to model.
+    """
+    function to_model_params(config::ModelConfig, param_vec::Vector{Float64})
+        d = length(param_vec)
+        model_params = Dict{Symbol, Float64}()
+        for i in 1:d
+            val = config.log_scaled[i] ? exp(param_vec[i]) : param_vec[i]
+            model_params[config.param_names[i]] = val
+        end
+        return model_params
+    end
+
+    """
+    Experimental setting for a model (density, measurement times)
+    """
+    struct ExperimentSetting
+        times   ::Vector{Float64}
+        density ::Float64
+    end
+
+    """
+    Thin wrapper: given a parameter matrix (d × N), run the mechanistic
+    model on each column and return an output matrix (n_outputs × N).
+    """
+    function run_model_batch(config::ModelConfig, param_matrix::Matrix{Float64}, exp_setting::ExperimentSetting) # REMEMBER TO SCALE DENSITY AND TIMES!!!!!!!!!!!!!!!!!!!!!!!
+        n_cols = size(param_matrix, 2)
+        outputs = Vector{Vector{Float64}}(undef, n_cols)
+
+        model_alias = config.name
+        density = exp_setting.density
+        times = exp_setting.times
+        p_out = Vector{Float64}(undef, length(times))
+
+        for n in 1:n_cols
+            params = to_model_params(config, param_matrix[:, n])
+            p_out .= compute_gresp_xform_params(model_alias, times, density, params)
+            outputs[n], rmse, uncert = fit_dantigny_to_germination_curve(p_out, times)
+        end
+
+        # Stack into n_outputs × N matrix; replace failed runs with NaN
+        n_out = length(outputs[1])
+        result = fill(NaN, n_out, n_cols)
+        for n in 1:n_cols
+            if !any(isnan.(outputs[n]))
+                result[:, n] .= outputs[n]
+            end
+        end
+        return result
+    end
+
+    """
+    Compute the anchor output y0 (scalar per output dimension).
+    """
+    function compute_anchor_output(config::ModelConfig, exp_setting::ExperimentSetting)
+        anchor_params = to_model_params(config, config.anchor)
+        p_out = compute_gresp_xform_params(config.name, exp_setting.times, exp_setting.density, anchor_params)
+        d_vals, rmse, uncert = fit_dantigny_to_germination_curve(p_out, times)
+        return d_vals  # [p_max, tau_g, nu]
+    end
+
+    """
+    Estimate first-order HDMR term for parameter j:
+        f_j(θ_j) = y(θ_j; θ*_rest) - y0
+
+    Returns:
+        sweep_vals  : the values of θ_j swept
+        f_j_vals    : n_outputs × n_points matrix of f_j values
+        y_vals      : n_outputs × n_points raw outputs (for score computation)
+    """
+    function compute_first_order_term(config::ModelConfig, j::Int,
+                                    y0::Vector{Float64},
+                                    exp_setting::ExperimentSetting;
+                                    n_points::Int=100)
+        sweep_vals, param_matrix = make_1d_sweep(config, j, n_points)
+        y_vals = run_model_batch(config, param_matrix, exp_setting)
+
+        # f_j = y - y0, broadcast over columns
+        f_j_vals = y_vals .- y0
+
+        return sweep_vals, f_j_vals, y_vals
+    end
+
+    """
+    Estimate pairwise interaction term for parameters j and k:
+        f_jk(θ_j, θ_k) = y(θ_j, θ_k; θ*_rest) - f_j(θ_j) - f_k(θ_k) - y0
+
+    This requires first-order terms to already be computed.
+    Returns interaction term as n_outputs × (n_j*n_k) matrix.
+    """
+    function compute_pairwise_term(config::ModelConfig, j::Int, k::Int,
+                                    y0::Vector{Float64},
+                                    f_j_interp::Function,   # interpolated f_j
+                                    f_k_interp::Function,   # interpolated f_k
+                                    exp_setting::ExperimentSetting;
+                                    n_j::Int=50, n_k::Int=50)
+
+        sweep_j, sweep_k, param_matrix = make_2d_sweep(config, j, k, n_j, n_k)
+        y_vals = run_model_batch(config, param_matrix, exp_setting)
+
+        n_total = n_j * n_k
+        f_jk_vals = similar(y_vals)
+
+        idx = 1
+        for vj in sweep_j, vk in sweep_k
+            f_j = f_j_interp(vj)   # interpolated first-order term at vj
+            f_k = f_k_interp(vk)   # interpolated first-order term at vk
+            f_jk_vals[:, idx] .= y_vals[:, idx] .- f_j .- f_k .- y0
+            idx += 1
+        end
+
+        return sweep_j, sweep_k, f_jk_vals, y_vals
+    end
+
+    """
+    Simple linear interpolation of a first-order term for use in pairwise computation.
+    f_j_vals is n_outputs × n_points; sweep_vals is length n_points.
+    Returns a function: sweep_value → Vector{Float64} of length n_outputs.
+    """
+    function make_interpolator(sweep_vals::Vector{Float64}, f_j_vals::Matrix{Float64})
+        return function(x::Float64)
+            # Find bracketing indices
+            idx = searchsortedfirst(sweep_vals, x)
+            idx = clamp(idx, 2, length(sweep_vals))
+            lo, hi = idx-1, idx
+            t = (x - sweep_vals[lo]) / (sweep_vals[hi] - sweep_vals[lo])
+            return (1-t) .* f_j_vals[:, lo] .+ t .* f_j_vals[:, hi]
+        end
+    end
+
+    """
+    Compute variance-based sensitivity indices from HDMR terms.
+
+    Returns:
+        S_first  : d × n_outputs  — first-order Sobol indices
+        S_pair   : n_pairs × n_outputs — pairwise interaction indices
+        S_total  : d × n_outputs  — total-order indices (first + all interactions)
+        V_total  : n_outputs — total output variance (from all terms)
+    """
+    function compute_sensitivity_indices(
+            f_first::Vector{Matrix{Float64}},   # length d, each n_outputs × n_points
+            f_pairs::Vector{Matrix{Float64}},   # length n_pairs, each n_outputs × n_j*n_k
+            target_pairs::Vector{Tuple{Int,Int}},
+            d::Int, n_outputs::Int)
+
+        # Variances of first-order terms
+        V_first = zeros(d, n_outputs)
+        for j in 1:d
+            for o in 1:n_outputs
+                valid = .!isnan.(f_first[j][o, :])
+                V_first[j, o] = var(f_first[j][o, valid])
+            end
+        end
+
+        # Variances of pairwise terms
+        V_pair = zeros(length(target_pairs), n_outputs)
+        for (p, (j, k)) in enumerate(target_pairs)
+            for o in 1:n_outputs
+                valid = .!isnan.(f_pairs[p][o, :])
+                V_pair[p, o] = var(f_pairs[p][o, valid])
+            end
+        end
+
+        # Total variance (sum of all terms — HDMR is an exact decomposition)
+        V_total = vec(sum(V_first, dims=1)) .+ vec(sum(V_pair, dims=1))
+        V_total .= max.(V_total, 1e-12)  # avoid division by zero
+
+        # Normalised indices
+        S_first = V_first ./ V_total'
+        S_pair  = V_pair  ./ V_total'
+
+        # Total-order: first-order + all interactions involving that parameter
+        S_total = copy(S_first)
+        for (p, (j, k)) in enumerate(target_pairs)
+            S_total[j, :] .+= S_pair[p, :]
+            S_total[k, :] .+= S_pair[p, :]
+        end
+
+        return S_first, S_pair, S_total, V_total
+    end
+
+    """
+    Effective dimensionality: number of parameters with S_total > threshold.
+    """
+    function effective_dimensionality(S_total::Matrix{Float64};
+                                    threshold::Float64=0.05)
+        # Average over outputs, then count
+        S_mean = vec(mean(S_total, dims=2))
+        return sum(S_mean .> threshold), S_mean
+    end
+
+    """
+    Compute Mahalanobis-style z-score against lab data for each sweep sample.
+    lab_means: n_outputs vector
+    lab_covs:  n_outputs × n_outputs covariance matrix of lab uncertainty
+
+    Returns z_scores: length N vector (NaN for failed model runs).
+    """
+    function compute_predictive_scores(y_vals::Matrix{Float64},
+                                    lab_means::Vector{Float64},
+                                    lab_cov::Matrix{Float64})
+        n_outputs, N = size(y_vals)
+        Σ_inv = inv(lab_cov)
+        z_scores = fill(NaN, N)
+
+        for n in 1:N
+            if !any(isnan.(y_vals[:, n]))
+                diff = y_vals[:, n] .- lab_means
+                z_scores[n] = dot(diff, Σ_inv * diff)
+            end
+        end
+        return z_scores
+    end
+
+    """
+    Approximate log marginal likelihood from sweep samples via importance sampling.
+    Prior density cancels since sweeps are uniform on [lower, upper].
+    """
+    function approx_log_marginal_likelihood(z_scores::Vector{Float64})
+        valid = .!isnan.(z_scores)
+        if sum(valid) == 0
+            return -Inf
+        end
+        log_likelihoods = -0.5 .* z_scores[valid]
+        # Log-sum-exp for numerical stability
+        lmax = maximum(log_likelihoods)
+        return lmax + log(mean(exp.(log_likelihoods .- lmax)))
+    end
+
+    """
+    Perform High-Dimensional Model Representation (HDMR) on a specific model.
+    Workflow:
+        1. Define anchor point and parameter ranges
+        2. Compute first-order terms (single-parameter sweeps)
+        3. Compute pairwise interaction terms (targeted 2D grids)
+        4. Compute Sobol-style variance-based sensitivity indices
+        5. Rank models by effective dimensionality and predictive score
+    inputs:
+        model_alias (String) - alias of model to analyse
+    """
+    function hdmr(model_alias)
+
+        density_scaled = inverse_mL_to_cubic_um(density)
+        times_sec = times .* 3600
     end
 
 end

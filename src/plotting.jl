@@ -21,8 +21,7 @@ __precompile__(false)
     using .Setup
     using .DataUtils
     using .GermStats
-
-    export generate_ax_grid_pyplot
+    
     export generate_grid_layout_glmakie
     export plot_spheres!
     export plot_spore_clusters
@@ -43,36 +42,18 @@ __precompile__(false)
     export plot_germination_data_fit_all
     export plot_prior_calibration
 
-
-    function generate_ax_grid_pyplot(n_rows, n_cols, figsize=(8, 4))
-        """
-        Generates a grid of axes for PyPlot.
-        inputs:
-            n_rows (int): number of rows
-            n_cols (int): number of columns
-            figsize (Tuple): figure size
-        outputs:
-            fig (Figure): figure object
-            axs (Array): axes objects
-        """
-        fig, axs = subplots(n_rows, n_cols, figsize=figsize)
-        axs = reshape(permutedims(axs, (2, 1)), length(axs))
-        return fig, axs
-    end
-
-
+    """
+    Generates a grid layout for GLMakie.
+    inputs:
+        n_rows (Int): number of rows
+        n_cols (Int): number of columns
+        figsize (Tuple): figure size
+        _3D (Bool): whether to plot in 3D
+    outputs:
+        fig (Figure): figure object
+        axs (Array): axes objects
+    """
     function generate_grid_layout_glmakie(n_rows, n_cols, figsize, _3D=true)
-        """
-        Generates a grid layout for GLMakie.
-        inputs:
-            n_rows (int): number of rows
-            n_cols (int): number of columns
-            figsize (Tuple): figure size
-            _3D (bool): whether to plot in 3D
-        outputs:
-            fig (Figure): figure object
-            axs (Array): axes objects
-        """
         fig = GLMakie.Figure(size=figsize)
         if _3D
             axs = Array{Axis3}(undef, n_rows, n_cols)
@@ -93,20 +74,19 @@ __precompile__(false)
         return fig, axs
     end
 
-
+    """
+    Plots spheres in an interactive 3D plot.
+    inputs:
+        centers (Array{Tuple}): centers of the spheres
+        rads (Float64): radius of the spheres
+        L (Int): the size of the domain
+        inline (Bool): whether to display the plot inline
+        title (String): title of the plot
+        ax (Axis): axis to plot on
+    outputs:
+        ax (Axis): axis object
+    """
     function plot_spheres!(centers, rad, L; inline=true, title=nothing, ax=nothing::Union{Axis, Nothing})
-        """
-        Plots spheres in an interactive 3D plot.
-        inputs:
-            centers (Array{Tuple}): centers of the spheres
-            rads (Float64): radius of the spheres
-            L (int): the size of the domain
-            inline (bool): whether to display the plot inline
-            title (str): title of the plot
-            ax (Axis): axis to plot on
-        outputs:
-            ax (Axis): axis object
-        """
 
         if inline
             GLMakie.activate!()
@@ -149,19 +129,18 @@ __precompile__(false)
         return ax
     end
 
-
+    """
+    Create multiple plots for a range of spore cluster sizes.
+    inputs:
+        cluster_sizes (Array{Int}): sizes of the clusters
+        spore_rad (Float): radius of the spores
+        L (Int): size of the domain
+        per_row (Int): number of plots per row
+        cut_half (Bool): whether to cut the cluster in half
+        spore_spacings (Array{Float64}): distances between spores, if unspecified, spore diameter is used
+        shielding (Bool): whether to label the shielding index, otherwise labels the coverage
+    """
     function plot_spore_clusters(cluster_sizes, spore_rad, L, per_row=2; cut_half=false, spore_spacings=nothing, measure_shielding=false)
-        """
-        Create multiple plots for a range of spore cluster sizes.
-        inputs:
-            cluster_sizes (Array{Int}): sizes of the clusters
-            spore_rad (float): radius of the spores
-            L (int): size of the domain
-            per_row (int): number of plots per row
-            cut_half (bool): whether to cut the cluster in half
-            spore_spacings (Array{Float64}): distances between spores, if unspecified, spore diameter is used
-            shielding (bool): whether to label the shielding index, otherwise labels the coverage
-        """
 
         n_rows = ceil(Int, length(cluster_sizes) / per_row)
 
@@ -188,18 +167,17 @@ __precompile__(false)
         display(fig)
     end
 
-
+    """
+    Plots a 2D section of the concentration lattice.
+    inputs:
+        c_frames (Array{Float64}): concentration lattice frames
+        dx (Float): lattice spacing
+        frame_indices (Array{Int}): indices of the frames to plot
+        times (Array{Float64}): time labels
+        title (String): title of the plot
+        logscale (Bool): whether to plot the colorbar in log scale
+    """
     function plot_concentration_lattice(c_frames::Array{Float64}, dx; frame_indices=nothing, times=nothing, title=nothing, zoom=1.0)
-        """
-        Plots a 2D section of the concentration lattice.
-        inputs:
-            c_frames (Array{Float64}): concentration lattice frames
-            dx (float): lattice spacing
-            frame_indices (Array{Int}): indices of the frames to plot
-            times (Array{Float64}): time labels
-            title (str): title of the plot
-            logscale (bool): whether to plot the colorbar in log scale
-        """
 
         if !isnothing(frame_indices)
             @argcheck typeof(frame_indices) in [Array{Int}, Vector{Int}] "frame_indices must be an array of integers"
@@ -246,20 +224,19 @@ __precompile__(false)
         gcf()
     end
 
-
+    """
+    Compares snapshots of the concentration lattice from two simulations.
+    The simulations need to share the same time labels.
+    inputs:
+        c_frames_array (Vector{Array{Float64}}): concentration lattice frames for each simulation
+        dx_compare (Float): lattice spacings for each simulation
+        frame_indices (Array{Int}): indices of the frames to plot for each simulation
+        times (Array{Float64}): time labels for each simulation
+        title (String): title of the plot
+        zoom (Float): zoom factor for the plot
+        lognorm (Bool): whether to use logarithmic normalization for the color scale
+    """
     function compare_concentration_lattice(c_frames_compare, dx_compare; frame_indices=nothing, times=nothing, title=nothing, zoom=1.0, lognorm=false)
-        """
-        Compares snapshots of the concentration lattice from two simulations.
-        The simulations need to share the same time labels.
-        inputs:
-            c_frames_array (Vector{Array{Float64}}): concentration lattice frames for each simulation
-            dx_compare (float): lattice spacings for each simulation
-            frame_indices (Array{Int}): indices of the frames to plot for each simulation
-            times (Array{Float64}): time labels for each simulation
-            title (str): title of the plot
-            zoom (float): zoom factor for the plot
-            lognorm (bool): whether to use logarithmic normalization for the color scale
-        """
         
         c_frames_filtered = []
         for c_frames in c_frames_compare
@@ -333,27 +310,26 @@ __precompile__(false)
         gcf()
     end
 
-
+    """
+    Plots the time-series of a calculated concentration.
+    inputs:
+        c_vals (Array{Float64}): concentrations
+        times (Array{Float64}): measurement times
+        label (String): plot label
+        ax (Axis): axis to plot on
+        logx (Bool): whether to plot the x-axis in log scale
+        logy (Bool): whether to plot the y-axis in log scale
+        fit_lim (tuple): time interval for exponential fit
+        cmap (String): colormap
+        cmap_idx (Int): index of colour in colormap
+        time_cutoff (Float): time cutoff for the plot
+        title (String): title of the plot
+        ylim (Tuple): y-axis limits
+        dashed (Bool): whether to plot with dashed lines
+    """
     function plot_concentration_evolution(c_vals::Array{Float64}, times::Vector{Float64};
                                             label=nothing, ax=nothing, logx=false, logy=false, fit_lim=nothing, cmap=nothing,
                                             cmap_idx=1, time_cutoff=nothing, title=nothing, ylim=nothing, dashed=true)
-        """
-        Plots the time-series of a calculated concentration.
-        inputs:
-            c_vals (Array{Float64}): concentrations
-            times (Array{Float64}): measurement times
-            label (string): plot label
-            ax (Axis): axis to plot on
-            logx (bool): whether to plot the x-axis in log scale
-            logy (bool): whether to plot the y-axis in log scale
-            fit_lim (tuple): time interval for exponential fit
-            cmap (str): colormap
-            cmap_idx (int): index of colour in colormap
-            time_cutoff (float): time cutoff for the plot
-            title (str): title of the plot
-            ylim (Tuple): y-axis limits
-            dashed (bool): whether to plot with dashed lines
-        """
         
         if isnothing(ax)
             fig, ax = subplots(1, 1, figsize=(8, 4))
@@ -428,31 +404,27 @@ __precompile__(false)
         end
     end
 
-    
+    """
+    Plot multiple concentration evolutions on the same axis.
+    inputs:
+        c_vals_array (Array{Float64, 2}): concentration lattice frames
+        times_array (Array{Vector{Float64}}): times
+        labels (Array{String}): labels for the plots
+        ax (Axis): axis to plot on
+        logx (Bool): whether to plot the x-axis in log scale
+        logy (Bool): whether to plot the y-axis in log scale
+        fit_lim (tuple): time interval for exponential fit
+        cmap (String): colormap
+        cmap_idx_base (Int): base index of the colormap
+        title (String): title of the plot
+        time_cutoff (Float): time cutoff for the plot
+        ylim (Tuple): y-axis limits
+        legend_loc (String): location of the legend
+        dashed (Bool): whether to plot with dashed lines
+    """
     function compare_concentration_evolutions(c_vals_array, times_array, labels=nothing, ax=nothing;
                                                 logx=false, logy=false, fit_lim=nothing, cmap=nothing, cmap_idx_base=0, title=nothing,
                                                 time_cutoff=nothing, ylim=nothing, legend_loc=nothing, dashed=true)
-        """
-        Plot multiple concentration evolutions on the same axis.
-        inputs:
-            c_vals_array (Array{Float64, 2}): concentration lattice frames
-            times_array (Array{Vector{Float64}}): times
-            labels (Array{String}): labels for the plots
-            ax (Axis): axis to plot on
-            logx (bool): whether to plot the x-axis in log scale
-            logy (bool): whether to plot the y-axis in log scale
-            fit_lim (tuple): time interval for exponential fit
-            cmap (str): colormap
-            cmap_idx_base (int): base index of the colormap
-            title (str): title of the plot
-            time_cutoff (float): time cutoff for the plot
-            ylim (Tuple): y-axis limits
-            legend_loc (str): location of the legend
-            dashed (bool): whether to plot with dashed lines
-        """
-
-        # @argcheck (typeof(c_vals_array) in [Vector{Vector{Float64}}, Matrix{Float64}]) "c_groups must be a vector of matrices or a matrix"
-        # @argcheck (typeof(times_array) in [Vector{Vector{Float64}}, Matrix{Float64}]) "times_groups must be a vector of matrices or a matrix"
 
         # Convert to nested arrays
         c_vals_array = to_nested(c_vals_array)
@@ -484,28 +456,24 @@ __precompile__(false)
 
     end
 
-
+    """
+    Compare the concentration evolutions from groups of simulations
+    on the same axis, with corresponding colors.
+    inputs:
+        c_groups (Array{Array{Float64, 2}}): concentration lattice frames
+        times_groups (Array{Array{Float64}}): times
+        group_labels (Array{String}): labels for the groups
+        ax (Axis): axis to plot on
+        logx (Bool): whether to plot the x-axis in log scale
+        logy (Bool): whether to plot the y-axis in log scale
+        fit_lim (tuple): time interval for exponential fit
+        title (String): title of the plot
+        time_cutoff (Float): time cutoff for the plot
+        ylim (Tuple): y-axis limits
+        legend_loc (String): location of the legend
+    """
     function compare_concentration_evolution_groups(c_groups, times_groups, group_labels=nothing, ax=nothing;
                                                     logx=false, logy=false, fit_lim=nothing, title=nothing, time_cutoff=nothing, ylim=nothing, legend_loc=nothing)
-        """
-        Compare the concentration evolutions from groups of simulations
-        on the same axis, with corresponding colors.
-        inputs:
-            c_groups (Array{Array{Float64, 2}}): concentration lattice frames
-            times_groups (Array{Array{Float64}}): times
-            group_labels (Array{String}): labels for the groups
-            ax (Axis): axis to plot on
-            logx (bool): whether to plot the x-axis in log scale
-            logy (bool): whether to plot the y-axis in log scale
-            fit_lim (tuple): time interval for exponential fit
-            title (str): title of the plot
-            time_cutoff (float): time cutoff for the plot
-            ylim (Tuple): y-axis limits
-            legend_loc (str): location of the legend
-        """
-
-        # @argcheck (typeof(c_groups) in [Vector{Vector{Vector{Float64}}}, Matrix{Float64}, Array{Float64, 3}]) "c_groups must be a vector of matrices or a matrix"
-        # @argcheck (typeof(times_groups) in [Vector{Vector{Vector{Float64}}}, Matrix{Float64}, Array{Float64, 3}]) "times_groups must be a vector of matrices or a matrix"
 
         # Convert to nested arrays
         c_groups = to_nested(c_groups)
@@ -540,15 +508,14 @@ __precompile__(false)
         end
     end
 
-
+    """
+    Plots the exterior, cell wall and interior lattice regions.
+    inputs
+        region_ids (Array{Int}): region IDs
+        ax (Axis): axis to plot on
+        zoom (Float): zoom factor for the plot
+    """
     function plot_lattice_regions(region_ids; ax=nothing, zoom=1.0)
-        """
-        Plots the exterior, cell wall and interior lattice regions.
-        inputs
-            region_ids (Array{Int}): region IDs
-            ax (Axis): axis to plot on
-            zoom (float): zoom factor for the plot
-        """
 
         N, H = size(region_ids)
 
@@ -579,24 +546,23 @@ __precompile__(false)
         end
     end
 
-
+    """
+    Plots the functional relationship between input and response.
+    inputs:
+        input (Array{Float64}): input values
+        response (Array{Float64}): response values
+        axlabels (Array{String}): axis labels
+        title (String): title of the plot
+        label (String): label for the plot
+        ax (Axis): axis to plot on
+        logx (Bool): whether to plot the x-axis in log scale
+        logy (Bool): whether to plot the y-axis in log scale
+        fit (String): type of fit to perform
+        cmap (String): colormap
+        cmap_idx (Int): index of colour in colormap
+        scatter (Bool): whether to plot as scatter points
+    """
     function plot_functional_relationship(input, response, axlabels, title=nothing, label=nothing; ax=nothing, logx=false, logy=false, fit=nothing, cmap=nothing, cmap_idx=1, scatter=false)
-        """
-        Plots the functional relationship between input and response.
-        inputs:
-            input (Array{Float64}): input values
-            response (Array{Float64}): response values
-            axlabels (Array{String}): axis labels
-            title (str): title of the plot
-            label (str): label for the plot
-            ax (Axis): axis to plot on
-            logx (bool): whether to plot the x-axis in log scale
-            logy (bool): whether to plot the y-axis in log scale
-            fit (str): type of fit to perform
-            cmap (str): colormap
-            cmap_idx (int): index of colour in colormap
-            scatter (bool): whether to plot as scatter points
-        """
 
         if isnothing(ax)
             fig, ax = subplots(1, 1, figsize=(6, 4))
@@ -664,23 +630,22 @@ __precompile__(false)
         gcf()
     end
 
-    
+    """
+    Compare multiple functional relationships on the same axis.
+    inputs:
+        inputs (Array{Array{Float64}}): input values
+        responses (Array{Array{Float64}}): response values
+        axlabels (Array{String}): axis labels
+        plotlabels (Array{String}): labels for the plots
+        titles (Array{String}): titles for the plots
+        ax (Axis): axis to plot on
+        logx (Bool): whether to plot the x-axis in log scale
+        logy (Bool): whether to plot the y-axis in log scale
+        fit (String): type of fit to perform
+        cmap (String): colormap
+        cmap_idx_base (Int): base index of the colormap
+    """
     function compare_functional_relationships(inputs, responses, axlabels, plotlabels=nothing, title=nothing; ax=nothing, logx=false, logy=false, fit=nothing, cmap=nothing, cmap_idx_base=0)
-        """
-        Compare multiple functional relationships on the same axis.
-        inputs:
-            inputs (Array{Array{Float64}}): input values
-            responses (Array{Array{Float64}}): response values
-            axlabels (Array{String}): axis labels
-            plotlabels (Array{String}): labels for the plots
-            titles (Array{String}): titles for the plots
-            ax (Axis): axis to plot on
-            logx (bool): whether to plot the x-axis in log scale
-            logy (bool): whether to plot the y-axis in log scale
-            fit (String): type of fit to perform
-            cmap (str): colormap
-            cmap_idx_base (int): base index of the colormap
-        """
 
         # Check labels
         if !isnothing(plotlabels)
@@ -707,22 +672,21 @@ __precompile__(false)
         end
     end
 
-
+    """
+    Compare the functional relationships from groups of simulations
+    on the same axis, with corresponding colors.
+    inputs:
+        in_groups (Array{Array{Float64}}): input values
+        res_groups (Array{Array{Float64}}): response values
+        axlabels (Array{String}): axis labels
+        group_labels (Array{String}): labels for the groups
+        title (String): title of the plot
+        ax (Axis): axis to plot on
+        logx (Bool): whether to plot the x-axis in log scale
+        logy (Bool): whether to plot the y-axis in log scale
+        fit (String): type of fit to perform
+    """
     function compare_functional_relationships_groups(in_groups, res_groups, axlabels, group_labels=nothing, title=nothing; ax=nothing, logx=false, logy=false, fit=nothing)
-        """
-        Compare the functional relationships from groups of simulations
-        on the same axis, with corresponding colors.
-        inputs:
-            in_groups (Array{Array{Float64}}): input values
-            res_groups (Array{Array{Float64}}): response values
-            axlabels (Array{String}): axis labels
-            group_labels (Array{String}): labels for the groups
-            title (str): title of the plot
-            ax (Axis): axis to plot on
-            logx (bool): whether to plot the x-axis in log scale
-            logy (bool): whether to plot the y-axis in log scale
-            fit (str): type of fit to perform
-        """
 
         # Convert to nested arrays
         in_groups = to_nested(in_groups)
@@ -753,18 +717,17 @@ __precompile__(false)
         end
     end
 
-
+    """
+    Creates a scatter plot of the spore positions.
+    inputs:
+        Lx (Float): length of the x/y-axis
+        Lz (Float): length of the z-axis
+        spore_positions (Array{Tuple}): spore positions
+        ax (Axis): axis to plot on
+        title (String): title of the plot
+        top_view (Bool): whether to plot in top view
+    """
     function plot_spore_positions(Lx, Lz, spore_positions; ax=nothing, title=nothing, top_view=false)
-        """
-        Creates a scatter plot of the spore positions.
-        inputs:
-            Lx (float): length of the x/y-axis
-            Lz (float): length of the z-axis
-            spore_positions (Array{Tuple}): spore positions
-            ax (Axis): axis to plot on
-            title (str): title of the plot
-            top_view (bool): whether to plot in top view
-        """
 
         if isnothing(ax)
             if top_view 
@@ -803,19 +766,19 @@ __precompile__(false)
         end
     end
 
-
+    """
+    Creates multiple scatter plots for the different spore arrangements.
+    inputs:
+        Lx (Float): length of the x/y-axis
+        Lz (Float): length of the z-axis
+        spore_arrangements (Array{Array{Tuple}}): spore arrangements
+        labels (Array{String}): labels for the plots
+        title (String): title of the plot
+        top_view (Bool): whether to plot in top view
+        figsize (Float): vertical size of figure
+    """
     function plot_spore_arrangements(Lx, Lz, spore_arrangements, labels=nothing; title=nothing, top_view=false, figsize=6)
-        """
-        Creates multiple scatter plots for the different spore arrangements.
-        inputs:
-            Lx (float): length of the x/y-axis
-            Lz (float): length of the z-axis
-            spore_arrangements (Array{Array{Tuple}}): spore arrangements
-            labels (Array{String}): labels for the plots
-            title (str): title of the plot
-            top_view (bool): whether to plot in top view
-            figsize (float): vertical size of figure
-        """
+
         if isnothing(labels)
             labels = ["Arrangement $i" for i in 1:length(spore_arrangements)]
         end
@@ -838,22 +801,22 @@ __precompile__(false)
         gcf()
     end
 
-
+    """
+    Plots the time course of the Dantigny germination responses.
+    inputs:
+        p_max (Float): maximum germination response in %
+        τ_g (Float): half-saturation time in hours
+        ν (Float): design parameter
+        t_max (Float): maximum time in hours
+        germination_responses (Array{Float64}): germination responses
+        times (Array{Float64}): time labels in seconds
+        ax (Axis): axis to plot on
+        title (String): title of the plot
+    outputs:
+        germination_responses (Array{Float64}): germination responses according to the Dantigny model
+    """
     function plot_dantigny_time_course(p_max, τ_g, ν; germination_responses=nothing, times=nothing, ax=nothing, title=nothing)
-        """
-        Plots the time course of the Dantigny germination responses.
-        inputs:
-            p_max (float): maximum germination response in %
-            τ_g (float): half-saturation time in hours
-            ν (float): design parameter
-            t_max (float): maximum time in hours
-            germination_responses (Array{Float64}): germination responses
-            times (Array{Float64}): time labels in seconds
-            ax (Axis): axis to plot on
-            title (str): title of the plot
-        outputs:
-            germination_responses (Array{Float64}): germination responses according to the Dantigny model
-        """
+
         if isnothing(ax)
             fig, ax = subplots(1, 1, figsize=(6, 4))
             plotself = true
@@ -888,21 +851,21 @@ __precompile__(false)
         return germination_responses
     end
 
-
+    """
+    Compare simulated germination responses to the Dantigny model.
+    inputs:
+        germination_responses (Array{Float64}): simulated germination responses
+        times (Array{Float64}): time labels in hours
+        p_max (Float): maximum germination response fraction
+        τ_g (Float): half-saturation time in hours
+        ν (Float): design parameter
+        ax (Axis): axis to plot on
+        title (String): title of the plot
+    outputs:
+        dantigny_responses (Array{Float64}): germination responses according to the Dantigny model
+    """
     function compare_time_course_to_dantigny(germination_responses, times, p_max, τ_g, ν; ax=nothing, title=nothing)
-        """
-        Compare simulated germination responses to the Dantigny model.
-        inputs:
-            germination_responses (Array{Float64}): simulated germination responses
-            times (Array{Float64}): time labels in hours
-            p_max (float): maximum germination response fraction
-            τ_g (float): half-saturation time in hours
-            ν (float): design parameter
-            ax (Axis): axis to plot on
-            title (str): title of the plot
-        outputs:
-            dantigny_responses (Array{Float64}): germination responses according to the Dantigny model
-        """
+
         if isnothing(ax)
             fig, ax = subplots(1, 1, figsize=(6, 4))
             plotself = true
@@ -925,22 +888,22 @@ __precompile__(false)
         return dantigny_responses
     end
 
-
+    """
+    Plots the germination data and the fitted model
+    as functions of the spore senisity.
+    inputs:
+        data_inputs (Array{Float64}): germination data inputs
+        data_responses (Array{Float64}): germination data response fractions
+        model_inputs (Array{Float64}): model inputs
+        model_responses (Array{Float64}): model response fractions
+        sources (Array{String}): carbon sources
+        yerr (Array{Float64}): error in the data responses
+        ax (Axis): axis to plot on
+        title (String): title of the plot
+        c_ex (Bool): whether the inputs are exogenous concentrations
+    """
     function plot_germination_data_fit(data_inputs, data_responses, model_inputs, model_responses, sources; yerr=nothing, ax=nothing, title=nothing, c_ex=false, ncols=1)
-        """
-        Plots the germination data and the fitted model
-        as functions of the spore senisity.
-        inputs:
-            data_inputs (Array{Float64}): germination data inputs
-            data_responses (Array{Float64}): germination data response fractions
-            model_inputs (Array{Float64}): model inputs
-            model_responses (Array{Float64}): model response fractions
-            sources (Array{String}): carbon sources
-            yerr (Array{Float64}): error in the data responses
-            ax (Axis): axis to plot on
-            title (str): title of the plot
-            c_ex (bool): whether the inputs are exogenous concentrations
-        """
+        
         if isnothing(ax)
             fig, ax = subplots(1, 1, figsize=(6, 4))
             plotself = true
@@ -974,25 +937,24 @@ __precompile__(false)
         end
     end
 
-
+    """
+    Creates a combined plot with density-dependent
+    and time-dependent germination data and model fits.
+    inputs:
+        model_type (String): type of model to use
+        st (Bool): whether to use a time-dependent inducer
+        params_opt (Array{Float64}): optimal parameters
+        times (Array{Float64}): time labels in hours
+        sources_data (Array{String}): carbon sources
+        densities_data (Array{Float64}): germination data spore densities in spores/mL
+        p_maxs_data (Array{Float64}): germination data asymptotic response fractions
+        taus_data (Array{Float64}): germination data half-saturation times in hours
+        nus_data (Array{Float64}): germination data design parameters
+        p_max_errs (Array{Float64}): error in the data responses
+        dens_exp_limits (Tuple): limits of density exponents to plot
+        n_nodes (Int): number of Gauss-Hermite nodes for computing the visualised germination response
+    """
     function plot_germination_data_fit_all(model_type, params_opt, times, sources_data, densities_data, p_maxs_data, taus_data, nus_data, p_max_errs, dens_exp_limits=(4, 6); n_nodes=nothing)
-        """
-        Creates a combined plot with density-dependent
-        and time-dependent germination data and model fits.
-        inputs:
-            model_type (str): type of model to use
-            st (Bool): whether to use a time-dependent inducer
-            params_opt (Array{Float64}): optimal parameters
-            times (Array{Float64}): time labels in hours
-            sources_data (Array{String}): carbon sources
-            densities_data (Array{Float64}): germination data spore densities in spores/mL
-            p_maxs_data (Array{Float64}): germination data asymptotic response fractions
-            taus_data (Array{Float64}): germination data half-saturation times in hours
-            nus_data (Array{Float64}): germination data design parameters
-            p_max_errs (Array{Float64}): error in the data responses
-            dens_exp_limits (Tuple): limits of density exponents to plot
-            n_nodes (int): number of Gauss-Hermite nodes for computing the visualised germination response
-        """
 
         model_collection = load_model_collection()
 
@@ -1060,21 +1022,20 @@ __precompile__(false)
 
     end
 
-
+    """
+    Plot the evolution of three parameter priors
+    as sample points on a 3D plot, with
+    colours corresponding to the scaled
+    distances to lab data.
+    inputs:
+        param_vals (Matrix) - input parameter values over time
+        dantigny_vals (Matrix) - output Dantigny summaries over time
+        param_keys (Vector{Symbol}) - names of the parameters
+        weights (Matrix) - per-sample weights over time
+        src_idx (Int) - index of carbon source
+        query_pt_idx (Int) - index of point to hightlight in Dantigny space
+    """
     function plot_prior_calibration(param_vals, dantigny_vals, param_keys, weights; src_idx=1, query_pt_idx=nothing)
-        """
-        Plot the evolution of three parameter priors
-        as sample points on a 3D plot, with
-        colours corresponding to the scaled
-        distances to lab data.
-        inputs:
-            param_vals (Matrix) - input parameter values over time
-            dantigny_vals (Matrix) - output Dantigny summaries over time
-            param_keys (Vector{Symbol}) - names of the parameters
-            weights (Matrix) - per-sample weights over time
-            src_idx (Int) - index of carbon source
-            query_pt_idx (Int) - index of point to hightlight in Dantigny space
-        """
 
         n_iter = size(param_vals, 2)
 
@@ -1120,14 +1081,10 @@ __precompile__(false)
             ax.set_zlabel(param_keys[3])
 
             ax.set_title("Iteration $i: Parameter space")
-
-            # w_min = minimum(weights[src_idx, i, :])
-            # w_max = maximum(weights[src_idx, i, :])
-            # println("Weights range from $w_min to $w_max")
             
             w_norm = (weights[src_idx, i, :] .- w_min) ./ (w_max - w_min)
             
-            ax.scatter(param_vals[src_idx, i, 1, :], param_vals[src_idx, i, 2, :], param_vals[src_idx, i, 3, :], color=cmap(w_norm))#, color=cmap(0.1*dantigny_vals[src_idx, i, j, :]/σ_data[j]))
+            ax.scatter(param_vals[src_idx, i, 1, :], param_vals[src_idx, i, 2, :], param_vals[src_idx, i, 3, :], color=cmap(w_norm))
             
             # Dantigny space
             ax = fig.add_subplot(n_iter, 3, (i-1)*3+2, projection="3d")
@@ -1161,8 +1118,6 @@ __precompile__(false)
 
                 # Draw the box
                 for line in lines
-                    # ax.plot3D(line[1][1], line[1][2], line[1][3], linestyle="-", color="red", linewidth=10)
-                    # ax.plot3D(line[2][1], line[2][2], line[2][3], linestyle="-", color="red", linewidth=10)
                     x_values = [line[1][1], line[2][1]]
                     y_values = [line[1][2], line[2][2]]
                     z_values = [line[1][3], line[2][3]]

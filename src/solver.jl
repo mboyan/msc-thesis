@@ -19,10 +19,10 @@ module Solver
     export initialise_lattice_and_operator_GPU!
     export initialise_lattice_and_operator_GPU_abs_bndry!
 
+    """
+    Invoke a kernel with the appropriate number of blocks and threads per block.
+    """
     function invoke_smart_kernel_3D(size, threads_per_block=(8, 8, 8))
-        """
-        Invoke a kernel with the appropriate number of blocks and threads per block.
-        """
         blocks_per_grid = (Int(ceil(size[1] / threads_per_block[1])),
                            Int(ceil(size[2] / threads_per_block[2])),
                            Int(ceil(size[3] / threads_per_block[3])))
@@ -33,23 +33,23 @@ module Solver
         return max(a, b)
     end
 
-
+    """
+    Update the concentration values on the lattice
+    using the time-dependent diffusion equation.
+    inputs:
+        c_old (Array) - the current state of the lattice
+        c_new (Array) - the updated state of the lattice
+        N (Int) - the number of lattice rows/columns
+        H (Int) - the number of lattice layers
+        dtdx2 (Float) - the update factor
+        D (Float) - the diffusion constant
+        Db (Float) - the diffusion constant through the spore
+        spore_idx (Tuple) - the indices of the spore location
+        abs_bndry (Bool) - whether to use absorbing boundary conditions
+        neumann_z (Bool) - whether to use Neumann boundary conditions in the z-direction
+    """
     function update_GPU!(c_old, c_new, N, H, dtdx2, D, Db, spore_idx, abs_bndry, neumann_z)
-        """
-        Update the concentration values on the lattice
-        using the time-dependent diffusion equation.
-        inputs:
-            c_old (array) - the current state of the lattice
-            c_new (array) - the updated state of the lattice
-            N (int) - the number of lattice rows/columns
-            H (int) - the number of lattice layers
-            dtdx2 (float) - the update factor
-            D (float) - the diffusion constant
-            Db (float) - the diffusion constant through the spore
-            spore_idx (tuple) - the indices of the spore location
-            abs_bndry (bool) - whether to use absorbing boundary conditions
-            neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction
-        """
+
         i, j, k = CUDA.blockIdx().x, CUDA.blockIdx().y, CUDA.blockIdx().z
         ti, tj, tk = CUDA.threadIdx().x, CUDA.threadIdx().y, CUDA.threadIdx().z
     
@@ -102,25 +102,25 @@ module Solver
         return nothing
     end
 
-    
+    """
+    Update the concentration values on the lattice
+    using the time-dependent diffusion equation.
+    inputs:
+        c_old (Array) - the current state of the lattice
+        c_new (Array) - the updated state of the lattice
+        N (Int) - the number of lattice rows/columns
+        H (Int) - the number of lattice layers
+        dtdx2 (Float) - the update factor
+        D (Float) - the diffusion constant
+        Db (Float) - the diffusion constant through the spore
+        spore_idx (Tuple) - the indices of the spore location
+        cluster_spacing (Int) - the spacing between spores in the cluster in lattice units
+        cluster_size (Int) - the number of spores in the cluster
+        abs_bndry (Bool) - whether to use absorbing boundary conditions
+        neumann_z (Bool) - whether to use Neumann boundary conditions in the z-direction
+    """
     function update_GPU_spore_cluster!(c_old, c_new, N, H, dtdx2, D, Db, spore_idx, cluster_spacing, cluster_size, abs_bndry, neumann_z)
-        """
-        Update the concentration values on the lattice
-        using the time-dependent diffusion equation.
-        inputs:
-            c_old (array) - the current state of the lattice
-            c_new (array) - the updated state of the lattice
-            N (int) - the number of lattice rows/columns
-            H (int) - the number of lattice layers
-            dtdx2 (float) - the update factor
-            D (float) - the diffusion constant
-            Db (float) - the diffusion constant through the spore
-            spore_idx (tuple) - the indices of the spore location
-            cluster_spacing (int) - the spacing between spores in the cluster in lattice units
-            cluster_size (int) - the number of spores in the cluster
-            abs_bndry (bool) - whether to use absorbing boundary conditions
-            neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction
-        """
+        
         i, j, k = CUDA.blockIdx().x, CUDA.blockIdx().y, CUDA.blockIdx().z
         ti, tj, tk = CUDA.threadIdx().x, CUDA.threadIdx().y, CUDA.threadIdx().z
     
@@ -245,24 +245,24 @@ module Solver
         return nothing
     end
 
-
+    """
+    Update the concentration values on the lattice
+    using the time-dependent diffusion equation.
+    inputs:
+        c_old (Array) - the current state of the lattice
+        c_new (Array) - the updated state of the lattice
+        N (Int) - the number of lattice rows/columns
+        H (Int) - the number of lattice layers
+        inv_dx2 (Float) - inverse of the squared spatial increment
+        D (Float) - the diffusion constant
+        spore_vol_idx (Tuple) - the indices of the volume containing the spore location
+        c_spore (Array) - the concentration at the spore (only nonzero at the spore location)
+        inv_tau (Float) - reciprocal of the characteristic time for permeation
+        dt (Float) - timestep
+        neumann_z (Bool) - whether to use Neumann boundary conditions in the z-direction
+    """
     function update_GPU_low_res!(c_old, c_new, N, H, inv_dx2, D, spore_vol_idx, c_spore, inv_tau, dt, neumann_z)
-        """
-        Update the concentration values on the lattice
-        using the time-dependent diffusion equation.
-        inputs:
-            c_old (array) - the current state of the lattice
-            c_new (array) - the updated state of the lattice
-            N (int) - the number of lattice rows/columns
-            H (int) - the number of lattice layers
-            inv_dx2 (float) - inverse of the squared spatial increment
-            D (float) - the diffusion constant
-            spore_vol_idx (tuple) - the indices of the volume containing the spore location
-            c_spore (array) - the concentration at the spore (only nonzero at the spore location)
-            inv_tau (float) - reciprocal of the characteristic time for permeation
-            dt (float) - timestep
-            neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction
-        """
+        
         i, j, k = CUDA.blockIdx().x, CUDA.blockIdx().y, CUDA.blockIdx().z
         ti, tj, tk = CUDA.threadIdx().x, CUDA.threadIdx().y, CUDA.threadIdx().z
     
@@ -306,25 +306,26 @@ module Solver
         return nothing
     end
 
+    """
+    Update the concentration values on the lattice
+    using the time-dependent diffusion equation.
+    inputs:
+        c_old (Array) - the current state of the lattice
+        c_new (Array) - the updated state of the lattice
+        N (Int) - the number of lattice rows/columns
+        H (Int) - the number of lattice layers
+        inv_dx2 (Float) - inverse of the squared spatial increment
+        D (Float) - the diffusion constant
+        spore_vol_idx (Tuple) - the indices of the volume containing the spore location
+        c_spore (Array) - the concentration at the spore (only nonzero at the spore location)
+        inv_tau (Float) - reciprocal of the characteristic time for permeation
+        dt (Float) - timestep
+        cluster_spacing (Int) - the spacing between spores in the cluster in lattice units
+        cluster_size (Int) - the number of neighbours in the cluster
+        neumann_z (Bool) - whether to use Neumann boundary conditions in the z-direction
+    """
     function update_GPU_low_res_spore_cluster!(c_old, c_new, N, H, inv_dx2, D, spore_vol_idx, c_spore, inv_tau, dt, cluster_spacing, cluster_size, neumann_z)
-        """
-        Update the concentration values on the lattice
-        using the time-dependent diffusion equation.
-        inputs:
-            c_old (array) - the current state of the lattice
-            c_new (array) - the updated state of the lattice
-            N (int) - the number of lattice rows/columns
-            H (int) - the number of lattice layers
-            inv_dx2 (float) - inverse of the squared spatial increment
-            D (float) - the diffusion constant
-            spore_vol_idx (tuple) - the indices of the volume containing the spore location
-            c_spore (array) - the concentration at the spore (only nonzero at the spore location)
-            inv_tau (float) - reciprocal of the characteristic time for permeation
-            dt (float) - timestep
-            cluster_spacing (int) - the spacing between spores in the cluster in lattice units
-            cluster_size (int) - the number of neighbours in the cluster
-            neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction
-        """
+        
         i, j, k = CUDA.blockIdx().x, CUDA.blockIdx().y, CUDA.blockIdx().z
         ti, tj, tk = CUDA.threadIdx().x, CUDA.threadIdx().y, CUDA.threadIdx().z
     
@@ -387,24 +388,24 @@ module Solver
         return nothing
     end
 
-
+    """
+    Update the concentration values on the lattice
+    using the time-dependent diffusion equation.
+    inputs:
+        lattice_old (Array) - the current state of the lattice (concentrations + region IDs)
+        lattice_new (Array) - the updated state of the lattice (concentrations + region IDs)
+        N (Int) - the number of lattice rows/columns
+        H (Int) - the number of lattice layers
+        dtdx2 (Float) - the update factor
+        D (Float) - the diffusion constant
+        Dcw (Float) - the diffusion constant through the spore
+        Db (Float) - the effective diffusion constant at the spore interface
+        region_ids (Array) - the region IDs of the lattice
+        abs_bndry (Bool) - whether to use absorbing boundary conditions
+        neumann_z (Bool) - whether to use Neumann boundary conditions in the z-direction
+    """
     function update_GPU_hi_res!(lattice_old, lattice_new, N, H, dtdx2, D, Dcw, Db, region_ids, abs_bndry, neumann_z)
-        """
-        Update the concentration values on the lattice
-        using the time-dependent diffusion equation.
-        inputs:
-            lattice_old (array) - the current state of the lattice (concentrations + region IDs)
-            lattice_new (array) - the updated state of the lattice (concentrations + region IDs)
-            N (int) - the number of lattice rows/columns
-            H (int) - the number of lattice layers
-            dtdx2 (float) - the update factor
-            D (float) - the diffusion constant
-            Dcw (float) - the diffusion constant through the spore
-            Db (float) - the effective diffusion constant at the spore interface
-            region_ids (array) - the region IDs of the lattice
-            abs_bndry (bool) - whether to use absorbing boundary conditions
-            neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction
-        """
+        
         i, j, k = CUDA.blockIdx().x, CUDA.blockIdx().y, CUDA.blockIdx().z
         ti, tj, tk = CUDA.threadIdx().x, CUDA.threadIdx().y, CUDA.threadIdx().z
     
@@ -507,32 +508,31 @@ module Solver
         return nothing
     end
 
-
+    """
+    GPU kernel for building the operator sparse matrix for implicitly solving the diffusion equation
+    using the Crank-Nicolson method and initialising the lattice. Also assigns region IDs to the lattice.
+    Implements periodic boundary conditions.
+    inputs:
+        c_init (CuArray) - the initial state of the lattice
+        colidx (CuArray) - the column indices of the operator matrix
+        valsA (CuArray) - the nonzero values of the operator matrix A
+        valsB (CuArray) - the nonzero values of the operator matrix B
+        region_ids (CuArray) - the region IDs of the lattice
+        c₀ (Float) - the initial concentration
+        sp_cen_idx (Array) - current spore center index
+        spore_rad_lattice (Float) - the radius of the spores in lattice units
+        cw_thickness (Int) - the thickness of the cell wall in lattice units
+        D (Float) - the diffusion constant
+        Dcw (Float) - the diffusion constant through the spore
+        Db (Float) - the effective diffusion constant at the spore interface
+        dtdx2 (Float) - the update factor
+        N (Int) - the number of lattice rows/columns
+        H (Int) - the number of lattice layers
+        crank_nicolson (Bool) - whether the operators are suited for Crank-Nicolson method
+        empty_interior (Bool) - whether to make interior beyond the cell wall inaccessible for diffusion
+        abs_bndry (Bool) - whether to use absorbing boundary conditions
+    """
     function initialise_lattice_and_operator_GPU!(c_init, colidx, valsA, valsB, region_ids, pc_vals, c₀, sp_cen_i, sp_cen_j, sp_cen_k, spore_rad_lattice, cw_thickness, D, Dcw, Db, dtdx2, N, H, crank_nicolson=true, empty_interior=true, abs_bndry=false)
-        """
-        GPU kernel for building the operator sparse matrix for implicitly solving the diffusion equation
-        using the Crank-Nicolson method and initialising the lattice. Also assigns region IDs to the lattice.
-        Implements periodic boundary conditions.
-        inputs:
-            c_init (CuArray) - the initial state of the lattice
-            colidx (CuArray) - the column indices of the operator matrix
-            valsA (CuArray) - the nonzero values of the operator matrix A
-            valsB (CuArray) - the nonzero values of the operator matrix B
-            region_ids (CuArray) - the region IDs of the lattice
-            c₀ (float) - the initial concentration
-            sp_cen_idx (array) - current spore center index
-            spore_rad_lattice (float) - the radius of the spores in lattice units
-            cw_thickness (int) - the thickness of the cell wall in lattice units
-            D (float) - the diffusion constant
-            Dcw (float) - the diffusion constant through the spore
-            Db (float) - the effective diffusion constant at the spore interface
-            dtdx2 (float) - the update factor
-            N (int) - the number of lattice rows/columns
-            H (int) - the number of lattice layers
-            crank_nicolson (bool) - whether the operators are suited for Crank-Nicolson method
-            empty_interior (bool) - whether to make interior beyond the cell wall inaccessible for diffusion
-            abs_bndry (bool) - whether to use absorbing boundary conditions
-        """
 
         i, j, k = CUDA.blockIdx().x, CUDA.blockIdx().y, CUDA.blockIdx().z
         ti, tj, tk = CUDA.threadIdx().x, CUDA.threadIdx().y, CUDA.threadIdx().z
@@ -773,31 +773,30 @@ module Solver
         return nothing
     end
 
-
+    """
+    GPU kernel for building the operator sparse matrix for implicitly solving the diffusion equation
+    using the Crank-Nicolson method and initialising the lattice. Also assigns region IDs to the lattice.
+    Implements absorbing boundary conditions.
+    inputs:
+        c_init (CuArray) - the initial state of the lattice
+        colidx (CuArray) - the column indices of the operator matrix
+        valsA (CuArray) - the nonzero values of the operator matrix A
+        valsB (CuArray) - the nonzero values of the operator matrix B
+        region_ids (CuArray) - the region IDs of the lattice
+        c₀ (Float) - the initial concentration
+        sp_cen_idx (Array) - current spore center index
+        spore_rad_lattice (Float) - the radius of the spores in lattice units
+        cw_thickness (Int) - the thickness of the cell wall in lattice units
+        D (Float) - the diffusion constant
+        Dcw (Float) - the diffusion constant through the spore
+        Db (Float) - the effective diffusion constant at the spore interface
+        dtdx2 (Float) - the update factor
+        N (Int) - the number of lattice rows/columns
+        H (Int) - the number of lattice layers
+        crank_nicolson (Bool) - whether the operators are suited for Crank-Nicolson method
+        empty_interior (Bool) - whether to make interior beyond the cell wall inaccessible for diffusion
+    """
     function initialise_lattice_and_operator_GPU_abs_bndry!(c_init, colidx, valsA, valsB, region_ids, c₀, sp_cen_i, sp_cen_j, sp_cen_k, spore_rad_lattice, cw_thickness, D, Dcw, Db, dtdx2, N, H, crank_nicolson=true, empty_interior=true)
-        """
-        GPU kernel for building the operator sparse matrix for implicitly solving the diffusion equation
-        using the Crank-Nicolson method and initialising the lattice. Also assigns region IDs to the lattice.
-        Implements absorbing boundary conditions.
-        inputs:
-            c_init (CuArray) - the initial state of the lattice
-            colidx (CuArray) - the column indices of the operator matrix
-            valsA (CuArray) - the nonzero values of the operator matrix A
-            valsB (CuArray) - the nonzero values of the operator matrix B
-            region_ids (CuArray) - the region IDs of the lattice
-            c₀ (float) - the initial concentration
-            sp_cen_idx (array) - current spore center index
-            spore_rad_lattice (float) - the radius of the spores in lattice units
-            cw_thickness (int) - the thickness of the cell wall in lattice units
-            D (float) - the diffusion constant
-            Dcw (float) - the diffusion constant through the spore
-            Db (float) - the effective diffusion constant at the spore interface
-            dtdx2 (float) - the update factor
-            N (int) - the number of lattice rows/columns
-            H (int) - the number of lattice layers
-            crank_nicolson (bool) - whether the operators are suited for Crank-Nicolson method
-            empty_interior (bool) - whether to make interior beyond the cell wall inaccessible for diffusion
-        """
 
         i, j, k = CUDA.blockIdx().x, CUDA.blockIdx().y, CUDA.blockIdx().z
         ti, tj, tk = CUDA.threadIdx().x, CUDA.threadIdx().y, CUDA.threadIdx().z

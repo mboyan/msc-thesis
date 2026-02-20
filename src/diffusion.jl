@@ -35,33 +35,32 @@ __precompile__(false)
     export diffusion_time_dependent_GPU_hi_res_implicit
     
     # ===== ANALYTICAL SOLUTIONS =====
+    """
+    Compute the concentration of a solute in a spore given the initial and external concentrations.
+    inputs:
+        c_in (Float) - the initial concentration at the spore
+        c_out (Float) - the initial external concentration
+        t (Float) - time
+        Ps (Float) - the spore membrane permeation constant
+        A (Float) - the surface area of the spore
+        V (Float) - the volume of the spore
+        alpha (Float) - permeable fraction of the area; defaults to 1
+    """
     function permeation_time_dependent_analytical(c_in, c_out, t, Ps, A, V; alpha=1.0)
-        """
-        Compute the concentration of a solute in a spore given the initial and external concentrations.
-        inputs:
-            c_in (float) - the initial concentration at the spore
-            c_out (float) - the initial external concentration
-            t (float) - time
-            Ps (float) - the spore membrane permeation constant
-            A (float) - the surface area of the spore
-            V (float) - the volume of the spore
-            alpha (float) - permeable fraction of the area; defaults to 1
-        """
         tau = V / (alpha * A * Ps)
         c = c_out .- (c_out .- c_in) .* exp.(-t / tau)
         return c
     end
 
-
+    """
+    Compute the analytical solution of the time-dependent diffusion equation at the source.
+    inputs:
+        c₀ (Float) - the initial concentration
+        D (Float) - the diffusion constant
+        time (Float) - the time at which the concentration is to be computed
+        vol (Float) - the volume of the initial concentration source
+    """
     function diffusion_time_dependent_analytical_src(c₀, D, time, vol; dims=3)
-        """
-        Compute the analytical solution of the time-dependent diffusion equation at the source.
-        inputs:
-            c₀ (float) - the initial concentration
-            D (float) - the diffusion constant
-            time (float) - the time at which the concentration is to be computed
-            vol (float) - the volume of the initial concentration source
-        """
         if dims == 2
             result = (vol * c₀) ^ (2/3) / (4*π*D*time)
         elseif dims == 3
@@ -71,19 +70,18 @@ __precompile__(false)
         return result
     end
 
-
+    """
+    Compute the concentration in the spore at time t_max
+    given a density of releasing spores.
+    inputs:
+        times (array) - the times at which the concentration is to be computed
+        c₀ (Float) - the initial concentration at the spore in M
+        c_ex (Float) - the external concentration in M
+        ρₛ (Float) - the density of spores in spores/mL
+        R (Float) - the radius of the spore in um
+        Pₛ (Float) - the permeation constant through the spore barrier in um/s
+    """
     function concentration_at_spore_ambient_sources(t, c₀, c_ex, ρₛ, R, Pₛ)
-        """
-        Compute the concentration in the spore at time t_max
-        given a density of releasing spores.
-        inputs:
-            times (array) - the times at which the concentration is to be computed
-            c₀ (float) - the initial concentration at the spore in M
-            c_ex (float) - the external concentration in M
-            ρₛ (float) - the density of spores in spores/mL
-            R (float) - the radius of the spore in um
-            Pₛ (float) - the permeation constant through the spore barrier in um/s
-        """
 
         # Conversions
         ρₛ = inverse_mL_to_cubic_um(ρₛ) # spores/mL to spores/um^3
@@ -115,25 +113,24 @@ __precompile__(false)
         return 4 * π * ρₛ * val
     end
 
-
+    """
+    Compute the concentration at sampling points
+    due to periodically repeating permeating sources within an
+    effective diffusion radius.
+    inputs:
+        x (array of tuples): 3D positions of the observation points
+        src_density (Float): number density of sources in spores/mL
+        times (array of floats): times at which to compute the concentration
+        c₀ (Float): initial concentration at the sources in mol/L
+        D (Float): diffusion coefficient in um^2/s
+        Pₛ (Float): source release rate in um/s
+        A (Float): source area in um^2
+        V (Float): source volume in um^3
+        dt (Float): time step size in seconds
+        discrete (Bool): whether to compute the neighbour contributions discretely or continuously
+        Rmin (Float): minimum distance from the source to consider for the diffusion radius
+    """
     function slow_release_pt_src_grid(x, src_density, c₀, times, D, Pₛ, A, V; discrete=true, Rmin=0.0)
-        """
-        Compute the concentration at sampling points
-        due to periodically repeating permeating sources within an
-        effective diffusion radius.
-        inputs:
-            x (array of tuples): 3D positions of the observation points
-            src_density (float): number density of sources in spores/mL
-            times (array of floats): times at which to compute the concentration
-            c₀ (float): initial concentration at the sources in mol/L
-            D (float): diffusion coefficient in um^2/s
-            Pₛ (float): source release rate in um/s
-            A (float): source area in um^2
-            V (float): source volume in um^3
-            dt (float): time step size in seconds
-            discrete (bool): whether to compute the neighbour contributions discretely or continuously
-            Rmin (float): minimum distance from the source to consider for the diffusion radius
-        """
 
         # Conversions
         src_density = inverse_mL_to_cubic_um(src_density)
@@ -218,24 +215,23 @@ __precompile__(false)
         return results
     end
 
-
+    """
+    Compute the concentration inside a singular spore source
+    due to periodically repeating permeating sources within an
+    effective diffusion radius.
+    inputs:
+        x (array of tuples): 3D positions of the observation points
+        t_max (Float): maximum time of observation in seconcs
+        src_density (Float): number density of sources in spores/mL
+        c0 (Float): initial concentration at the sources in mol/L
+        D (Float): diffusion coefficient in um^2/s
+        Ps (Float): source release rate in um/s
+        A (Float): source area in um^2
+        V (Float): source volume in um^3
+        dt (Float): time step size in seconds
+        discrete (Bool): whether to compute the neighbour contributions discretely or continuously
+    """
     function slow_release_pt_src_grid_at_src(src_density, c₀, times, D, Pₛ, A, V; discrete=true)
-        """
-        Compute the concentration inside a singular spore source
-        due to periodically repeating permeating sources within an
-        effective diffusion radius.
-        inputs:
-            x (array of tuples): 3D positions of the observation points
-            t_max (float): maximum time of observation in seconcs
-            src_density (float): number density of sources in spores/mL
-            c0 (float): initial concentration at the sources in mol/L
-            D (float): diffusion coefficient in um^2/s
-            Ps (float): source release rate in um/s
-            A (float): source area in um^2
-            V (float): source volume in um^3
-            dt (float): time step size in seconds
-            discrete (bool): whether to compute the neighbour contributions discretely or continuously
-        """
 
         # Constants
         τ = V / (A * Pₛ)
@@ -251,14 +247,14 @@ __precompile__(false)
         """
         Compute the concentration at a distance r from the center of a spore.
         inputs:
-            r (float) - the distance from the center of the spore
-            times (float) - time
-            R (float) - the radius of the spore
-            D (float) - the diffusion constant
-            Pₛ (float) - the permeation constant through the spore barrier
-            c₀ (float) - the initial concentration of the solute at the spore
-            A (float) - the surface area of the spore
-            V (float) - the volume of the spore
+            r (Float) - the distance from the center of the spore
+            times (Float) - time
+            R (Float) - the radius of the spore
+            D (Float) - the diffusion constant
+            Pₛ (Float) - the permeation constant through the spore barrier
+            c₀ (Float) - the initial concentration of the solute at the spore
+            A (Float) - the surface area of the spore
+            V (Float) - the volume of the spore
         """
 
         # Distance from sphere surface
@@ -294,20 +290,20 @@ __precompile__(false)
         return prefactor .* integrals
     end
 
+    """
+    Compute the concentration inside a spore source with a finite radius
+    due to periodically repeating permeating sources within an
+    effective diffusion radius.
+    inputs:
+        src_density (Float): number density of sources in spores/mL
+        c₀ (Float): initial concentration at the sources in mol/L
+        times (array of floats): times at which to compute the concentration
+        D (Float): diffusion coefficient in um^2/s
+        Pₛ (Float): source release rate in um/s
+        spore_dia (Float): diameter of the spore in um
+        discrete (Bool): whether to compute the neighbour contributions discretely or continuously
+    """
     function slow_release_shell_src_at_src(src_density, c₀, times, D, Pₛ, spore_dia; discrete=true)
-        """
-        Compute the concentration inside a spore source with a finite radius
-        due to periodically repeating permeating sources within an
-        effective diffusion radius.
-        inputs:
-            src_density (float): number density of sources in spores/mL
-            c₀ (float): initial concentration at the sources in mol/L
-            times (array of floats): times at which to compute the concentration
-            D (float): diffusion coefficient in um^2/s
-            Pₛ (float): source release rate in um/s
-            spore_dia (float): diameter of the spore in um
-            discrete (bool): whether to compute the neighbour contributions discretely or continuously
-        """
 
         # Constants
         A, V = compute_spore_area_and_volume_from_dia(spore_dia)
@@ -323,53 +319,52 @@ __precompile__(false)
         return c_ins
     end
 
-
+    """
+    Compute the permeation constant P_s given the constant external concentration,
+    the initial concentration of the solute, the concentration of the solute at time t
+    and the surface area and volume of the spore.
+    inputs:
+        c_in (Float) - the concentration at the spore at time t
+        c_out (Float) - the constant external concentration
+        c_0 (Float) - the initial concentration of the solute at the spore
+        t (Float) - time
+        A (Float) - the surface area of the spore
+        V (Float) - the volume of the spore
+        alpha (Float) - permeable fraction of the area; defaults to 1
+    """
     function compute_permeation_constant(c_in_target, c_out, c_0, t, A, V; alpha=1.0)
-        """
-        Compute the permeation constant P_s given the constant external concentration,
-        the initial concentration of the solute, the concentration of the solute at time t
-        and the surface area and volume of the spore.
-        inputs:
-            c_in (float) - the concentration at the spore at time t
-            c_out (float) - the constant external concentration
-            c_0 (float) - the initial concentration of the solute at the spore
-            t (float) - time
-            A (float) - the surface area of the spore
-            V (float) - the volume of the spore
-            alpha (float) - permeable fraction of the area; defaults to 1
-        """
         Ps = V / (alpha * A * t) * log((c_out - c_0) / (c_out - c_in_target))
         return Ps
     end
 
     # ===== NUMERICAL SOLUTIONS =====
+    """
+    Compute the evolution of a square lattice of concentration scalars
+    based on the time-dependent diffusion equation.
+    inputs:
+        c_init (vector of float) - the initial state of the lattice
+        t_max (int) - a maximum number of iterations
+        D (Float) - the diffusion constant; defaults to 1
+        Db (Float) - the diffusion constant through the spore; defaults to nothing
+        Ps (Float) - the permeation constant through the spore barrier; defaults to 1
+        dt (Float) - timestep; defaults to 0.001
+        dx (Float) - spatial increment; defaults to 0.005
+        n_save_frames (int) - determines the number of frames to save during the simulation; detaults to 100
+        spore_idx (tuple) - the indices of the spore location; defaults to nothing
+        spore_spacing (int) - the spacing between spore indices along each dimension; defaults to nothing; if used, spore_idx is ignored
+        c_thresholds (vector of float) - threshold values for the concentration; defaults to nothing
+        abs_bndry (Bool) - whether to use absorbing boundary conditions; defaults to false
+        neumann_z (Bool) - whether to use Neumann boundary conditions in the z-direction; defaults to false
+        cluster_size (int) - if provided, creates an orthogonal neighbour cluster with the given size
+        cluster_spacing (int) - spacing between the spores in the cluster
+        nondim (Bool) - whether to use nondimensionalisation; defaults to false
+    outputs:
+        c_evolotion (array) - the states of the lattice at all moments in time
+        times (array) - the times at which the states were saved
+        t_thresholds (array) - the times at which the concentration crossed the threshold
+    """
     function diffusion_time_dependent_GPU!(c_init, t_max; D=1.0, Db=nothing, Ps=1.0, dt=0.005, dx=5, n_save_frames=100,
         spore_idx=nothing, c_thresholds=nothing, abs_bndry=false, neumann_z=false, cluster_size=1, cluster_spacing=10, nondim=false)
-        """
-        Compute the evolution of a square lattice of concentration scalars
-        based on the time-dependent diffusion equation.
-        inputs:
-            c_init (vector of float) - the initial state of the lattice
-            t_max (int) - a maximum number of iterations
-            D (float) - the diffusion constant; defaults to 1
-            Db (float) - the diffusion constant through the spore; defaults to nothing
-            Ps (float) - the permeation constant through the spore barrier; defaults to 1
-            dt (float) - timestep; defaults to 0.001
-            dx (float) - spatial increment; defaults to 0.005
-            n_save_frames (int) - determines the number of frames to save during the simulation; detaults to 100
-            spore_idx (tuple) - the indices of the spore location; defaults to nothing
-            spore_spacing (int) - the spacing between spore indices along each dimension; defaults to nothing; if used, spore_idx is ignored
-            c_thresholds (vector of float) - threshold values for the concentration; defaults to nothing
-            abs_bndry (bool) - whether to use absorbing boundary conditions; defaults to false
-            neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction; defaults to false
-            cluster_size (int) - if provided, creates an orthogonal neighbour cluster with the given size
-            cluster_spacing (int) - spacing between the spores in the cluster
-            nondim (bool) - whether to use nondimensionalisation; defaults to false
-        outputs:
-            c_evolotion (array) - the states of the lattice at all moments in time
-            times (array) - the times at which the states were saved
-            t_thresholds (array) - the times at which the concentration crossed the threshold
-        """
 
         @argcheck ndims(c_init) == 3 "c_init must be a 3D array"
         @argcheck 0 < cluster_size ≤ 7 "Cluster size must be less than or equal to 7"
@@ -512,35 +507,35 @@ __precompile__(false)
         return c_evolution, times, t_thresholds
     end
 
+    """
+    Compute the evolution of a square lattice of concentration scalars
+    based on the time-dependent diffusion equation. A concentration source
+    smaller than the lattice resolution is injecting new concentration
+    according to a slow permeation scheme.
+    inputs:
+        c_init (vector of float) - the initial state of the lattice
+        c0 (Float) - the initial concentration at the spore
+        t_max (int) - a maximum number of iterations
+        D (Float) - the diffusion constant; defaults to 1
+        Ps (Float) - the permeation constant through the spore barrier; defaults to 1
+        A (Float) - the surface area of the spore; defaults to 150
+        V (Float) - the volume of the spore; defaults to 125
+        dt (Float) - timestep; defaults to 0.001
+        dx (Float) - spatial increment; defaults to 0.005
+        n_save_frames (int) - determines the number of frames to save during the simulation; detaults to 100
+        spore_vol_idx (tuple) - the indices of the volume containing the spore location; defaults to nothing
+        c_thresholds (vector of float) - threshold values for the concentration; defaults to nothing
+        neumann_z (Bool) - whether to use Neumann boundary conditions in the z-direction; defaults to false
+        cluster_size (int) - if provided, creates an orthogonal neighbour cluster with the given size
+        cluster_spacing (int) - spacing between the spores in the cluster
+        nondim (Bool) - whether to use nondimensionalisation; defaults to false
+    outputs:
+        c_evolotion (array) - the states of the lattice at all moments in time
+        times (array) - the times at which the states were saved
+        t_thresholds (array) - the times at which the concentration crossed the threshold
+    """
     function diffusion_time_dependent_GPU_low_res(c_init, c₀, t_max; D=1.0, Pₛ=1.0, A=150, V=125, dt=150, dx=25, n_save_frames=100,
                                                     spore_vol_idx=nothing, c_thresholds=nothing, neumann_z=false, cluster_size=1, cluster_spacing=10, nondim=false)
-        """
-        Compute the evolution of a square lattice of concentration scalars
-        based on the time-dependent diffusion equation. A concentration source
-        smaller than the lattice resolution is injecting new concentration
-        according to a slow permeation scheme.
-        inputs:
-            c_init (vector of float) - the initial state of the lattice
-            c0 (float) - the initial concentration at the spore
-            t_max (int) - a maximum number of iterations
-            D (float) - the diffusion constant; defaults to 1
-            Ps (float) - the permeation constant through the spore barrier; defaults to 1
-            A (float) - the surface area of the spore; defaults to 150
-            V (float) - the volume of the spore; defaults to 125
-            dt (float) - timestep; defaults to 0.001
-            dx (float) - spatial increment; defaults to 0.005
-            n_save_frames (int) - determines the number of frames to save during the simulation; detaults to 100
-            spore_vol_idx (tuple) - the indices of the volume containing the spore location; defaults to nothing
-            c_thresholds (vector of float) - threshold values for the concentration; defaults to nothing
-            neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction; defaults to false
-            cluster_size (int) - if provided, creates an orthogonal neighbour cluster with the given size
-            cluster_spacing (int) - spacing between the spores in the cluster
-            nondim (bool) - whether to use nondimensionalisation; defaults to false
-        outputs:
-            c_evolotion (array) - the states of the lattice at all moments in time
-            times (array) - the times at which the states were saved
-            t_thresholds (array) - the times at which the concentration crossed the threshold
-        """
 
         @argcheck ndims(c_init) == 3 "c_init must be a 3D array"
         @argcheck cluster_size ≤ 7 "Cluster size must be less than or equal to 6"
@@ -675,33 +670,33 @@ __precompile__(false)
         return c_med_evolution, c_spore_evolution, times, t_thresholds
     end
 
+    """
+    Compute the evolution of a square lattice of concentration scalars
+    based on the time-dependent diffusion equation.
+    inputs:
+        c_init (vector of float) - the initial state of the lattice
+        c₀ (Float) - the initial concentration at the spore
+        sp_cen_indices (array of tuples) - the indices of the spore locations
+        spore_rad (Float) - the radius of the spore
+        t_max (int) - a maximum number of iterations
+        D (Float) - the diffusion constant; defaults to 1
+        Db (Float) - the diffusion constant through the spore cell wall; defaults to 1
+        dt (Float) - timestep; defaults to 0.001
+        dx (Float) - spatial increment; defaults to 0.005
+        n_save_frames (int) - determines the number of frames to save during the simulation; detaults to 100
+        c_thresholds (vector of float) - threshold values for the concentration; defaults to nothing
+        abs_bndry (Bool) - whether to use absorbing boundary conditions; defaults to false
+        neumann_z (Bool) - whether to use Neumann boundary conditions in the z-direction; defaults to false
+        corr_factor (Float) - correction factor for calculating the cell wall thickness
+        nondim (Bool) - whether to use nondimensionalisation; defaults to false
+        empty_interior (Bool) - whether to make interior beyond the cell wall inaccessible for diffusion
+    outputs:
+        c_evolotion (array) - the states of the lattice at all moments in time
+        times (array) - the times at which the states were saved
+        t_thresholds (array) - the times at which the concentration crossed the threshold
+    """
     function diffusion_time_dependent_GPU_hi_res!(c_init, c₀, sp_cen_indices, spore_rad, t_max; D=1.0, Db=1.0, dt=0.005, dx=0.2, n_save_frames=100,
         c_thresholds=nothing, abs_bndry=false, neumann_z=false, corr_factor=1.1, nondim=false, empty_interior=true)
-        """
-        Compute the evolution of a square lattice of concentration scalars
-        based on the time-dependent diffusion equation.
-        inputs:
-            c_init (vector of float) - the initial state of the lattice
-            c₀ (float) - the initial concentration at the spore
-            sp_cen_indices (array of tuples) - the indices of the spore locations
-            spore_rad (float) - the radius of the spore
-            t_max (int) - a maximum number of iterations
-            D (float) - the diffusion constant; defaults to 1
-            Db (float) - the diffusion constant through the spore cell wall; defaults to 1
-            dt (float) - timestep; defaults to 0.001
-            dx (float) - spatial increment; defaults to 0.005
-            n_save_frames (int) - determines the number of frames to save during the simulation; detaults to 100
-            c_thresholds (vector of float) - threshold values for the concentration; defaults to nothing
-            abs_bndry (bool) - whether to use absorbing boundary conditions; defaults to false
-            neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction; defaults to false
-            corr_factor (float) - correction factor for calculating the cell wall thickness
-            nondim (bool) - whether to use nondimensionalisation; defaults to false
-            empty_interior (bool) - whether to make interior beyond the cell wall inaccessible for diffusion
-        outputs:
-            c_evolotion (array) - the states of the lattice at all moments in time
-            times (array) - the times at which the states were saved
-            t_thresholds (array) - the times at which the concentration crossed the threshold
-        """
 
         @assert length(sp_cen_indices[1]) == 3 "spore_idx must be a 3D array"
         @assert typeof(sp_cen_indices[1]) == Tuple{Int, Int, Int} "spore_idx must be an array of tuples"
@@ -869,36 +864,35 @@ __precompile__(false)
         return c_frames, c_spore, times, region_ids[:, N ÷ 2, :], t_thresholds
     end
 
-
+    """
+    Compute the evolution of a square lattice of concentration scalars
+    based on the time-dependent diffusion equation using the Crank–Nicolson
+    or the Backward Euler method.
+    inputs:
+        c_init (vector of float) - the initial state of the lattice
+        c₀ (Float) - the initial concentration at the spore
+        sp_cen_indices (array of tuples) - the indices of the spore locations
+        spore_rad (Float) - the radius of the spore
+        t_max (int) - a maximum number of iterations
+        D (Float) - the diffusion constant; defaults to 1
+        Db (Float) - the diffusion constant through the spore cell wall; defaults to 1
+        dt (Float) - timestep; defaults to 0.001
+        dx (Float) - spatial increment; defaults to 0.005
+        n_save_frames (int) - determines the number of frames to save during the simulation; detaults to 100
+        c_thresholds (vector of float) - threshold values for the concentration; defaults to nothing
+        crank_nicolson (Bool) - whether to use the Crank–Nicolson method, else uses Backward Euler; defaults to true
+        abs_bndry (Bool) - whether to use absorbing boundary conditions; defaults to false
+        neumann_z (Bool) - whether to use Neumann boundary conditions in the z-direction; defaults to false
+        corr_factor (Float) - correction factor for calculating the cell wall thickness
+        nondim (Bool) - whether to use nondimensionalisation; defaults to false
+        empty_interior (Bool) - whether to make interior beyond the cell wall inaccessible for diffusion
+    outputs:
+        c_evolotion (array) - the states of the lattice at all moments in time
+        times (array) - the times at which the states were saved
+        t_thresholds (array) - the times at which the concentration crossed the threshold
+    """
     function diffusion_time_dependent_GPU_hi_res_implicit(c_init, c₀, sp_cen_indices, spore_rad, t_max; D=1.0, Db=1.0, dt=0.005, dx=0.2, n_save_frames=100,
         c_thresholds=nothing, crank_nicolson=true, abs_bndry=false, neumann_z=false, corr_factor=1.1, nondim=false, empty_interior=true)
-        """
-        Compute the evolution of a square lattice of concentration scalars
-        based on the time-dependent diffusion equation using the Crank–Nicolson
-        or the Backward Euler method.
-        inputs:
-            c_init (vector of float) - the initial state of the lattice
-            c₀ (float) - the initial concentration at the spore
-            sp_cen_indices (array of tuples) - the indices of the spore locations
-            spore_rad (float) - the radius of the spore
-            t_max (int) - a maximum number of iterations
-            D (float) - the diffusion constant; defaults to 1
-            Db (float) - the diffusion constant through the spore cell wall; defaults to 1
-            dt (float) - timestep; defaults to 0.001
-            dx (float) - spatial increment; defaults to 0.005
-            n_save_frames (int) - determines the number of frames to save during the simulation; detaults to 100
-            c_thresholds (vector of float) - threshold values for the concentration; defaults to nothing
-            crank_nicolson (bool) - whether to use the Crank–Nicolson method, else uses Backward Euler; defaults to true
-            abs_bndry (bool) - whether to use absorbing boundary conditions; defaults to false
-            neumann_z (bool) - whether to use Neumann boundary conditions in the z-direction; defaults to false
-            corr_factor (float) - correction factor for calculating the cell wall thickness
-            nondim (bool) - whether to use nondimensionalisation; defaults to false
-            empty_interior (bool) - whether to make interior beyond the cell wall inaccessible for diffusion
-        outputs:
-            c_evolotion (array) - the states of the lattice at all moments in time
-            times (array) - the times at which the states were saved
-            t_thresholds (array) - the times at which the concentration crossed the threshold
-        """
 
         @assert length(sp_cen_indices[1]) == 3 "spore_idx must be a 3D array"
         @assert typeof(sp_cen_indices[1]) == Tuple{Int, Int, Int} "spore_idx must be an array of tuples"
@@ -923,14 +917,6 @@ __precompile__(false)
             dt = dt / timescale
             t_max = t_max / timescale
             Db = Db / D
-            # D = 1.0
-            # lengthscale = spore_rad * 2
-            # timescale = lengthscale^2 / Db
-            # D = D / Db
-            # dx = dx / lengthscale
-            # dt = dt / timescale
-            # t_max = t_max / timescale
-            # Db = 1.0
             println("Parameters rescaled to D = $D, Db = $Db, dt = $dt, dx = $dx, t_max = $t_max")
         else
             lengthscale = 1.0
@@ -976,31 +962,14 @@ __precompile__(false)
                                                                                                     spore_rad_lattice, cw_thickness, D, Dcw, Db, dtdx2, N, H, crank_nicolson, empty_interior, abs_bndry)
         end
         CUDA.synchronize()
-        # println(unique(Array(valsA_gpu)))
-        # regids = Array(region_ids_gpu)
-        # println("Sum of region ids: ", sum(regids))
         op_A_gpu = CuSparseMatrixCSR(rowptr_gpu, colidx_gpu, valsA_gpu, (Nt, Nt))
         op_B_gpu = CuSparseMatrixCSR(rowptr_gpu, colidx_gpu, valsB_gpu, (Nt, Nt))
         precond = CuSparseMatrixCSR(pc_rowptr_gpu, pc_colidx_gpu, pc_vals_gpu, (Nt, Nt))
-        
-        # debugger = sparse(op_A_gpu)
-
-        # println("Ideal cell wall volume: ", 4/3 * π * (spore_rad^3 - (spore_rad - dx * 2)^3))
-        # println("Discretised cell wall volume: ", sum(region_ids .== 1) * dx^3)
-        # println("Ideal spore volume: ", 4/3 * π * spore_rad^3)
-        # println("Discretised spore volume: ", sum(region_ids .≥ 1) * dx^3)
-
-        # println(size(reshape(Array(c_gpu), (1, N, N, H))))
-        # c_temp = compute_spore_concentration(reshape(Array(c_gpu), (1, N, N, H)), reshape(Array(region_ids_gpu), (N, N, H)), spore_rad, dx*sqrt(2), dx * lengthscale)
-        # println(size(c_temp))
 
         # Distribute concentration
         region_ids = Array(region_ids_gpu)
         n_spore_sites = sum(region_ids .> 0.0)
         n_cw_sites = sum(region_ids .== 1.0)
-        # println(n_spore_sites, " spore sites")
-        # println(n_cw_sites, " cell wall sites")
-        # println("Rescaled concentration: ", c₀ * n_spore_sites / n_cw_sites)
         c_gpu .= c_gpu .* c₀ .* (n_spore_sites / n_cw_sites)
         
         # Determine number of frames
@@ -1037,8 +1006,6 @@ __precompile__(false)
             if (t - 1) % save_interval == 0 && save_ct ≤ n_save_frames
                 CUDA.synchronize()
                 c_frames[save_ct, :, :] .= reshape(Array(c_gpu), (N, N, H))[:, N ÷ 2, :]
-                # println("Spore radius: ", spore_rad)
-                # println("Correction factor: ", corr_factor)
                 c_spore[save_ct] = compute_spore_concentration(reshape(Array(c_gpu), (1, N, N, H)),
                                                                 reshape(Array(region_ids_gpu), (N, N, H)), spore_rad, dx * lengthscale, cw_thickness)[1]
                 times[save_ct] = (t - 1) * dt
@@ -1051,8 +1018,6 @@ __precompile__(false)
             # Update the lattice
             b_gpu = crank_nicolson ? op_B_gpu * c_gpu : c_gpu  # Right-hand side
             c_gpu, stats = Krylov.cg(op_A_gpu, b_gpu; atol=Float32(1e-12), itmax=1000)
-            # c_gpu, stats = Krylov.cg(op_A_gpu, b_gpu; atol=Float32(1e-12), itmax=1000, M=precond)
-            # println(stats.solved)
 
             # Check for threshold crossing
             if !isnothing(c_thresholds)
@@ -1069,15 +1034,12 @@ __precompile__(false)
         c_spore[save_ct] = compute_spore_concentration(reshape(Array(c_gpu), (1, N, N, H)),
                                                         reshape(Array(region_ids_gpu), (N, N, H)), spore_rad, dx * lengthscale, cw_thickness)[1]
         times[save_ct] = t_max
-        # println(maximum(c_frames[save_ct, :, :]))
 
         # Re-dimensionalise
         if nondim
             times .= times .* timescale
         end
 
-        # region_ids = Array(region_ids_gpu)[:, N ÷ 2, :]
-
-        return c_frames, c_spore, times, region_ids[:, N ÷ 2, :], t_thresholds#, Array(debugger_gpu)[:, N ÷ 2, :]
+        return c_frames, c_spore, times, region_ids[:, N ÷ 2, :], t_thresholds
     end
 end

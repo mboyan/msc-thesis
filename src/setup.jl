@@ -21,19 +21,19 @@ __precompile__(false)
     export run_simulations
     export setup_model_comparison
 
+    """
+    Compute the centers of a cluster of spheres,
+    one placed in the center of the lattice and the rest
+    placed at the vertices of a regular n_nbrs-gon.
+    inputs:
+        n_nbrs (Int): number of neighbors
+        L (Int): size of the lattice
+        spore_rad (Float): radius of the spores
+        cut_half (Bool): whether to cut the cluster in half
+    outputs:
+        spore_centers (Array): centers of the spores
+    """
     function setup_spore_cluster(n_nbrs::Int, L, spore_rad::Float64, cut_half::Bool=false)
-        """
-        Compute the centers of a cluster of spheres,
-        one placed in the center of the lattice and the rest
-        placed at the vertices of a regular n_nbrs-gon.
-        inputs:
-            n_nbrs (int): number of neighbors
-            L (int): size of the lattice
-            spore_rad (float): radius of the spores
-            cut_half (bool): whether to cut the cluster in half
-        outputs:
-            spore_centers (Array): centers of the spores
-        """
 
         @argcheck n_nbrs in [0, 2, 3, 4, 6, 8, 12] "n_nbrs must be in [2, 3, 4, 6, 8, 12]"
         @argcheck L > 0 "N must be positive"
@@ -112,19 +112,18 @@ __precompile__(false)
         return spore_centers
     end
 
-
+    """
+    Run a diffusion simulation with the given parameters.
+    inputs:
+        sim_params (Dict): simulation parameters
+    outputs:
+        c_solutions (Array): concentration solutions
+        c_frames (Array): concentration frames
+        times (Array): time points
+        coverage (Float): coverage
+        exponent (Array): fitted exponents
+    """
     function run_simulation(sim_params::Dict)
-        """
-        Run a diffusion simulation with the given parameters.
-        inputs:
-            sim_params (Dict): simulation parameters
-        outputs:
-            c_solutions (Array): concentration solutions
-            c_frames (Array): concentration frames
-            times (Array): time points
-            coverage (float): coverage
-            exponent (Array): fitted exponents
-        """
 
         # Load simulation parameters
         N = sim_params[:N]
@@ -309,16 +308,15 @@ __precompile__(false)
         return c_solutions, frame_samples, times, coverage, exponent
     end
 
-    
+    """
+    Recognizes which parameter in the dictionary contains 
+    a range of value and runs simulations for all combinations
+    of parameter values.
+    inputs:
+        exp_ID (String): experiment ID
+        sim_params (Dict): simulation parameters
+    """
     function run_simulations(exp_ID, sim_params::Dict)
-        """
-        Recognizes which parameter in the dictionary contains 
-        a range of value and runs simulations for all combinations
-        of parameter values.
-        inputs:
-            exp_ID (string): experiment ID
-            sim_params (Dict): simulation parameters
-        """
 
         path = @__DIR__
 
@@ -409,16 +407,15 @@ __precompile__(false)
         end
     end
 
-
+    """
+    Set up and run a model comparison experiment.
+    inputs:
+        exp_ID (Int): experiment ID
+        t_max (Float): maximum time
+        sim_params (Array): array of simulation parameters for each model
+        start_from (Int): starting index for the model comparison
+    """
     function setup_model_comparison(exp_ID, sim_params::Union{Vector{Dict{Symbol, Any}}, Array{Dict{Symbol, Any}}}; last_finished=0)
-        """
-        Set up and run a model comparison experiment.
-        inputs:
-            exp_ID (int): experiment ID
-            t_max (float): maximum time
-            sim_params (Array): array of simulation parameters for each model
-            start_from (int): starting index for the model comparison
-        """
 
         # Run simulations for each set of parameters
         for (i, params) in enumerate(sim_params)

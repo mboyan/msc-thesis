@@ -39,239 +39,221 @@ module Conversions
 
     flatten_recursive(x) = (x isa AbstractVector) ? vcat(map(flatten_recursive, x)...) : [x]
 
-
+    """
+    Convert centimeters to micrometers.
+    inputs:
+        cm (Float): length in centimeters
+    outputs:
+        (Float) length in micrometers
+    """
     function cm_to_um(cm)
-        """
-        Convert centimeters to micrometers.
-        inputs:
-            cm (float): length in centimeters
-        outputs:
-            (float) length in micrometers
-        """
         return cm * 1e4
     end
 
-
+    """
+    Convert micrometers to centimeters.
+    inputs:
+        um (Float): length in micrometers
+    outputs:
+        (Float) length in centimeters
+    """
     function um_to_cm(um)
-        """
-        Convert micrometers to centimeters.
-        inputs:
-            um (float): length in micrometers
-        outputs:
-            (float) length in centimeters
-        """
         return um * 1e-4
     end
 
-
+    """
+    Convert nanometers to micrometers.
+    inputs:
+        nm (Float): length in nanometers
+    outputs:
+        (Float) length in micrometers
+    """
     function nm_to_um(nm)
-        """
-        Convert nanometers to micrometers.
-        inputs:
-            nm (float): length in nanometers
-        outputs:
-            (float) length in micrometers
-        """
         return nm * 1e-3
     end
 
-
+    """
+    Convert micrometers to nanometers.
+    inputs:
+        um (Float): length in micrometers
+    outputs:
+        (Float) length in nanometers
+    """
     function um_to_nm(um)
-        """
-        Convert micrometers to nanometers.
-        inputs:
-            um (float): length in micrometers
-        outputs:
-            (float) length in nanometers
-        """
         return um * 1e3
     end
 
-
+    """
+    Convert square centimeters to square micrometers.
+    inputs:
+        cm2 (Float): area in square centimeters
+    outputs:
+        (Float) area in square micrometers
+    """
     function cm2_to_um2(cm2)
-        """
-        Convert square centimeters to square micrometers.
-        inputs:
-            cm2 (float): area in square centimeters
-        outputs:
-            (float) area in square micrometers
-        """
         return cm2 * 1e8
     end
 
-
+    """
+    Convert square micrometers to square centimeters.
+    inputs:
+        um2 (Float): area in square micrometers
+    outputs:
+        (Float) area in square centimeters
+    """
     function um2_to_cm2(um2)
-        """
-        Convert square micrometers to square centimeters.
-        inputs:
-            um2 (float): area in square micrometers
-        outputs:
-            (float) area in square centimeters
-        """
         return um2 * 1e-8
     end
 
-
+    """
+    Convert milliliters to micrometers cubed.
+    inputs:
+        mL (Float): volume in milliliters
+    outputs:
+        (Float) volume in micrometers cubed
+    """
     function mL_to_cubic_um(mL)
-        """
-        Convert milliliters to micrometers cubed.
-        inputs:
-            mL (float): volume in milliliters
-        outputs:
-            (float) volume in micrometers cubed
-        """
         return mL * 1e12
     end
 
-
+    """
+    Convert inverse milliliters to inverse micrometers cubed.
+    inputs:
+        mL_inv (Float): volume in inverse milliliters
+    outputs:
+        (Float) volume in inverse micrometers cubed
+    """
     function inverse_mL_to_cubic_um(mL_inv)
-        """
-        Convert inverse milliliters to inverse micrometers cubed.
-        inputs:
-            mL_inv (float): volume in inverse milliliters
-        outputs:
-            (float) volume in inverse micrometers cubed
-        """
         return mL_inv * 1e-12
     end
 
-
+    """
+    Convert micrometers cubed to milliliters.
+    inputs:
+        cubic_um (Float): volume in micrometers cubed
+    outputs:
+        (Float) volume in milliliters
+    """
     function cubic_um_to_mL(cubic_um)
-        """
-        Convert micrometers cubed to milliliters.
-        inputs:
-            cubic_um (float): volume in micrometers cubed
-        outputs:
-            (float) volume in milliliters
-        """
         return cubic_um * 1e-12
     end
 
-
+    """
+    Convert inverse micrometers cubed to inverse milliliters.
+    inputs:
+        microns_cubed_inv (Float): number density in inverse micrometers cubed
+    outputs:
+        (Float) number density in inverse milliliters
+    """
     function inverse_cubic_um_to_mL(cubic_um_inv)
-        """
-        Convert inverse micrometers cubed to inverse milliliters.
-        inputs:
-            microns_cubed_inv (float): number density in inverse micrometers cubed
-        outputs:
-            (float) number density in inverse milliliters
-        """
         return cubic_um_inv * 1e12
     end
 
-
+    """
+    Convert inverse milliliters to inverse micrometers cubed.
+    inputs:
+        uL_inv (Float): number density in inverse microliters
+    outputs:
+        (Float) number density in inverse milliliters
+    """
     function inverse_um_to_mL(uL_inv)
-        """
-        Convert inverse milliliters to inverse micrometers cubed.
-        inputs:
-            uL_inv (float): number density in inverse microliters
-        outputs:
-            (float) number density in inverse milliliters
-        """
         return uL_inv * 1000
     end
 
-
+    """
+    Convert diffusion coefficient to permeability.
+    inputs:
+        D (Float): diffusion coefficient in micrometers squared per second
+        K (Float): partition coefficient
+        d (Float): thickness of the membrane in micrometers
+    outputs:
+        (Float) permeation constant in micrometers per second
+    """
     function convert_D_to_Ps(D, K, d)
-        """
-        Convert diffusion coefficient to permeability.
-        inputs:
-            D (float): diffusion coefficient in micrometers squared per second
-            K (float): partition coefficient
-            d (float): thickness of the membrane in micrometers
-        outputs:
-            (float) permeation constant in micrometers per second
-        """
         return D * K / d
     end
 
-
+    """
+    Convert permeability to diffusion coefficient.
+    inputs:
+        Ps (Float): permeability in micrometers per second
+        K (Float): partition coefficient
+        d (Float): thickness of the membrane in micrometers
+    outputs:
+        (Float) diffusion constant in micrometers squared per second
+    """
     function convert_Ps_to_D(Ps, K, d)
-        """
-        Convert permeability to diffusion coefficient.
-        inputs:
-            Ps (float): permeability in micrometers per second
-            K (float): partition coefficient
-            d (float): thickness of the membrane in micrometers
-        outputs:
-            (float) diffusion constant in micrometers squared per second
-        """
         return Ps * d / K
     end
 
-
+    """
+    Compute the composite permeability of a series of membranes in parallel.
+    inputs:
+        permeabilities (Array{Float64, 1}): array of permeabilities in micrometers per second
+    outputs:
+        (Float) composite permeability in micrometers per second
+    """
     function composite_Ps(permeabilities)
-        """
-        Compute the composite permeability of a series of membranes in parallel.
-        inputs:
-            permeabilities (Array{Float64, 1}): array of permeabilities in micrometers per second
-        outputs:
-            (float) composite permeability in micrometers per second
-        """
         return 1 / sum(1 ./ permeabilities)
     end
 
-
+    """
+    Compute the area and volume of a spherical spore
+    given its diameter.
+    inputs:
+        diameter (Float): diameter of the spore
+    outputs:
+        A (Float): the area of the spore
+        V (Float): the volume of the spore
+    """
     function compute_spore_area_and_volume_from_dia(diameter)
-        """
-        Compute the area and volume of a spherical spore
-        given its diameter.
-        inputs:
-            diameter (float): diameter of the spore
-        outputs:
-            A (float): the area of the spore
-            V (float): the volume of the spore
-        """
         rad = diameter / 2.0
         A = 4 * π * rad^2
         V = 4/3 * π * rad^3
         return A, V
     end
 
-
+    """
+    Compute the equilibrium concentration of a spore in a solution.
+    inputs:
+        ρₛ (Float): spore density in spores/mL
+        V (Float): volume of the solution in micrometers cubed
+        c₀ (Float): initial concentration of the solution in M
+        c_ex (Float): exogenous concentration in M
+    outputs:
+        c_eq (Float): equilibrium concentration in M
+    """
     function compute_c_eq(ρₛ, V, c₀, c_ex)
-        """
-        Compute the equilibrium concentration of a spore in a solution.
-        inputs:
-            ρₛ (float): spore density in spores/mL
-            V (float): volume of the solution in micrometers cubed
-            c₀ (float): initial concentration of the solution in M
-            c_ex (float): exogenous concentration in M
-        outputs:
-            c_eq (float): equilibrium concentration in M
-        """
         ρₛ = inverse_mL_to_cubic_um(ρₛ)  # Convert from spores/mL to spores/m^3
         ϕ = ρₛ * V
         return ϕ * c₀ + (1 - ϕ) * c_ex
     end
 
-
+    """
+    The coverage function for a sphere.
+    inputs:
+        phi (Float): vertical angle in radians
+        R (Float): radius of the sphere
+        d (Float): distance between the centers of the spheres
+    outputs:
+        (Float) coverage function value
+    """
     function coverage_integral(ϕ, R, d)
-        """
-        The coverage function for a sphere.
-        inputs:
-            phi (float): vertical angle in radians
-            R (float): radius of the sphere
-            d (float): distance between the centers of the spheres
-        outputs:
-            (float) coverage function value
-        """
         Δ = d * cos(ϕ) - sqrt(R^2 - (d * sin(ϕ))^2) - R
         return exp(-Δ) * sin(ϕ)
     end
 
-
+    """
+    Measure the cumulative shadow intensity of neighboring spheres on a sample sphere.
+    inputs:
+        sample_shere_center (Tuple{Float64, 1}): center of the sample sphere
+        nbr_sphere_centers (Array{Tuple{Float64}, 1}): centers of the neighboring spheres
+        rad (Float): radius of the spheres
+        dx (Float): lattice spacing, if 1, the absolute distance is used
+    outputs:
+        (Float) cumulative shadow intensity
+    """
     function measure_coverage(sample_shere_center::Tuple, nbr_sphere_centers; rad=1, dx=1)
-        """
-        Measure the cumulative shadow intensity of neighboring spheres on a sample sphere.
-        inputs:
-            sample_shere_center (Tuple{Float64, 1}): center of the sample sphere
-            nbr_sphere_centers (Array{Tuple{Float64}, 1}): centers of the neighboring spheres
-            rad (float): radius of the spheres
-            dx (float): lattice spacing, if 1, the absolute distance is used
-        outputs:
-            (float) cumulative shadow intensity
-        """
         sample_shere_center = sample_shere_center .* dx
         nbr_sphere_centers = [center .* dx for center in nbr_sphere_centers]
         intsum = 0.0
@@ -285,17 +267,17 @@ module Conversions
         return 0.5 * intsum
     end
 
-
+    """
+    Measure the shielding index of neighboring spheres on a sample sphere
+    using the non-dominant eigenvalues of the unnormalised orientation tensor.
+    inputs:
+        sample_shere_center (Tuple{Float64, 1}): center of the sample sphere
+        nbr_sphere_centers (Array{Tuple{Float64}, 1}): centers of the neighboring spheres
+    outputs:
+        (Float) cumulative shadow intensity
+    """
     function measure_shielding_index(sample_shere_center::Tuple, nbr_sphere_centers)
-        """
-        Measure the shielding index of neighboring spheres on a sample sphere
-        using the non-dominant eigenvalues of the unnormalised orientation tensor.
-        inputs:
-            sample_shere_center (Tuple{Float64, 1}): center of the sample sphere
-            nbr_sphere_centers (Array{Tuple{Float64}, 1}): centers of the neighboring spheres
-        outputs:
-            (float) cumulative shadow intensity
-        """
+
         # Create matrix
         M = zeros(Float64, 3, 3)
         for nbr in nbr_sphere_centers
@@ -312,49 +294,46 @@ module Conversions
         return λ[2] + λ[3]
     end
 
-
+    """
+    Compute the stokes radius of a molecule
+    based on the molecular mass and density.
+    inputs:
+        mass (Float): molecular mass of the substance in grams per mole
+        density (Float): density of the substance in grams per milliliters
+    outputs:
+        (Float) Stokes radius in micrometers
+    """
     function compute_stokes_radius(mass, density)
-        """
-        Compute the stokes radius of a molecule
-        based on the molecular mass and density.
-        inputs:
-            mass (float): molecular mass of the substance in grams per mole
-            density (float): density of the substance in grams per milliliters
-        outputs:
-            (float) Stokes radius in micrometers
-        """
         NA = 6.022e23  # Avogadro's number
         vol = mass / (density * NA * 1e-12)
         println("Molecular volume: ", vol)
         return (3 * vol / 4π)^(1/3)# * 1e6
     end
 
-
+    """
+    Compute the diffusion coefficient from the Stokes radius and viscosity.
+    inputs:
+        a (Float): Stokes radius in micrometers
+        eta (Float): viscosity in centipoise / millipascal seconds
+    outputs:
+        (Float) diffusion coefficient in micrometers squared per second
+    """
     function compute_D_from_radius_and_viscosity(a, eta)
-        """
-        Compute the diffusion coefficient from the Stokes radius and viscosity.
-        inputs:
-            a (float): Stokes radius in micrometers
-            eta (float): viscosity in centipoise / millipascal seconds
-        outputs:
-            (float) diffusion coefficient in micrometers squared per second
-        """
         kT = 4.1e-21  # Boltzmann constant in Joules
         eta = eta * 1e-3  # Convert centipoise to pascal seconds
         a = a * 1e-6  # Convert micrometers to meters
         return kT / (6 * π * eta * a) * 1e12  # Convert to micrometers squared per second
     end
 
-
+    """
+    Extract the mean concentration from the cell wall region.
+    inputs:
+        c_lattice (Array{Float64, 3}): concentration lattice
+        region_ids (Array{Int, 1}): region ids
+    outputs:
+        c_avg (Array{Float32, 1}): average concentrations
+    """
     function extract_mean_cw_concentration(c_frames, region_ids)
-        """
-        Extract the mean concentration from the cell wall region.
-        inputs:
-            c_lattice (Array{Float64, 3}): concentration lattice
-            region_ids (Array{Int, 1}): region ids
-        outputs:
-            c_avg (Array{Float32, 1}): average concentrations
-        """
 
         # Add new axis to region_ids
         region_ids = reshape(region_ids, 1, size(region_ids)[1], size(region_ids)[2])
@@ -366,18 +345,17 @@ module Conversions
         return c_avg
     end
 
-
+    """
+    Compute the inhibitor concentration relative to the spore volume
+    from the cell wall region.
+    inputs:
+        c_frames (Array{Float64, 3}): concentration lattice
+        region_ids (Array{Int, 1}): region ids
+        spore_rad (Float): spore radius
+        cw_thickness (Float): cell wall thickness
+        dx (Float): lattice spacing
+    """
     function compute_spore_concentration(c_frames, region_ids, spore_rad, dx, cw_thickness=nothing)
-        """
-        Compute the inhibitor concentration relative to the spore volume
-        from the cell wall region.
-        inputs:
-            c_frames (Array{Float64, 3}): concentration lattice
-            region_ids (Array{Int, 1}): region ids
-            spore_rad (float): spore radius
-            cw_thickness (float): cell wall thickness
-            dx (float): lattice spacing
-        """
 
         if isnothing(cw_thickness)
             cw_thickness = dx
@@ -415,16 +393,15 @@ module Conversions
         return c_spore[:]
     end
 
-    
+    """
+    Generate positions of spores in a 3D grid.
+    inputs:
+        spore_density (Float): density of spores in spores/mL
+        Lx (Float): length of the grid in micrometers
+        Lz (Float): height of the grid in micrometers
+        base_height (Float): height of the base of the grid in micrometers, if specified, a 2D grid is generated
+    """
     function generate_spore_positions(spore_density, Lx, Lz; base_height=nothing)
-        """
-        Generate positions of spores in a 3D grid.
-        inputs:
-            spore_density (float): density of spores in spores/mL
-            Lx (float): length of the grid in micrometers
-            Lz (float): height of the grid in micrometers
-            base_height (float): height of the base of the grid in micrometers, if specified, a 2D grid is generated
-        """
 
         # Convert spore density to spores/micrometer^3
         spore_density = inverse_mL_to_cubic_um(spore_density)
@@ -460,18 +437,17 @@ module Conversions
         return spore_coords, spore_spacing
     end
 
+    """
+    Compute polysaccharide layer volume.
+    inputs:
+        R - spore radius in μm
+        d_hp - hydrophobin layer thickness in μm
+        d_ps - polysaccharide layer thickness in μm
+        porosity - non-vacant fraction of the polysaccharide layer
+    output:
+        polysaccharide layer volume in μm^3
+    """
     function compute_ps_layer_volume(R, d_hp, d_ps; porosity=0.32)
-        """
-        Compute polysaccharide layer volume.
-        inputs:
-            R - spore radius in μm
-            d_hp - hydrophobin layer thickness in μm
-            d_ps - polysaccharide layer thickness in μm
-            porosity - non-vacant fraction of the polysaccharide layer
-        output:
-            polysaccharide layer volume in μm^3
-        """
-
         return porosity .* π .* ((R .- d_hp).^3 .- (R .- d_hp .- d_ps).^3)
     end
 end

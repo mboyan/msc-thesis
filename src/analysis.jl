@@ -16,17 +16,18 @@ __precompile__(false)
     export get_coverage_and_exponent_from_files
     export get_density_and_exponent_from_files
     export summarise_fitted_parameters
-
+    
+    """
+    Retrieve parameters names and their respective values
+    for a simulation with a given ID.
+    inputs:
+        exp_ID (String): experiment ID
+        sim_ID (String): simulation ID
+        param_dict (Dict): dictionary for storing parameter values
+        extra_params (Vector{Symbol}): optional extra parameters to extract
+    """
     function parse_parameters!(exp_ID, sim_ID, param_dict, extra_params=nothing)
-        """
-        Retrieve parameters names and their respective values
-        for a simulation with a given ID.
-        inputs:
-            exp_ID (string): experiment ID
-            sim_ID (string): simulation ID
-            param_dict (Dict): dictionary for storing parameter values
-            extra_params (Vector{Symbol}): optional extra parameters to extract
-        """
+        
         path = @__DIR__
         path = joinpath(path, "Data", exp_ID)
 
@@ -71,20 +72,20 @@ __precompile__(false)
         end
     end
 
-    
+    """
+    Retrieve times and concentrations
+    from a simulation with a given ID.
+    inputs:
+        exp_ID (String): experiment ID
+        sim_ID (String): simulation ID
+        get_frames (Bool): if true, returns snapshots of the lattice
+    outputs:
+        times (Vector{Float64}): the meaurement times
+        concentrations (Vector{Float64}): the concentration measurements
+        param_dict (Dict): dictionary for storing parameter values
+    """
     function get_concentration_evolution_from_file(exp_ID, sim_ID; get_frames=false)
-        """
-        Retrieve times and concentrations
-        from a simulation with a given ID.
-        inputs:
-            exp_ID (string): experiment ID
-            sim_ID (string): simulation ID
-            get_frames (bool): if true, returns snapshots of the lattice
-        outputs:
-            times (Vector{Float64}): the meaurement times
-            concentrations (Vector{Float64}): the concentration measurements
-            param_dict (Dict): dictionary for storing parameter values
-        """
+        
         path = @__DIR__
 
         # Parse parameters
@@ -103,17 +104,17 @@ __precompile__(false)
         return  times, concentrations, param_dict
     end
 
-    
+    """
+    Retrieve the measured spore coverage and the
+    fitted decay exponent from the simulation files
+    of an experiment and identify the varying parameters
+    related to them.
+    inputs:
+        exp_ID (String): experiment ID
+        normalize_exponent (Bool): whether to normalise the decay exponent given the Ps parameter
+    """
     function get_coverage_and_exponent_from_files(exp_ID; norm_exponent=true)
-        """
-        Retrieve the measured spore coverage and the
-        fitted decay exponent from the simulation files
-        of an experiment and identify the varying parameters
-        related to them.
-        inputs:
-            exp_ID (string): experiment ID
-            normalize_exponent (bool): whether to normalise the decay exponent given the Ps parameter
-        """
+        
         path = @__DIR__
         path = joinpath(path, "Data", exp_ID)
         
@@ -153,17 +154,17 @@ __precompile__(false)
         return result_dict
     end
 
-
+    """
+    Infer the spore density from the grid size and retrieve the
+    permeation constant and fitted decay exponent from the simulation files
+    of an experiment and identify the varying parameters
+    related to them.
+    inputs:
+        exp_ID (String): experiment ID
+        normalize_exponent (Bool): whether to normalise the decay exponent given the Ps parameter
+    """
     function get_density_and_exponent_from_files(exp_ID; norm_exponent=true)
-        """
-        Infer the spore density from the grid size and retrieve the
-        permeation constant and fitted decay exponent from the simulation files
-        of an experiment and identify the varying parameters
-        related to them.
-        inputs:
-            exp_ID (string): experiment ID
-            normalize_exponent (bool): whether to normalise the decay exponent given the Ps parameter
-        """
+        
         path = @__DIR__
         path = joinpath(path, "Data", exp_ID)
         
@@ -223,15 +224,14 @@ __precompile__(false)
         return result_dict
     end
 
-
+    """
+    Summarise fitted parameters into a LaTeX table.
+    inputs:
+        exp_ID (String): experiment ID
+        model_types (Vector{String}): optional list of model types to include in the table
+        extra_tag (String): optional extra tags of result file
+    """
     function summarise_fitted_parameters(exp_ID; model_types=nothing, extra_tags=["st"])
-        """
-        Summarise fitted parameters into a LaTeX table.
-        inputs:
-            exp_ID (string): experiment ID
-            model_types (Vector{String}): optional list of model types to include in the table
-            extra_tag (String): optional extra tags of result file
-        """
 
         @argcheck any(in.(extra_tags, Ref([nothing, "st", "ex", "total"])))
 
@@ -316,11 +316,6 @@ __precompile__(false)
                 if !isnothing(extra_tags)
                     type_split = filter(x -> !(x in extra_tags), type_split)
                 end 
-                # for extra_tag in extra_tags
-                #     if extra_tag in type_split
-                #         deleteat!(type_split, findfirst(x -> x == extra_tag, type_split))
-                #     end
-                # end
                 
                 model_type = join(type_split[2:end], '_')
                 
