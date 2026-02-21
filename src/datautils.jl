@@ -4004,25 +4004,27 @@ __precompile__(false)
     end
 
     """
+    Experimental setting for a model (density, measurement times)
+    """
+    struct ExperimentSetting
+        times       ::Vector{Float64}
+        density     ::Float64
+        def_params  ::Dict
+    end
+
+    """
     Convert parameter vector from sweep space to model input space.
     Log-scaled parameters are exponentiated before passing to model.
     """
-    function to_model_params(config::ModelConfig, param_vec::Vector{Float64})
+    function to_model_params(config::ModelConfig, param_vec::Vector{Float64}, exp_setting::ExperimentSetting)
         d = length(param_vec)
         model_params = Dict{Symbol, Float64}()
         for i in 1:d
             val = config.log_scaled[i] ? exp(param_vec[i]) : param_vec[i]
             model_params[config.param_names[i]] = val
         end
+        model_params = merge(model_params, exp_setting.def_params)
         return model_params
-    end
-
-    """
-    Experimental setting for a model (density, measurement times)
-    """
-    struct ExperimentSetting
-        times   ::Vector{Float64}
-        density ::Float64
     end
 
     """
@@ -4039,7 +4041,7 @@ __precompile__(false)
         p_out = Vector{Float64}(undef, length(times))
 
         for n in 1:n_cols
-            params = to_model_params(config, param_matrix[:, n])
+            params = to_model_params(config, param_matrix[:, n], exp_setting)
             p_out .= compute_gresp_xform_params(model_alias, times, density, params)
             outputs[n], rmse, uncert = fit_dantigny_to_germination_curve(p_out, times)
         end
@@ -4059,7 +4061,7 @@ __precompile__(false)
     Compute the anchor output y0 (scalar per output dimension).
     """
     function compute_anchor_output(config::ModelConfig, exp_setting::ExperimentSetting)
-        anchor_params = to_model_params(config, config.anchor)
+        anchor_params = to_model_params(config, config.anchor, exp_setting)
         p_out = compute_gresp_xform_params(config.name, exp_setting.times, exp_setting.density, anchor_params)
         d_vals, rmse, uncert = fit_dantigny_to_germination_curve(p_out, times)
         return d_vals  # [p_max, tau_g, nu]
@@ -4233,6 +4235,17 @@ __precompile__(false)
         return lmax + log(mean(exp.(log_likelihoods .- lmax)))
     end
 
+    struct HDMRResult
+        config          :: ModelConfig
+        S_first         :: Matrix{Float64}   # d × n_outputs
+        S_pair          :: Matrix{Float64}   # n_pairs × n_outputs
+        S_total         :: Matrix{Float64}   # d × n_outputs
+        S_mean          :: Vector{Float64}   # d — averaged over outputs
+        d_eff           :: Int
+        log_ml          :: Float64           # approximate log marginal likelihood
+        z_scores_all    :: Vector{Float64}   # from all sweep samples combined
+    end
+
     """
     Perform High-Dimensional Model Representation (HDMR) on a specific model.
     Workflow:
@@ -4242,12 +4255,125 @@ __precompile__(false)
         4. Compute Sobol-style variance-based sensitivity indices
         5. Rank models by effective dimensionality and predictive score
     inputs:
-        model_alias (String) - alias of model to analyse
+        config (ModelConfig) - model configuration
+        exp_setting (ExperimentSetting) - experimental setting (time frames and density)
+        lab_means (Vector{Float64}) - mean Dantigny values across the experimental settings
+        lab_cov (Matrix{Float64}) - covariance matrix of lab Dantigny values
+        n_first (Int) - number of points for the first-order sweeps 
+        n_pair (Int) - number of points for the first-order sweeps 
     """
-    function hdmr(model_alias)
+    function run_hdmr(config::ModelConfig,
+                    exp_setting::ExperimentSetting,
+                    lab_means::Vector{Float64},
+                    lab_cov::Matrix{Float64};
+                    n_first::Int=100,
+                    n_pair::Int=50)
 
-        density_scaled = inverse_mL_to_cubic_um(density)
-        times_sec = times .* 3600
+        d = length(config.anchor)
+        n_outputs = length(lab_means)
+
+        println("\n=== Running HDMR: $(config.name) ===")
+
+        # --- Anchor ---
+        println("Computing anchor output...")
+        y0 = compute_anchor_output(config, exp_setting)
+        println("  y0 = $y0")
+
+        # --- First-order sweeps ---
+        println("First-order sweeps ($d parameters × $n_first points)...")
+        f_first   = Vector{Matrix{Float64}}(undef, d)
+        interps   = Vector{Function}(undef, d)
+        all_y_vals = Matrix{Float64}[]
+
+        for j in 1:d
+            print("  θ_$(config.param_names[j])... ")
+            sweep_vals, f_j_vals, y_vals = compute_first_order_term(
+                config, j, y0, exp_setting; n_points=n_first)
+            f_first[j] = f_j_vals
+            interps[j] = make_interpolator(sweep_vals, f_j_vals)
+            push!(all_y_vals, y_vals)
+            println("done")
+        end
+
+        # --- Pairwise sweeps ---
+        n_pairs = length(config.target_pairs)
+        f_pairs = Vector{Matrix{Float64}}(undef, n_pairs)
+        println("Pairwise sweeps ($n_pairs targeted pairs × $(n_pair^2) points each)...")
+
+        for (p, (j, k)) in enumerate(config.target_pairs)
+            print("  ($(config.param_names[j]), $(config.param_names[k]))... ")
+            _, _, f_jk_vals, y_vals = compute_pairwise_term(
+                config, j, k, y0, interps[j], interps[k], exp_setting;
+                n_j=n_pair, n_k=n_pair)
+            f_pairs[p] = f_jk_vals
+            push!(all_y_vals, y_vals)
+            println("done")
+        end
+
+        # --- Sensitivity indices ---
+        println("Computing sensitivity indices...")
+        S_first, S_pair, S_total, V_total = compute_sensitivity_indices(
+            f_first, f_pairs, config.target_pairs, d, n_outputs)
+        d_eff, S_mean = effective_dimensionality(S_total)
+
+        # --- Predictive scores across all sweep samples ---
+        println("Computing predictive scores...")
+        all_y = hcat(all_y_vals...)
+        z_scores = compute_predictive_scores(all_y, lab_means, lab_cov)
+        log_ml = approx_log_marginal_likelihood(z_scores)
+
+        println("  Effective dimensionality: $d_eff / $d")
+        println("  Approx. log marginal likelihood: $(round(log_ml, digits=2))")
+
+        return HDMRResult(config, S_first, S_pair, S_total, S_mean,
+                        d_eff, log_ml, z_scores)
+    end
+
+    """
+    Perform sensitivity analysis by:
+    1. Analysing parameter coupling via HDMR
+    2. Running Bayesian Model Averaging
+    """
+    function sensitivity_analysis(def_params, bounds_abs, bounds_rel, anchor)
+
+        # Load data
+        aliases, combination_IDs, descriptions, param_key_sets = load_model_collection()
+        times, sources, densities, lab_means, CIs, CI_widths, uncert_lab = unpack_ijadpanahsaravi_data()
+        
+        times_sec = times * 3600 # for matching physics variables in mechanistic model
+        lab_means_global = mean(lab_means; dims=(1, 2)) # Take average lab means across exp.settings as reference for HDMR
+        densities_scaled = inverse_mL_to_cubic_um.(densities)
+        mean_density = mean(densities_scaled) # Take average density as reference for HDMR
+
+        # Experimental setting for HDMR
+        exp_setting = ExperimentSetting(times_sec, mean_density, def_params)
+
+        n_src = length(sources)
+        n_dens = length(densities)
+
+        # Determine relative vs absolute threshold models
+        aliases_rel = ["0", "B", "Bi"]
+
+        # Determine global vs inducer-specific parameters
+        params_glob_keys = [:b, :Pₛ, :μ_γ, :neg_δ_γ, :μ_ψ, :neg_δ_ψ]
+
+        # Iterate over models
+        for m in 1:1#59:59#eachindex(aliases)
+
+            println("Running $(aliases[m])")
+
+            # ----- PERFORM HDMR -----
+
+            # HDMR setup
+
+            config = ModelConfig(
+                aliases[m],
+                param_key_sets[m],
+                anchor,
+                #AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+            )
+
+        end
     end
 
 end
