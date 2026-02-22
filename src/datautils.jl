@@ -45,6 +45,7 @@ __precompile__(false)
     export fit_model_to_data
     export get_params_for_idx
     export fit_model_to_data_equilibrium
+    export sensitivity_analysis
 
     CUDA.allowscalar(false)  # Prevent slow scalar operations
 
@@ -747,7 +748,7 @@ __precompile__(false)
         n_dens = length(densities)
 
         # Determine relative vs absolute threshold models
-        aliases_rel = ["0", "B", "Bi"]
+        ids_rel = ["0", "B", "Bi"]
 
         # Determine global vs inducer-specific parameters
         params_glob_keys = [:b, :Pₛ, :μ_γ, :neg_δ_γ, :μ_ψ, :neg_δ_ψ]
@@ -857,7 +858,7 @@ __precompile__(false)
             surrogates = Dict()
 
             # Check if model uses absolute or relative bounds
-            if aliases[m] in aliases_rel
+            if combination_IDs[m] in ids_rel
                 sample_dists = filter(p -> p[1] in param_keys, param_dists_rel)
                 abs_thresh = false
             else
@@ -4016,14 +4017,13 @@ __precompile__(false)
     Convert parameter vector from sweep space to model input space.
     Log-scaled parameters are exponentiated before passing to model.
     """
-    function to_model_params(config::ModelConfig, param_vec::Vector{Float64}, exp_setting::ExperimentSetting)
+    function to_model_params(config::ModelConfig, param_vec::Vector{Float64},)
         d = length(param_vec)
         model_params = Dict{Symbol, Float64}()
         for i in 1:d
             val = config.log_scaled[i] ? exp(param_vec[i]) : param_vec[i]
             model_params[config.param_names[i]] = val
         end
-        model_params = merge(model_params, exp_setting.def_params)
         return model_params
     end
 
@@ -4038,11 +4038,12 @@ __precompile__(false)
         model_alias = config.name
         density = exp_setting.density
         times = exp_setting.times
+        times_sec = times .* 3600
         p_out = Vector{Float64}(undef, length(times))
 
-        for n in 1:n_cols
-            params = to_model_params(config, param_matrix[:, n], exp_setting)
-            p_out .= compute_gresp_xform_params(model_alias, times, density, params)
+        Threads.@threads for n in 1:n_cols
+            params = to_model_params(config, param_matrix[:, n])
+            p_out .= compute_gresp_xform_params(model_alias, times_sec, density, params, exp_setting.def_params)
             outputs[n], rmse, uncert = fit_dantigny_to_germination_curve(p_out, times)
         end
 
@@ -4061,9 +4062,9 @@ __precompile__(false)
     Compute the anchor output y0 (scalar per output dimension).
     """
     function compute_anchor_output(config::ModelConfig, exp_setting::ExperimentSetting)
-        anchor_params = to_model_params(config, config.anchor, exp_setting)
-        p_out = compute_gresp_xform_params(config.name, exp_setting.times, exp_setting.density, anchor_params)
-        d_vals, rmse, uncert = fit_dantigny_to_germination_curve(p_out, times)
+        anchor_params = to_model_params(config, config.anchor)
+        p_out = compute_gresp_xform_params(config.name, exp_setting.times .* 3600, exp_setting.density, anchor_params, exp_setting.def_params)
+        d_vals, rmse, uncert = fit_dantigny_to_germination_curve(p_out, exp_setting.times)
         return d_vals  # [p_max, tau_g, nu]
     end
 
@@ -4334,44 +4335,93 @@ __precompile__(false)
     1. Analysing parameter coupling via HDMR
     2. Running Bayesian Model Averaging
     """
-    function sensitivity_analysis(def_params, bounds_abs, bounds_rel, anchor)
+    function sensitivity_analysis(def_params, bounds_abs, bounds_rel, anchor_dict)
 
         # Load data
         aliases, combination_IDs, descriptions, param_key_sets = load_model_collection()
         times, sources, densities, lab_means, CIs, CI_widths, uncert_lab = unpack_ijadpanahsaravi_data()
+
+        n_src = length(sources)
+        n_dens = length(densities)
         
-        times_sec = times * 3600 # for matching physics variables in mechanistic model
-        lab_means_global = mean(lab_means; dims=(1, 2)) # Take average lab means across exp.settings as reference for HDMR
+        lab_means_global = mean(lab_means; dims=(1, 2)) |> vec # Take average lab means across exp.settings as reference for HDMR
+        lab_covs = zeros(Float64, n_dens, n_src, 3, 3)
+        for i in 1:n_dens
+            for j in 1:n_src
+                lab_covs[i, j, :, :] .= diagm(uncert_lab[i, j, :].^2)
+            end
+        end
+        lab_cov_global = dropdims(mean(lab_covs; dims=(1, 2)); dims=(1, 2)) # Take average covariance matrix across exp.settings as reference for HDMR
         densities_scaled = inverse_mL_to_cubic_um.(densities)
         mean_density = mean(densities_scaled) # Take average density as reference for HDMR
 
         # Experimental setting for HDMR
-        exp_setting = ExperimentSetting(times_sec, mean_density, def_params)
-
-        n_src = length(sources)
-        n_dens = length(densities)
+        exp_setting = ExperimentSetting(times, mean_density, def_params)
 
         # Determine relative vs absolute threshold models
-        aliases_rel = ["0", "B", "Bi"]
+        ids_rel = ["0", "B", "Bi"]
 
         # Determine global vs inducer-specific parameters
         params_glob_keys = [:b, :Pₛ, :μ_γ, :neg_δ_γ, :μ_ψ, :neg_δ_ψ]
+
+        # Group parameters for couplings
+        inducer_params = [:Pₛ_cs, :K_cC, :μ_ω, :neg_δ_ω]
+        inhibitor_params = [:Pₛ, :μ_γ, :neg_δ_γ]
+        coupling_types = Dict(
+            "pure_thresholds" => [(i,j) for group in [inducer_params, inhibitor_params] for i in group for j in group if i < j]
+        )
 
         # Iterate over models
         for m in 1:1#59:59#eachindex(aliases)
 
             println("Running $(aliases[m])")
 
+            param_keys = param_key_sets[m]
+
+            n_dims = length(param_keys)
+
+            # Determine bounds
+            if combination_IDs[m] in ids_rel
+                bounds = bounds_rel
+            else
+                bounds = bounds_abs
+            end
+
             # ----- PERFORM HDMR -----
 
-            # HDMR setup
+            # Construct model configuration
+            lower = zeros(Float64, n_dims)
+            upper = similar(lower)
+            log_scaled = zeros(Bool, n_dims)
+            anchor = similar(lower)
+            for (k, key) in enumerate(param_keys)
+                if startswith(string(key), "neg_δ")
+                    log_scaled[k] = false
+                    lower[k] = bounds[key][1]
+                    upper[k] = bounds[key][2]
+                    anchor[k] = anchor_dict[key]
+                else
+                    log_scaled[k] = true
+                    lower[k] = log(bounds[key][1])
+                    upper[k] = log(bounds[key][2])
+                    anchor[k] = log(anchor_dict[key])
+                end
+            end
+            coupling_indices = [(findfirst(==(k1), param_keys), findfirst(==(k2), param_keys)) for (k1, k2) in coupling_types["pure_thresholds"]]
 
             config = ModelConfig(
                 aliases[m],
                 param_key_sets[m],
                 anchor,
-                #AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+                lower,
+                upper,
+                log_scaled,
+                coupling_indices
             )
+
+            output = run_hdmr(config, exp_setting, lab_means_global, lab_cov_global)
+            
+            println(output)
 
         end
     end

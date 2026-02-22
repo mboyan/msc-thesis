@@ -298,16 +298,18 @@ __precompile__(false)
     output:
         p_out (Vector{Float64}) - germination fractions
     """
-    function compute_gresp_xform_params(model_type, times, ρₛ, prms_raw)
+    function compute_gresp_xform_params(model_type, times, ρₛ, prms_raw, def_params)
 
         prms = Dict()
         for (key, val) in prms_raw
             if startswith(string(key), "neg_δ_")
                 suffix = string(key)[end]
-                prms[Symbol("σ_" * suffix)] = abs.(prms[Symbol("μ_" * suffix)]) .* clamp.(exp.(-prms[key]), 1e-12, 1e6)
+                prms[Symbol("σ_" * suffix)] = abs.(prms_raw[Symbol("μ_" * suffix)]) .* clamp.(exp.(-prms_raw[key]), 1e-12, 1e6)
+            else
+                prms[key] = prms_raw[key]
             end
         end
-        
+        prms = merge(prms, def_params)
         return compute_germination_response(model_type, times, ρₛ, prms)
 
     end
