@@ -4315,6 +4315,10 @@ __precompile__(false)
         println("Computing sensitivity indices...")
         S_first, S_pair, S_total, V_total = compute_sensitivity_indices(
             f_first, f_pairs, config.target_pairs, d, n_outputs)
+        println("S_first = $S_first")
+        println("S_pair = $S_pair")
+        println("S_total = $S_total")
+        println("V_total = $V_total")
         d_eff, S_mean = effective_dimensionality(S_total)
 
         # --- Predictive scores across all sweep samples ---
@@ -4397,15 +4401,22 @@ __precompile__(false)
             for (k, key) in enumerate(param_keys)
                 if startswith(string(key), "neg_δ")
                     log_scaled[k] = false
-                    lower[k] = bounds[key][1]
-                    upper[k] = bounds[key][2]
+                    lower[k] = max(anchor_dict[key] * exp(-2), bounds[key][1])
+                    # lower[k] = bounds[key][1]
+                    upper[k] = min(anchor_dict[key] * exp(2), bounds[key][2])
+                    # upper[k] = bounds[key][2]
                     anchor[k] = anchor_dict[key]
+                    println("$key: lower = $(bounds[key][1]) / lower (sweep) = $(lower[k]) / anchor = $(anchor[k]) / upper (sweep) = $(upper[k]) / upper = $(bounds[key][2])")
                 else
                     log_scaled[k] = true
-                    lower[k] = log(bounds[key][1])
-                    upper[k] = log(bounds[key][2])
+                    # lower[k] = anchor_dict[key] * exp(-1.5)
+                    lower[k] = log(max(bounds[key][1], anchor_dict[key] * exp(-2)))
+                    # upper[k] = anchor_dict[key] * exp(1.5)
+                    upper[k] = log(min(bounds[key][2], anchor_dict[key] * exp(2)))
                     anchor[k] = log(anchor_dict[key])
+                    println("$key: lower = $(log(bounds[key][1])) / lower (sweep) = $(lower[k]) / anchor = $(anchor[k]) / upper (sweep) = $(upper[k]) / upper = $(log(bounds[key][2]))")
                 end
+                
             end
             coupling_indices = [(findfirst(==(k1), param_keys), findfirst(==(k2), param_keys)) for (k1, k2) in coupling_types["pure_thresholds"]]
 
