@@ -2001,7 +2001,7 @@ __precompile__(false)
             catch e
                 if isa(e, LinearAlgebra.LAPACKException)
                     # Matrix is singular - return NaN or zeros
-                    fill(0, length(params))
+                    fill(Inf, length(params))
                 else
                     rethrow(e)
                 end
@@ -4028,12 +4028,22 @@ __precompile__(false)
     end
 
     """
+    Compute weight penalising half-saturation times
+    beyond a plausible experimental time.
+    """
+    function experimental_relevance_weight(τ_g::Float64, T_max::Float64; margin::Float64=3.0)
+        excess_logs = max(0.0, log(τ_g / T_max) / log(margin))
+        return exp(-excess_logs^2)
+    end
+
+    """
     Thin wrapper: given a parameter matrix (d × N), run the mechanistic
     model on each column and return an output matrix (n_outputs × N).
     """
     function run_model_batch(config::ModelConfig, param_matrix::Matrix{Float64}, exp_setting::ExperimentSetting) # REMEMBER TO SCALE DENSITY AND TIMES!!!!!!!!!!!!!!!!!!!!!!!
         n_cols = size(param_matrix, 2)
         outputs = Vector{Vector{Float64}}(undef, n_cols)
+        stderr  = Vector{Vector{Float64}}(undef, n_cols)
 
         model_alias = config.name
         density = exp_setting.density
@@ -4044,18 +4054,26 @@ __precompile__(false)
         Threads.@threads for n in 1:n_cols
             params = to_model_params(config, param_matrix[:, n])
             p_out .= compute_gresp_xform_params(model_alias, times_sec, density, params, exp_setting.def_params)
-            outputs[n], rmse, uncert = fit_dantigny_to_germination_curve(p_out, times)
+            d, rmse, se = fit_dantigny_to_germination_curve(p_out, times)
+            # if any(d[2:3] .> 1e6) && any(se[2:3] .< 100)
+            #     # d = [d[1], NaN, NaN]
+            #     println("Large d=$d with (weirdly) SE $se")
+            # end
+            outputs[n] = d
+            stderr[n]  = se
         end
 
         # Stack into n_outputs × N matrix; replace failed runs with NaN
         n_out = length(outputs[1])
         result = fill(NaN, n_out, n_cols)
+        se_mat = fill(NaN, n_out, n_cols)
         for n in 1:n_cols
             if !any(isnan.(outputs[n]))
                 result[:, n] .= outputs[n]
+                se_mat[:, n] .= stderr[n]
             end
         end
-        return result
+        return result, se_mat
     end
 
     """
@@ -4063,6 +4081,7 @@ __precompile__(false)
     """
     function compute_anchor_output(config::ModelConfig, exp_setting::ExperimentSetting)
         anchor_params = to_model_params(config, config.anchor)
+        # println("anchor_params: $anchor_params")
         p_out = compute_gresp_xform_params(config.name, exp_setting.times .* 3600, exp_setting.density, anchor_params, exp_setting.def_params)
         d_vals, rmse, uncert = fit_dantigny_to_germination_curve(p_out, exp_setting.times)
         return d_vals  # [p_max, tau_g, nu]
@@ -4082,12 +4101,12 @@ __precompile__(false)
                                     exp_setting::ExperimentSetting;
                                     n_points::Int=100)
         sweep_vals, param_matrix = make_1d_sweep(config, j, n_points)
-        y_vals = run_model_batch(config, param_matrix, exp_setting)
+        y_vals, se_mat = run_model_batch(config, param_matrix, exp_setting)
 
         # f_j = y - y0, broadcast over columns
         f_j_vals = y_vals .- y0
 
-        return sweep_vals, f_j_vals, y_vals
+        return sweep_vals, f_j_vals, y_vals, se_mat
     end
 
     """
@@ -4105,7 +4124,7 @@ __precompile__(false)
                                     n_j::Int=50, n_k::Int=50)
 
         sweep_j, sweep_k, param_matrix = make_2d_sweep(config, j, k, n_j, n_k)
-        y_vals = run_model_batch(config, param_matrix, exp_setting)
+        y_vals, se_mat = run_model_batch(config, param_matrix, exp_setting)
 
         n_total = n_j * n_k
         f_jk_vals = similar(y_vals)
@@ -4118,7 +4137,7 @@ __precompile__(false)
             idx += 1
         end
 
-        return sweep_j, sweep_k, f_jk_vals, y_vals
+        return sweep_j, sweep_k, f_jk_vals, y_vals, se_mat
     end
 
     """
@@ -4188,6 +4207,49 @@ __precompile__(false)
         return S_first, S_pair, S_total, V_total
     end
 
+    function weighted_var(x::Vector{Float64}, w::Vector{Float64})
+        # Remove NaN entries
+        valid = .!isnan.(x) .& .!isnan.(w) .& (w .> 0)
+        x_v, w_v = x[valid], w[valid]
+        w_norm = w_v ./ sum(w_v)
+        mean_w = dot(w_norm, x_v)
+        return dot(w_norm, (x_v .- mean_w).^2)
+    end
+
+    function compute_sensitivity_indices_weighted(
+            f_first::Vector{Matrix{Float64}}, f_pairs::Vector{Matrix{Float64}},
+            weights_first::Vector{Vector{Float64}}, weights_pairs::Vector{Vector{Float64}},
+            target_pairs::Vector{Tuple{Int,Int}}, d::Int, n_outputs::Int)
+
+        V_first = zeros(d, n_outputs)
+        for j in 1:d
+            for o in 1:n_outputs
+                V_first[j, o] = weighted_var(f_first[j][o, :], weights_first[j])
+            end
+        end
+
+        V_pair = zeros(length(target_pairs), n_outputs)
+        for (p, _) in enumerate(target_pairs)
+            for o in 1:n_outputs
+                V_pair[p, o] = weighted_var(f_pairs[p][o, :], weights_pairs[p])
+            end
+        end
+
+        V_total = vec(sum(V_first, dims=1)) .+ vec(sum(V_pair, dims=1))
+        V_total .= max.(V_total, 1e-12)
+
+        S_first = V_first ./ V_total'
+        S_pair  = V_pair  ./ V_total'
+
+        S_total = copy(S_first)
+        for (p, (j, k)) in enumerate(target_pairs)
+            S_total[j, :] .+= S_pair[p, :]
+            S_total[k, :] .+= S_pair[p, :]
+        end
+
+        return S_first, S_pair, S_total, V_total
+    end
+
     """
     Effective dimensionality: number of parameters with S_total > threshold.
     """
@@ -4234,6 +4296,15 @@ __precompile__(false)
         # Log-sum-exp for numerical stability
         lmax = maximum(log_likelihoods)
         return lmax + log(mean(exp.(log_likelihoods .- lmax)))
+    end
+
+    """
+    Compute weights based on standard error from Dantigny fitting
+    """
+    function compute_weights(se_mat::Matrix{Float64}; λ::Float64=1.0)
+        # Use maximum SE across outputs as the plausibility signal
+        max_se = vec(maximum(se_mat, dims=1))
+        return 1.0 ./ (1.0 .+ λ .* max_se)
     end
 
     struct HDMRResult
@@ -4283,14 +4354,26 @@ __precompile__(false)
         # --- First-order sweeps ---
         println("First-order sweeps ($d parameters × $n_first points)...")
         f_first   = Vector{Matrix{Float64}}(undef, d)
+        w_first   = Vector{Vector{Float64}}(undef, d)
         interps   = Vector{Function}(undef, d)
         all_y_vals = Matrix{Float64}[]
 
         for j in 1:d
             print("  θ_$(config.param_names[j])... ")
-            sweep_vals, f_j_vals, y_vals = compute_first_order_term(
+            sweep_vals, f_j_vals, y_vals, se_mat = compute_first_order_term(
                 config, j, y0, exp_setting; n_points=n_first)
             f_first[j] = f_j_vals
+
+            λ = 1.0 / median(filter(!isnan, se_mat))
+            # println(typeof(compute_weights(se_mat; λ)))
+            w_first[j] = min.(compute_weights(se_mat; λ), experimental_relevance_weight.(y_vals[2, :], 168.0)) # T_max = 168 hours
+            println("1st order weights: $(w_first[j])")
+
+            large_vals = any(y_vals .> 1e6; dims=1) |> vec
+            # println(size(large_vals))
+            # println(size(w_first[j]))
+            println("Weights for large vals $(y_vals[:, large_vals]):\n$(w_first[j][large_vals]))")
+
             interps[j] = make_interpolator(sweep_vals, f_j_vals)
             push!(all_y_vals, y_vals)
             println("done")
@@ -4299,22 +4382,31 @@ __precompile__(false)
         # --- Pairwise sweeps ---
         n_pairs = length(config.target_pairs)
         f_pairs = Vector{Matrix{Float64}}(undef, n_pairs)
+        w_pairs = Vector{Vector{Float64}}(undef, n_pairs)
         println("Pairwise sweeps ($n_pairs targeted pairs × $(n_pair^2) points each)...")
 
         for (p, (j, k)) in enumerate(config.target_pairs)
             print("  ($(config.param_names[j]), $(config.param_names[k]))... ")
-            _, _, f_jk_vals, y_vals = compute_pairwise_term(
+            _, _, f_jk_vals, y_vals, se_mat = compute_pairwise_term(
                 config, j, k, y0, interps[j], interps[k], exp_setting;
                 n_j=n_pair, n_k=n_pair)
             f_pairs[p] = f_jk_vals
+
+            λ = 1.0 / median(filter(!isnan, se_mat))
+            w_pairs[p] = min.(compute_weights(se_mat; λ), experimental_relevance_weight.(y_vals[2, :], 168.0)) # T_max = 168 hours
+            println("2nd order weights: $(w_pairs[p])")
+
+            large_vals = any(y_vals .> 1e6; dims=1) |> vec
+            println("Weights for large vals $(y_vals[:, large_vals]):\n$(w_pairs[p][large_vals]))")
+
             push!(all_y_vals, y_vals)
             println("done")
         end
 
         # --- Sensitivity indices ---
         println("Computing sensitivity indices...")
-        S_first, S_pair, S_total, V_total = compute_sensitivity_indices(
-            f_first, f_pairs, config.target_pairs, d, n_outputs)
+        S_first, S_pair, S_total, V_total = compute_sensitivity_indices_weighted(
+            f_first, f_pairs, w_first, w_pairs, config.target_pairs, d, n_outputs)
         println("S_first = $S_first")
         println("S_pair = $S_pair")
         println("S_total = $S_total")
@@ -4401,18 +4493,18 @@ __precompile__(false)
             for (k, key) in enumerate(param_keys)
                 if startswith(string(key), "neg_δ")
                     log_scaled[k] = false
-                    lower[k] = max(anchor_dict[key] * exp(-2), bounds[key][1])
-                    # lower[k] = bounds[key][1]
-                    upper[k] = min(anchor_dict[key] * exp(2), bounds[key][2])
-                    # upper[k] = bounds[key][2]
+                    # lower[k] = max(anchor_dict[key] * exp(-2), bounds[key][1])
+                    lower[k] = bounds[key][1]
+                    # upper[k] = min(anchor_dict[key] * exp(2), bounds[key][2])
+                    upper[k] = bounds[key][2]
                     anchor[k] = anchor_dict[key]
                     println("$key: lower = $(bounds[key][1]) / lower (sweep) = $(lower[k]) / anchor = $(anchor[k]) / upper (sweep) = $(upper[k]) / upper = $(bounds[key][2])")
                 else
                     log_scaled[k] = true
-                    # lower[k] = anchor_dict[key] * exp(-1.5)
-                    lower[k] = log(max(bounds[key][1], anchor_dict[key] * exp(-2)))
-                    # upper[k] = anchor_dict[key] * exp(1.5)
-                    upper[k] = log(min(bounds[key][2], anchor_dict[key] * exp(2)))
+                    lower[k] = log(bounds[key][1])
+                    # lower[k] = log(max(bounds[key][1], anchor_dict[key] * exp(-2)))
+                    upper[k] = log(bounds[key][2])
+                    # upper[k] = log(min(bounds[key][2], anchor_dict[key] * exp(2)))
                     anchor[k] = log(anchor_dict[key])
                     println("$key: lower = $(log(bounds[key][1])) / lower (sweep) = $(lower[k]) / anchor = $(anchor[k]) / upper (sweep) = $(upper[k]) / upper = $(log(bounds[key][2]))")
                 end

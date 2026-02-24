@@ -309,6 +309,7 @@ __precompile__(false)
                 prms[key] = prms_raw[key]
             end
         end
+        # println("Input parameters: $prms")
         prms = merge(prms, def_params)
         return compute_germination_response(model_type, times, ρₛ, prms)
 
