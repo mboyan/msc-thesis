@@ -9,6 +9,7 @@ module Conversions
     using MeshGrid
     using Distributions
     using SpecialFunctions
+    using Symbolics, SymbolicUtils
 
     export cm_to_um
     export um_to_cm
@@ -449,5 +450,168 @@ module Conversions
     """
     function compute_ps_layer_volume(R, d_hp, d_ps; porosity=0.32)
         return porosity .* π .* ((R .- d_hp).^3 .- (R .- d_hp .- d_ps).^3)
+    end
+
+    # ====================================
+    # ===== MODEL REPARAMETERISATION =====
+    # ====================================
+    """
+    Symbolic representation of a parameter coupling.
+    expr:     the composite expression (e.g. c_cs / (K_cC + c_cs))
+    original: the original parameters appearing in expr
+    composite_name: the name to give the composite
+    fixed_vars: any constants needed
+    """
+    struct SymbolicCoupling
+        composite_name :: Symbol
+        expr           :: Num                    # Symbolics expression
+        original       :: Vector{Symbol}         # parameters this replaces/involves
+        fixed_vals     :: Dict{Symbol, Float64}  # constants substituted at build time
+    end
+
+    @variables K_cC Pₛ Pₛ_cs neg_δ_γ neg_δ_ω μ_γ μ_ω
+    @variables c₀_cs_ref t_ref A_ref V_cw_ref V_ref ρₛ_ref
+
+    # ─────────────────────────────────────────────────────────────────────────────
+    # Intermediate expressions derived directly from the call chain
+    # ─────────────────────────────────────────────────────────────────────────────
+
+    # Inhibition: geometric time constant and filling fraction (geometry fixed at anchor)
+    τ_β_expr  = V_ref / (Pₛ * A_ref)
+    ϕ_expr    = ρₛ_ref * V_ref
+    β_ref_expr = ϕ_expr + (1 - ϕ_expr) * exp(-t_ref / (τ_β_expr * (1 - ϕ_expr)))
+    
+    # Induction: carbon source concentration and saturation signal
+    τ_cs_expr  = V_cw_ref / (A_ref * Pₛ_cs)
+    c_cs_expr  = c₀_cs_ref * (1 - exp(-t_ref / τ_cs_expr))
+    s_ref_expr = c_cs_expr / (K_cC + c_cs_expr)
+
+    # Variance composites (from neg_δ parameterisation)
+    σ_γ_expr = μ_γ * exp(-neg_δ_γ)
+    σ_ω_expr = μ_ω * exp(-neg_δ_ω)
+
+    # Normalised CDF arguments at reference conditions
+    A_γ_ref_expr = (β_ref_expr - μ_γ) / σ_γ_expr
+    A_ω_ref_expr = (s_ref_expr - μ_ω) / σ_ω_expr
+
+    # ─────────────────────────────────────────────────────────────────────────────
+    # Reference geometry computed from anchor example_params
+    # Caller must supply these from the anchor's ξ_anchor, κ_anchor, d_hp
+    # ─────────────────────────────────────────────────────────────────────────────
+    function reference_geometry(ξ_anchor, κ_anchor, d_hp, ρₛ, c₀_cs, t_ref)
+        V   = 4/3 * π * ξ_anchor^3
+        A   = 4π  * ξ_anchor^2
+        V_cw = compute_ps_layer_volume(ξ_anchor, d_hp, κ_anchor)
+        ϕ   = ρₛ * V
+        return Dict(
+            :V_ref     => V,
+            :A_ref     => A,
+            :V_cw_ref  => V_cw,
+            :ρₛ_ref    => ρₛ,
+            :c₀_cs_ref => c₀_cs,
+            :t_ref     => t_ref,
+            :ϕ_ref     => ϕ
+        )
+    end
+
+    # ─────────────────────────────────────────────────────────────────────────────
+    # Coupling library
+    # Each entry: composite expression, original parameters, fixed constants
+    # ─────────────────────────────────────────────────────────────────────────────
+
+    function build_coupling_library(geom::Dict)
+        # Substitute reference geometry constants into symbolic expressions
+        geom_subs = Dict(
+            V_ref     => geom[:V_ref],
+            A_ref     => geom[:A_ref],
+            V_cw_ref  => geom[:V_cw_ref],
+            ρₛ_ref    => geom[:ρₛ_ref],
+            c₀_cs_ref => geom[:c₀_cs_ref],
+            t_ref     => geom[:t_ref]
+        )
+        sub(expr) = substitute(expr, geom_subs)
+
+        Dict(
+
+            # ── 1. σ_γ = μ_γ · exp(-neg_δ_γ) ──────────────────────────────────
+            # Captures (μ_γ, neg_δ_γ) coupling: both determine the width of
+            # the inhibition threshold distribution.
+            # Composite σ_γ is directly interpretable as the inhibition std.
+            # Invert for neg_δ_γ: neg_δ_γ = -log(σ_γ / μ_γ) = log(μ_γ / σ_γ)
+            :σ_γ => SymbolicCoupling(
+                :σ_γ,
+                sub(σ_γ_expr),
+                [:μ_γ, :neg_δ_γ],
+                Dict()   # no additional constants after geometry substitution
+            ),
+
+            # ── 2. σ_ω = μ_ω · exp(-neg_δ_ω) ──────────────────────────────────
+            # Captures (μ_ω, neg_δ_ω) coupling: both determine the width of
+            # the induction threshold distribution.
+            # Invert for neg_δ_ω: neg_δ_ω = log(μ_ω / σ_ω)
+            :σ_ω => SymbolicCoupling(
+                :σ_ω,
+                sub(σ_ω_expr),
+                [:μ_ω, :neg_δ_ω],
+                Dict()
+            ),
+
+            # ── 3. s_ref = c_cs_ref / (K_cC + c_cs_ref) ───────────────────────
+            # Captures (K_cC, Pₛ_cs) coupling: K_cC sets the saturation threshold,
+            # Pₛ_cs sets how fast c_cs_ref builds up. Both appear inside s_ref.
+            # At fixed reference geometry and time, s_ref is a scalar in (0,1).
+            # Invert for K_cC: K_cC = c_cs_ref * (1 - s_ref) / s_ref
+            # Invert for Pₛ_cs: solve τ_cs = V_cw/(A*Pₛ_cs) from
+            #   c_cs_ref = c₀_cs*(1 - exp(-t_ref/τ_cs))
+            #   → τ_cs = -t_ref / log(1 - c_cs_ref/c₀_cs)
+            #   → Pₛ_cs = V_cw / (A * τ_cs)
+            :s_ref => SymbolicCoupling(
+                :s_ref,
+                sub(s_ref_expr),
+                [:K_cC, :Pₛ_cs],
+                Dict()
+            ),
+
+            # ── 4. β_ref: inhibitor depletion at reference conditions ───────────
+            # Captures Pₛ in isolation (geometry fixed at anchor):
+            # β_ref = ϕ + (1-ϕ)*exp(-t_ref / (τ_β*(1-ϕ)))
+            # where τ_β = V/(Pₛ*A).
+            # β_ref ∈ (ϕ, 1): 1 = no depletion, ϕ = full depletion.
+            # Invert for Pₛ: τ_β = -t_ref/((1-ϕ)*log((β_ref-ϕ)/(1-ϕ)))
+            #                 Pₛ  = V / (τ_β * A)
+            :β_ref => SymbolicCoupling(
+                :β_ref,
+                sub(β_ref_expr),
+                [:Pₛ],
+                Dict()
+            ),
+
+            # ── 5. A_γ_ref: normalised inhibition argument ──────────────────────
+            # Captures (Pₛ, μ_γ, neg_δ_γ) jointly:
+            # A_γ_ref = (β_ref - μ_γ) / (μ_γ * exp(-neg_δ_γ))
+            # This is the actual argument to Φ in the germination probability.
+            # Fixing A_γ_ref + one of {μ_γ, neg_δ_γ, Pₛ} determines the others.
+            # Most useful when Pₛ is already reparameterised via β_ref (coupling 4),
+            # reducing this to (μ_γ, neg_δ_γ) only.
+            :A_γ_ref => SymbolicCoupling(
+                :A_γ_ref,
+                sub(A_γ_ref_expr),
+                [:Pₛ, :μ_γ, :neg_δ_γ],
+                Dict()
+            ),
+
+            # ── 6. A_ω_ref: normalised induction argument ───────────────────────
+            # Captures (K_cC, Pₛ_cs, μ_ω, neg_δ_ω) jointly:
+            # A_ω_ref = (s_ref - μ_ω) / (μ_ω * exp(-neg_δ_ω))
+            # After reparameterising via s_ref (coupling 3) and σ_ω (coupling 2),
+            # this reduces to (s_ref - μ_ω) / σ_ω and captures only
+            # the residual (s_ref, μ_ω) translational coupling.
+            :A_ω_ref => SymbolicCoupling(
+                :A_ω_ref,
+                sub(A_ω_ref_expr),
+                [:K_cC, :Pₛ_cs, :μ_ω, :neg_δ_ω],
+                Dict()
+            ),
+        )
     end
 end
