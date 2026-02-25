@@ -4068,7 +4068,7 @@ __precompile__(false)
         result = fill(NaN, n_out, n_cols)
         se_mat = fill(NaN, n_out, n_cols)
         for n in 1:n_cols
-            if !any(isnan.(outputs[n]))
+            if !any(isnan.(outputs[n])) && !any(isinf.(outputs[n]))
                 result[:, n] .= outputs[n]
                 se_mat[:, n] .= stderr[n]
             end
@@ -4120,6 +4120,7 @@ __precompile__(false)
                                     y0::Vector{Float64},
                                     f_j_interp::Function,   # interpolated f_j
                                     f_k_interp::Function,   # interpolated f_k
+                                    w_j_interp, w_k_interp,
                                     exp_setting::ExperimentSetting;
                                     n_j::Int=50, n_k::Int=50)
 
@@ -4128,16 +4129,20 @@ __precompile__(false)
 
         n_total = n_j * n_k
         f_jk_vals = similar(y_vals)
+        w_jk_from_1d = zeros(n_total)   # ← track 1D weight contribution
 
         idx = 1
         for vj in sweep_j, vk in sweep_k
             f_j = f_j_interp(vj)   # interpolated first-order term at vj
             f_k = f_k_interp(vk)   # interpolated first-order term at vk
             f_jk_vals[:, idx] .= y_vals[:, idx] .- f_j .- f_k .- y0
+            # Weight from 1D reliability: a pairwise point is only as reliable
+            # as the first-order terms subtracted from it
+            w_jk_from_1d[idx] = min(w_j_interp(vj), w_k_interp(vk))
             idx += 1
         end
 
-        return sweep_j, sweep_k, f_jk_vals, y_vals, se_mat
+        return sweep_j, sweep_k, f_jk_vals, y_vals, se_mat, w_jk_from_1d
     end
 
     """
@@ -4151,8 +4156,22 @@ __precompile__(false)
             idx = searchsortedfirst(sweep_vals, x)
             idx = clamp(idx, 2, length(sweep_vals))
             lo, hi = idx-1, idx
+            # If either bracket is non-finite, return NaN (filtered downstream)
+            if !all(isfinite, f_j_vals[:, lo]) || !all(isfinite, f_j_vals[:, hi])
+                return fill(NaN, size(f_j_vals, 1))
+            end
             t = (x - sweep_vals[lo]) / (sweep_vals[hi] - sweep_vals[lo])
             return (1-t) .* f_j_vals[:, lo] .+ t .* f_j_vals[:, hi]
+        end
+    end
+
+    function make_scalar_interpolator(sweep_vals::Vector{Float64}, w::Vector{Float64})
+        return function(x::Float64)
+            idx = searchsortedfirst(sweep_vals, x)
+            idx = clamp(idx, 2, length(sweep_vals))
+            lo, hi = idx-1, idx
+            t = (x - sweep_vals[lo]) / (sweep_vals[hi] - sweep_vals[lo])
+            return (1-t) * w[lo] + t * w[hi]
         end
     end
 
@@ -4209,7 +4228,7 @@ __precompile__(false)
 
     function weighted_var(x::Vector{Float64}, w::Vector{Float64})
         # Remove NaN entries
-        valid = .!isnan.(x) .& .!isnan.(w) .& (w .> 0)
+        valid = .!isnan.(x) .& .!isinf.(x) .& .!isnan.(w) .& (w .> 0)
         x_v, w_v = x[valid], w[valid]
         w_norm = w_v ./ sum(w_v)
         mean_w = dot(w_norm, x_v)
@@ -4356,6 +4375,7 @@ __precompile__(false)
         f_first   = Vector{Matrix{Float64}}(undef, d)
         w_first   = Vector{Vector{Float64}}(undef, d)
         interps   = Vector{Function}(undef, d)
+        w_interps = Vector{Function}(undef, d)
         all_y_vals = Matrix{Float64}[]
 
         for j in 1:d
@@ -4367,12 +4387,17 @@ __precompile__(false)
             λ = 1.0 / median(filter(!isnan, se_mat))
             # println(typeof(compute_weights(se_mat; λ)))
             w_first[j] = min.(compute_weights(se_mat; λ), experimental_relevance_weight.(y_vals[2, :], 168.0)) # T_max = 168 hours
-            println("1st order weights: $(w_first[j])")
+            w_first[j][isnan.(w_first[j])] .= 0.0 # Zero NaN weights
+            # println("1st order weights: $(w_first[j])")
 
-            large_vals = any(y_vals .> 1e6; dims=1) |> vec
-            # println(size(large_vals))
-            # println(size(w_first[j]))
-            println("Weights for large vals $(y_vals[:, large_vals]):\n$(w_first[j][large_vals]))")
+            # Nullify f_j_vals at points with zero weight — prevents large finite
+            # values from propagating through the interpolator into f_jk
+            f_first[j][:, w_first[j] .== 0.0] .= NaN
+
+            w_interps[j] = make_scalar_interpolator(sweep_vals, w_first[j])
+
+            # large_vals = any(y_vals .> 1e6; dims=1) |> vec
+            # println("Weights for large vals $(y_vals[:, large_vals]):\n$(w_first[j][large_vals]))")
 
             interps[j] = make_interpolator(sweep_vals, f_j_vals)
             push!(all_y_vals, y_vals)
@@ -4387,17 +4412,24 @@ __precompile__(false)
 
         for (p, (j, k)) in enumerate(config.target_pairs)
             print("  ($(config.param_names[j]), $(config.param_names[k]))... ")
-            _, _, f_jk_vals, y_vals, se_mat = compute_pairwise_term(
-                config, j, k, y0, interps[j], interps[k], exp_setting;
+            _, _, f_jk_vals, y_vals, se_mat, w_from_1d = compute_pairwise_term(
+                config, j, k, y0, interps[j], interps[k], w_interps[j], w_interps[k], exp_setting;
                 n_j=n_pair, n_k=n_pair)
             f_pairs[p] = f_jk_vals
 
             λ = 1.0 / median(filter(!isnan, se_mat))
-            w_pairs[p] = min.(compute_weights(se_mat; λ), experimental_relevance_weight.(y_vals[2, :], 168.0)) # T_max = 168 hours
-            println("2nd order weights: $(w_pairs[p])")
+            w_se    = compute_weights(se_mat; λ)
+            w_range = experimental_relevance_weight.(y_vals[2, :], 168.0)
 
-            large_vals = any(y_vals .> 1e6; dims=1) |> vec
-            println("Weights for large vals $(y_vals[:, large_vals]):\n$(w_pairs[p][large_vals]))")
+            # All three must agree: pairwise run reliable, output in range, 1D terms reliable
+            w_pairs[p] = min.(w_se, w_range, w_from_1d)
+            w_pairs[p][isnan.(w_pairs[p])] .= 0.0
+            # println("2nd order weights: $(w_pairs[p])")
+
+            f_pairs[p][:, w_pairs[p] .== 0.0] .= NaN
+
+            # large_vals = any(y_vals .> 1e6; dims=1) |> vec
+            # println("Weights for large vals $(y_vals[:, large_vals]):\n$(w_pairs[p][large_vals]))")
 
             push!(all_y_vals, y_vals)
             println("done")
