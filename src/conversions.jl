@@ -36,6 +36,9 @@ module Conversions
     export generate_spore_positions
     export compute_ps_layer_volume
     export flatten_recursive
+    export build_coupling_library
+    export build_reparam
+    export auto_reparameterise
 
 
     flatten_recursive(x) = (x isa AbstractVector) ? vcat(map(flatten_recursive, x)...) : [x]
@@ -469,6 +472,13 @@ module Conversions
         fixed_vals     :: Dict{Symbol, Float64}  # constants substituted at build time
     end
 
+    struct Reparameterisation
+        composite_names :: Vector{Symbol}   # Names of the composite parameters exposed to the sampler
+        original_names  :: Vector{Symbol}   # Names of the original parameters they replace
+        forward         :: Function         # composite → original (what the model receives)
+        inverse         :: Function         # original → composite (for initialising from example_params)
+    end
+
     @variables K_cC Pₛ Pₛ_cs neg_δ_γ neg_δ_ω μ_γ μ_ω
     @variables c₀_cs_ref t_ref A_ref V_cw_ref V_ref ρₛ_ref
 
@@ -613,5 +623,98 @@ module Conversions
                 Dict()
             ),
         )
+    end
+
+    """
+    Given a composite expression and one original parameter to eliminate,
+    symbolically solve for that parameter and return compiled forward/inverse functions.
+    """
+    function build_reparam(coupling::SymbolicCoupling, eliminate::Symbol,
+                            all_symbolic::Dict{Symbol, Num})
+
+        expr = coupling.expr
+        # Substitute fixed constants
+        for (k, v) in coupling.fixed_vals
+            expr = substitute(expr, Dict(all_symbolic[k] => v))
+        end
+
+        # The composite variable
+        @variables composite_var
+
+        # Solve: composite_var = expr, for the eliminated parameter
+        target_sym = all_symbolic[eliminate]
+        solutions = Symbolics.solve_for(composite_var ~ expr, target_sym)
+
+        if isempty(solutions)
+            error("Cannot invert $(coupling.composite_name) for $eliminate symbolically. Write manually.")
+        end
+
+        original_expr = first(solutions)
+
+        # Compile both directions to fast Julia functions
+        # Forward: (composite_var, remaining originals) → eliminated original
+        forward_fn = build_function(original_expr,
+                                    [composite_var;
+                                    [all_symbolic[s] for s in coupling.original if s != eliminate]],
+                                    expression=Val{false})
+
+        # Inverse: original params → composite
+        inverse_fn = build_function(expr,
+                                    [all_symbolic[s] for s in coupling.original],
+                                    expression=Val{false})
+
+        return forward_fn, inverse_fn, original_expr
+    end
+
+    """
+    Given HDMR results identifying which pairs are strongly coupled,
+    automatically construct Reparameterisation objects.
+    """
+    function auto_reparameterise(coupled_pairs::Vector{Tuple{Symbol,Symbol}},
+                                coupling_library::Dict{Symbol, SymbolicCoupling},
+                                all_symbolic::Dict{Symbol, Num})
+
+        reparams = Reparameterisation[]
+
+        for (p1, p2) in coupled_pairs
+            # Find which library entry covers this pair
+            matching = [name => c for (name, c) in coupling_library
+                        if p1 ∈ c.original || p2 ∈ c.original]
+
+            if isempty(matching)
+                @warn "No symbolic coupling found for ($p1, $p2). Add to library manually."
+                continue
+            end
+
+            name, coupling = first(matching)
+            # Eliminate whichever original parameter is less individually identifiable
+            # (lower S_first) — this is the one we replace with the composite
+            eliminate = p1   # caller decides based on S_first values
+
+            forward_fn, inverse_fn, inv_expr = build_reparam(
+                coupling, eliminate, all_symbolic)
+
+            println("Generated reparam for ($p1, $p2):")
+            println("  Composite: $(coupling.composite_name) = $(coupling.expr)")
+            println("  Solving for $eliminate: $inv_expr")
+
+            push!(reparams, Reparameterisation(
+                [coupling.composite_name, p2],
+                [p1, p2],
+                (comp, def) -> begin
+                    cv = comp[coupling.composite_name]
+                    remaining = [comp[s] for s in coupling.original if s != eliminate]
+                    orig_val = forward_fn(cv, remaining...)
+                    Dict(eliminate => orig_val, p2 => comp[p2])
+                end,
+                (orig) -> begin
+                    vals = [orig[s] for s in coupling.original]
+                    Dict(coupling.composite_name => inverse_fn(vals...),
+                        p2 => orig[p2])
+                end
+            ))
+        end
+
+        return reparams
     end
 end
