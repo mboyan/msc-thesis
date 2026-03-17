@@ -39,6 +39,11 @@ module Conversions
     export build_coupling_library
     export build_reparam
     export auto_reparameterise
+    export extract_coupled_pairs
+    export invert_reparams
+
+    export HDMRResult
+    export ModelConfig
 
 
     flatten_recursive(x) = (x isa AbstractVector) ? vcat(map(flatten_recursive, x)...) : [x]
@@ -455,6 +460,31 @@ module Conversions
         return porosity .* π .* ((R .- d_hp).^3 .- (R .- d_hp .- d_ps).^3)
     end
 
+    """
+    Parameter configuration for a single model.
+    Holds names, anchor values, and prior bounds.
+    """
+    struct ModelConfig
+        name        :: String
+        param_names :: Vector{Symbol}
+        anchor      :: Vector{Float64}      # example_params — known plausible point
+        lower       :: Vector{Float64}      # prior lower bounds (log scale for LogNormal params)
+        upper       :: Vector{Float64}      # prior upper bounds (log scale for LogNormal params)
+        log_scaled  :: Vector{Bool}         # true if parameter is LogNormal (sweep in log space)
+        target_pairs:: Vector{Tuple{Int,Int}} # pairs to test for interactions (from algebraic analysis)
+    end
+
+    struct HDMRResult
+        config          :: ModelConfig
+        S_first         :: Matrix{Float64}   # d × n_outputs
+        S_pair          :: Matrix{Float64}   # n_pairs × n_outputs
+        S_total         :: Matrix{Float64}   # d × n_outputs
+        S_mean          :: Vector{Float64}   # d — averaged over outputs
+        d_eff           :: Int
+        log_ml          :: Float64           # approximate log marginal likelihood
+        z_scores_all    :: Vector{Float64}   # from all sweep samples combined
+    end
+
     # ====================================
     # ===== MODEL REPARAMETERISATION =====
     # ====================================
@@ -508,6 +538,46 @@ module Conversions
     # Reference geometry computed from anchor example_params
     # Caller must supply these from the anchor's ξ_anchor, κ_anchor, d_hp
     # ─────────────────────────────────────────────────────────────────────────────
+    """
+    Compute the fixed geometric and physical reference constants used to
+    substitute into symbolic coupling expressions. All symbolic coupling
+    expressions are evaluated at these reference values, converting
+    fully symbolic expressions into expressions in the model parameters
+    only. Should be called once per experimental condition using the
+    anchor parameter values (example_params).
+
+    Inputs:
+        ξ_anchor  (Float64) - spore radius at the anchor point in μm.
+                            Taken from the ξ distribution mean in example_params.
+        κ_anchor  (Float64) - cell wall thickness at the anchor point in μm.
+                            Taken from the κ distribution mean in example_params.
+        d_hp      (Float64) - hydrophobin layer thickness in μm. Treated as
+                            fixed (not a free parameter); taken from def_params.
+        ρₛ        (Float64) - spore density in spores/μm³. Sets the volume
+                            fraction ϕ = ρₛ·V, which controls how much
+                            inhibitor is depleted at equilibrium.
+        c₀_cs     (Float64) - initial external carbon source concentration in M.
+                            Sets the maximum achievable c_cs as t → ∞.
+        t_ref     (Float64) - reference time in seconds at which the coupling
+                            expressions are evaluated. Should be chosen as a
+                            representative experimental time, e.g. the median
+                            observation time across all assay conditions.
+
+    Outputs:
+        Dict with keys:
+            :V_ref     (Float64) - spore volume 4π/3·ξ³ in μm³
+            :A_ref     (Float64) - spore surface area 4π·ξ² in μm²
+            :V_cw_ref  (Float64) - vacant cell wall (polysaccharide layer pore)
+                                volume in μm³, computed via
+                                compute_ps_layer_volume at the anchor geometry
+            :ρₛ_ref    (Float64) - spore density, passed through unchanged
+            :c₀_cs_ref (Float64) - initial carbon source concentration, passed
+                                through unchanged
+            :t_ref     (Float64) - reference time, passed through unchanged
+            :ϕ_ref     (Float64) - spore volume fraction ρₛ·V, dimensionless.
+                                Represents the fraction of total volume
+                                occupied by spores; used in β_ref inversion.
+    """
     function reference_geometry(ξ_anchor, κ_anchor, d_hp, ρₛ, c₀_cs, t_ref)
         V   = 4/3 * π * ξ_anchor^3
         A   = 4π  * ξ_anchor^2
@@ -528,7 +598,83 @@ module Conversions
     # Coupling library
     # Each entry: composite expression, original parameters, fixed constants
     # ─────────────────────────────────────────────────────────────────────────────
+    """
+    Construct the symbolic coupling library for the "independent" germination
+    model by substituting reference geometry constants into fully symbolic
+    coupling expressions. Each entry in the returned Dict describes one
+    natural composite quantity — a combination of model parameters that
+    appears as a unit in the germination probability formula and whose
+    variation is more identifiable than the individual parameters comprising it.
 
+    The library is hierarchically ordered: composites σ_γ and σ_ω (entries 1
+    and 2) should be applied before A_γ_ref and A_ω_ref (entries 5 and 6),
+    since the latter reduce to lower-dimensional couplings once the width
+    composites are substituted.
+
+    Inputs:
+        geom (Dict{Symbol,Float64}) - reference geometry constants as returned
+                                    by reference_geometry(). Required keys:
+            :V_ref     - spore volume at anchor in μm³
+            :A_ref     - spore surface area at anchor in μm²
+            :V_cw_ref  - vacant cell wall volume at anchor in μm³
+            :ρₛ_ref    - spore density in spores/μm³
+            :c₀_cs_ref - initial carbon source concentration in M
+            :t_ref     - reference time in seconds
+
+    Outputs:
+        Dict{Symbol, SymbolicCoupling} with entries:
+
+            :σ_γ     - Inhibition threshold width.
+                    Expression: μ_γ · exp(−neg_δ_γ)
+                    Original parameters: [:μ_γ, :neg_δ_γ]
+                    Composite σ_γ is the standard deviation of the inhibition
+                    threshold distribution. Invertible for neg_δ_γ via
+                    neg_δ_γ = log(μ_γ / σ_γ), given μ_γ.
+
+            :σ_ω     - Induction threshold width.
+                    Expression: μ_ω · exp(−neg_δ_ω)
+                    Original parameters: [:μ_ω, :neg_δ_ω]
+                    Composite σ_ω is the standard deviation of the induction
+                    threshold distribution. Invertible for neg_δ_ω via
+                    neg_δ_ω = log(μ_ω / σ_ω), given μ_ω.
+
+            :s_ref   - Induction signal at reference conditions.
+                    Expression: c_cs_ref / (K_cC + c_cs_ref), where
+                    c_cs_ref = c₀_cs · (1 − exp(−t_ref / τ_cs)) and
+                    τ_cs = V_cw / (A · Pₛ_cs).
+                    Original parameters: [:K_cC, :Pₛ_cs]
+                    s_ref ∈ (0,1) is the Hill-saturation of the carbon source
+                    signal at the reference time and geometry. Invertible for
+                    K_cC via K_cC = c_cs_ref·(1−s_ref)/s_ref, or for Pₛ_cs
+                    via Pₛ_cs = V_cw / (A·τ_cs) where τ_cs is solved from
+                    the exponential accumulation equation.
+
+            :β_ref   - Inhibitor depletion at reference conditions.
+                    Expression: ϕ + (1−ϕ)·exp(−t_ref / (τ_β·(1−ϕ))), where
+                    τ_β = V / (Pₛ·A) and ϕ = ρₛ·V.
+                    Original parameters: [:Pₛ]
+                    β_ref ∈ (ϕ, 1): β_ref = 1 means no inhibitor has been
+                    lost (t=0 or Pₛ=0); β_ref = ϕ means inhibitor has fully
+                    equilibrated with the external volume. Invertible for
+                    Pₛ via τ_β = −t_ref/((1−ϕ)·log((β_ref−ϕ)/(1−ϕ))),
+                    then Pₛ = V/(τ_β·A).
+
+            :A_γ_ref - Normalised inhibition CDF argument at reference conditions.
+                    Expression: (β_ref − μ_γ) / (μ_γ · exp(−neg_δ_γ))
+                    Original parameters: [:Pₛ, :μ_γ, :neg_δ_γ]
+                    A_γ_ref is the argument to Φ in the inhibition factor
+                    1 − Φ(A_γ_ref). After applying :β_ref and :σ_γ first,
+                    this reduces to (β_ref − μ_γ)/σ_γ, a 2-parameter coupling
+                    between β_ref and μ_γ only.
+
+            :A_ω_ref - Normalised induction CDF argument at reference conditions.
+                    Expression: (s_ref − μ_ω) / (μ_ω · exp(−neg_δ_ω))
+                    Original parameters: [:K_cC, :Pₛ_cs, :μ_ω, :neg_δ_ω]
+                    A_ω_ref is the argument to Φ in the induction factor
+                    Φ(A_ω_ref). After applying :s_ref and :σ_ω first, this
+                    reduces to (s_ref − μ_ω)/σ_ω, a 2-parameter translational
+                    coupling between s_ref and μ_ω only.
+    """
     function build_coupling_library(geom::Dict)
         # Substitute reference geometry constants into symbolic expressions
         geom_subs = Dict(
@@ -626,8 +772,49 @@ module Conversions
     end
 
     """
-    Given a composite expression and one original parameter to eliminate,
-    symbolically solve for that parameter and return compiled forward/inverse functions.
+    Symbolically derive the forward and inverse transforms for a single
+    reparameterisation, given a SymbolicCoupling and the original parameter
+    to eliminate. Uses Symbolics.jl to solve the composite expression for
+    the eliminated parameter and compiles both directions to native Julia
+    functions via build_function.
+
+    Inputs:
+        coupling      (SymbolicCoupling) - one entry from the coupling library,
+                                        describing the composite expression,
+                                        the original parameters it involves,
+                                        and any fixed constants to substitute
+                                        before inversion.
+        eliminate     (Symbol)           - the original parameter to solve for
+                                        in terms of the composite. Must be
+                                        a member of coupling.original. This
+                                        should be the parameter with the
+                                        lower first-order Sobol index, i.e.
+                                        the less individually identifiable
+                                        of the coupled pair.
+        all_symbolic  (Dict{Symbol,Num}) - mapping from parameter name symbols
+                                        to their Symbolics.jl symbolic
+                                        variables. Must contain entries for
+                                        all names appearing in coupling.original
+                                        and coupling.fixed_vals.
+
+    Outputs:
+        forward_fn    (Function) - compiled function (composite_val, remaining...)
+                                → Float64. Given the composite value and the
+                                values of all original parameters except the
+                                eliminated one, returns the value of the
+                                eliminated original parameter. This is the
+                                transform applied inside to_model_params before
+                                calling the mechanistic model.
+        inverse_fn    (Function) - compiled function (original_vals...) → Float64.
+                                Given the values of all original parameters in
+                                coupling.original (in order), returns the
+                                composite value. Used to initialise the sampler
+                                anchor and prior bounds from example_params via
+                                invert_reparams.
+        original_expr (Num)      - the symbolic expression for the eliminated
+                                parameter in terms of the composite and the
+                                remaining originals. Printed for verification
+                                and stored for documentation.
     """
     function build_reparam(coupling::SymbolicCoupling, eliminate::Symbol,
                             all_symbolic::Dict{Symbol, Num})
@@ -667,8 +854,39 @@ module Conversions
     end
 
     """
-    Given HDMR results identifying which pairs are strongly coupled,
-    automatically construct Reparameterisation objects.
+    Automatically construct a vector of Reparameterisation objects from
+    HDMR-identified coupled parameter pairs and the symbolic coupling library.
+    For each pair, finds the matching library entry, derives the forward and
+    inverse transforms via build_reparam, and wraps them in the Reparameterisation
+    struct expected by to_model_params and invert_reparams.
+
+    Parameters for which no library entry exists produce a warning and are
+    skipped — these must be handled by manually constructed Reparameterisation
+    objects appended to the returned vector.
+
+    Inputs:
+        coupled_pairs     (Vector{Tuple{Symbol,Symbol}}) - list of parameter
+                        pairs identified as strongly coupled by HDMR, e.g.
+                        from extract_coupled_pairs(). The first element of
+                        each tuple is taken as the parameter to eliminate
+                        (replace with the composite); it should be the
+                        parameter with the lower first-order Sobol index.
+        coupling_library  (Dict{Symbol,SymbolicCoupling}) - the library returned
+                        by build_coupling_library(). Each entry covers one
+                        composite quantity and the original parameters it
+                        involves.
+        all_symbolic      (Dict{Symbol,Num}) - mapping from parameter name symbols
+                        to Symbolics.jl symbolic variables. Must cover all
+                        parameters appearing in any coupling in the library.
+
+    Outputs:
+        reparams  (Vector{Reparameterisation}) - one entry per successfully
+                processed coupled pair, in the same order as coupled_pairs
+                (skipped pairs omitted). These are passed directly to
+                ModelConfig and applied in sequence by to_model_params and
+                invert_reparams. Order matters: composites that appear as
+                inputs to later couplings (e.g. σ_γ before A_γ_ref) must
+                appear earlier in the vector.
     """
     function auto_reparameterise(coupled_pairs::Vector{Tuple{Symbol,Symbol}},
                                 coupling_library::Dict{Symbol, SymbolicCoupling},
@@ -716,5 +934,64 @@ module Conversions
         end
 
         return reparams
+    end
+
+    """
+    Extract parameter pairs whose pairwise HDMR interaction index exceeds a
+    given threshold in at least one output dimension. These are the pairs for
+    which reparameterisation is warranted before SMC, as their joint influence
+    on the output cannot be decomposed into independent contributions from each
+    parameter alone.
+
+    Inputs:
+        result     (HDMRResult)  - the result struct returned by run_hdmr(),
+                                containing S_pair (n_pairs × n_outputs matrix
+                                of pairwise Sobol indices) and the ModelConfig
+                                which maps pair indices to parameter name pairs.
+        threshold  (Float64)     - minimum S_pair value in any output dimension
+                                for a pair to be considered strongly coupled.
+                                Default 0.05, consistent with the effective
+                                dimensionality threshold in
+                                effective_dimensionality(). Pairs below this
+                                threshold in all outputs contribute less than
+                                5% of total variance through their interaction
+                                and can be treated as approximately independent.
+
+    Outputs:
+        pairs  (Vector{Tuple{Symbol,Symbol}}) - parameter name pairs whose
+            interaction index exceeds the threshold in at least one output.
+            Ordered as they appear in config.target_pairs. The first element
+            of each tuple corresponds to the lower-indexed parameter in the
+            ModelConfig, not necessarily the less identifiable one — the
+            caller should reorder based on S_first before passing to
+            auto_reparameterise.
+    """
+    function extract_coupled_pairs(result::HDMRResult; threshold::Float64=0.05)
+        pairs = Tuple{Symbol,Symbol}[]
+        for (p, (j, k)) in enumerate(result.config.target_pairs)
+            if any(result.S_pair[p, :] .> threshold)
+                push!(pairs, (result.config.param_names[j],
+                            result.config.param_names[k]))
+            end
+        end
+        return pairs
+    end
+
+    """
+    Inverse: convert example_params (original space) to composite space.
+    Used to initialise anchor and prior bounds.
+    """
+    function invert_reparams(original_params::Dict{Symbol,Float64},
+                            reparams::Vector{Reparameterisation})
+        result = copy(original_params)
+        for r in reparams
+            orig = Dict(name => result[name] for name in r.original_names)
+            comp = r.inverse(orig)
+            for name in r.original_names
+                delete!(result, name)
+            end
+            merge!(result, comp)
+        end
+        return result
     end
 end

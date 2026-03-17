@@ -23,7 +23,7 @@ __precompile__(false)
     using Flux: gradient
     using Statistics
     using ProgressMeter
-    # using LogExpFunctions
+    using Symbolics, SymbolicUtils
     
     include("./conversions.jl")
     include("./germstats.jl")
@@ -3949,19 +3949,6 @@ __precompile__(false)
     # ===============
     # ===== BMA =====
     # ===============
-    """
-    Parameter configuration for a single model.
-    Holds names, anchor values, and prior bounds.
-    """
-    struct ModelConfig
-        name        :: String
-        param_names :: Vector{Symbol}
-        anchor      :: Vector{Float64}      # example_params — known plausible point
-        lower       :: Vector{Float64}      # prior lower bounds (log scale for LogNormal params)
-        upper       :: Vector{Float64}      # prior upper bounds (log scale for LogNormal params)
-        log_scaled  :: Vector{Bool}         # true if parameter is LogNormal (sweep in log space)
-        target_pairs:: Vector{Tuple{Int,Int}} # pairs to test for interactions (from algebraic analysis)
-    end
 
     """
     Generate a 1D sweep for parameter j.
@@ -4326,17 +4313,6 @@ __precompile__(false)
         return 1.0 ./ (1.0 .+ λ .* max_se)
     end
 
-    struct HDMRResult
-        config          :: ModelConfig
-        S_first         :: Matrix{Float64}   # d × n_outputs
-        S_pair          :: Matrix{Float64}   # n_pairs × n_outputs
-        S_total         :: Matrix{Float64}   # d × n_outputs
-        S_mean          :: Vector{Float64}   # d — averaged over outputs
-        d_eff           :: Int
-        log_ml          :: Float64           # approximate log marginal likelihood
-        z_scores_all    :: Vector{Float64}   # from all sweep samples combined
-    end
-
     """
     Perform High-Dimensional Model Representation (HDMR) on a specific model.
     Workflow:
@@ -4499,6 +4475,20 @@ __precompile__(false)
             "pure_thresholds" => [(i,j) for group in [inducer_params, inhibitor_params] for i in group for j in group if i < j]
         )
 
+        # Declare symbolic variables
+        @variables K_cC Pₛ Pₛ_cs neg_δ_γ neg_δ_ω μ_γ μ_ω
+        @variables c₀_cs_ref t_ref A_ref V_cw_ref V_ref ρₛ_ref
+        all_symbolic = Dict(
+            :K_cC    => K_cC,   :Pₛ      => Pₛ,    :Pₛ_cs  => Pₛ_cs,
+            :neg_δ_γ => neg_δ_γ,:neg_δ_ω => neg_δ_ω,:μ_γ    => μ_γ,
+            :μ_ω     => μ_ω,    :c₀_cs_ref => c₀_cs_ref,
+            :t_ref   => t_ref,  :A_ref   => A_ref,  :V_cw_ref => V_cw_ref,
+            :V_ref   => V_ref,  :ρₛ_ref  => ρₛ_ref
+        )
+
+        # Data storing collections
+        hdmr_results_all = Dict()
+
         # Iterate over models
         for m in 1:1#59:59#eachindex(aliases)
 
@@ -4554,11 +4544,107 @@ __precompile__(false)
                 coupling_indices
             )
 
-            output = run_hdmr(config, exp_setting, lab_means_global, lab_cov_global)
-            
-            println(output)
+            hdmr_result = run_hdmr(config, exp_setting, lab_means_global, lab_cov_global)
 
+            hdmr_results_all[aliases[m]] = hdmr_result
+            
+            # ----- IDENTIFY COUPLINGS FROM HDMR RESULTS -----
+            # Reorder each pair so the less identifiable parameter (lower S_first,
+            # averaged over outputs) is listed first — this is the one eliminated.
+            raw_pairs = extract_coupled_pairs(hdmr_result; threshold=0.05)
+            coupled_pairs = map(raw_pairs) do (p1, p2)
+                i1 = findfirst(==(p1), param_keys)
+                i2 = findfirst(==(p2), param_keys)
+                s1 = mean(hdmr_result.S_first[i1, :])
+                s2 = mean(hdmr_result.S_first[i2, :])
+                s1 <= s2 ? (p1, p2) : (p2, p1)   # eliminate the less identifiable one
+            end
+            println("\nCoupled pairs (to eliminate => kept): $coupled_pairs")
+
+            # ----- BUILD REPARAMETERISED MODELCONFIG -----
+            # Convert anchor and bounds from original → composite space.
+            # anchor_dict is in original (physical) space; invert_reparams
+            # converts to composite space so the sampler works in identifiable coords.
+            anchor_original_dict = Dict(k => exp(anchor_dict[k])
+                                         for k in param_keys
+                                         if log_scaled[findfirst(==(k), param_keys)])
+            for (k, idx) in zip(param_keys, eachindex(param_keys))
+                if !log_scaled[idx]
+                    anchor_original_dict[k] = anchor_dict[k]
+                end
+            end
+            anchor_composite_dict = invert_reparams(anchor_original_dict, reparams)
+
+            # Rebuild param_keys, anchor, lower, upper, log_scaled in composite space
+            # Original parameters that were eliminated are replaced by their composites.
+            eliminated = reduce(vcat, [r.original_names for r in reparams])
+            composite_names_new = reduce(vcat, [r.composite_names for r in reparams])
+
+            new_param_keys = [k for k in param_keys if k ∉ eliminated]
+            append!(new_param_keys, [c for c in composite_names_new if c ∉ new_param_keys])
+
+            new_n_dims = length(new_param_keys)
+            new_anchor     = zeros(Float64, new_n_dims)
+            new_lower      = similar(new_anchor)
+            new_upper      = similar(new_anchor)
+            new_log_scaled = zeros(Bool, new_n_dims)
+
+            for (k, key) in enumerate(new_param_keys)
+                if key ∈ param_keys
+                    # Unchanged parameter: copy from original config
+                    orig_idx = findfirst(==(key), param_keys)
+                    new_anchor[k]     = anchor[orig_idx]
+                    new_lower[k]      = lower[orig_idx]
+                    new_upper[k]      = upper[orig_idx]
+                    new_log_scaled[k] = log_scaled[orig_idx]
+                else
+                    # Composite parameter: anchor from invert_reparams,
+                    # bounds from prior predictive contraction on the composite.
+                    # s_ref and β_ref live in (0,1) → not log-scaled.
+                    # σ_γ, σ_ω are positive → log-scaled.
+                    val = anchor_composite_dict[key]
+                    is_bounded_01 = key ∈ [:s_ref, :β_ref]
+                    new_log_scaled[k] = !is_bounded_01
+                    if is_bounded_01
+                        new_anchor[k] = val
+                        new_lower[k]  = 1e-6
+                        new_upper[k]  = 1.0 - 1e-6
+                    else
+                        new_anchor[k] = log(val)
+                        # Inherit width from the most constrained original parameter
+                        # in the coupling — conservative starting bounds.
+                        orig_pair = reparams[findfirst(
+                            r -> key ∈ r.composite_names, reparams)].original_names
+                        widths = [upper[findfirst(==(p), param_keys)] -
+                                  lower[findfirst(==(p), param_keys)]
+                                  for p in orig_pair
+                                  if !isnothing(findfirst(==(p), param_keys))]
+                        half_width = minimum(widths) / 2.0
+                        new_lower[k] = log(val) - half_width
+                        new_upper[k] = log(val) + half_width
+                    end
+                end
+                println("$(key) [composite]: lower=$(new_lower[k]) / anchor=$(new_anchor[k]) / upper=$(new_upper[k])")
+            end
+
+            new_coupling_indices = [
+                (findfirst(==(k1), new_param_keys), findfirst(==(k2), new_param_keys))
+                for (k1, k2) in coupling_types["pure_thresholds"]
+                if !isnothing(findfirst(==(k1), new_param_keys)) &&
+                   !isnothing(findfirst(==(k2), new_param_keys))
+            ]
+
+            config_reparam = ModelConfig(
+                aliases[m], new_param_keys,
+                new_anchor, new_lower, new_upper,
+                new_log_scaled, new_coupling_indices,
+                reparams   # attached so to_model_params applies them automatically
+            )
+
+            println(config_reparam)
         end
+
+        jldsave("../src/Data/hdmr_results.jld2", hdmr_results_all)
     end
 
 end
