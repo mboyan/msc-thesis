@@ -4011,6 +4011,10 @@ __precompile__(false)
             val = config.log_scaled[i] ? exp(param_vec[i]) : param_vec[i]
             model_params[config.param_names[i]] = val
         end
+        # Apply reparameterisations — converts composite → original before model call
+        if !isempty(config.reparams)
+            model_params = apply_reparams(model_params, config.reparams, config.def_params)
+        end
         return model_params
     end
 
@@ -4489,6 +4493,9 @@ __precompile__(false)
         # Data storing collections
         hdmr_results_all = Dict()
 
+        # Reference time for reparameterisation
+        t_ref_val = median(times) * 3600.0   # convert hours → seconds
+
         # Iterate over models
         for m in 1:1#59:59#eachindex(aliases)
 
@@ -4541,7 +4548,8 @@ __precompile__(false)
                 lower,
                 upper,
                 log_scaled,
-                coupling_indices
+                coupling_indices,
+                Reparameterisation[]
             )
 
             hdmr_result = run_hdmr(config, exp_setting, lab_means_global, lab_cov_global)
@@ -4560,6 +4568,26 @@ __precompile__(false)
                 s1 <= s2 ? (p1, p2) : (p2, p1)   # eliminate the less identifiable one
             end
             println("\nCoupled pairs (to eliminate => kept): $coupled_pairs")
+
+            # ----- BUILD SYMBOLIC COUPLING LIBRARY -----
+            # Reference geometry uses anchor spore radius and cell wall thickness.
+            # μ_ξ and μ_κ are the lognormal means; def_params holds fixed geometry.
+            ξ_anchor = def_params[:μ_ξ]
+            κ_anchor = def_params[:μ_κ]
+            d_hp     = def_params[:d_hp]
+            c₀_cs    = def_params[:c₀_cs]   # reference initial carbon source concentration
+
+            geom = reference_geometry(ξ_anchor, κ_anchor, d_hp,
+                                       mean_density, c₀_cs, t_ref_val)
+            coupling_lib = build_coupling_library(geom)
+
+            # ----- AUTO-GENERATE REPARAMETERISATIONS -----
+            reparams = auto_reparameterise(coupled_pairs, coupling_lib, all_symbolic, geom)
+
+            if isempty(reparams)
+                println("No reparameterisations generated — proceeding with original space.")
+                continue
+            end
 
             # ----- BUILD REPARAMETERISED MODELCONFIG -----
             # Convert anchor and bounds from original → composite space.

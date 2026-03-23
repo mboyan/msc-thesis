@@ -37,13 +37,16 @@ module Conversions
     export compute_ps_layer_volume
     export flatten_recursive
     export build_coupling_library
+    export closed_form_inverse
     export build_reparam
     export auto_reparameterise
     export extract_coupled_pairs
     export invert_reparams
+    export reference_geometry
 
     export HDMRResult
     export ModelConfig
+    export Reparameterisation
 
 
     flatten_recursive(x) = (x isa AbstractVector) ? vcat(map(flatten_recursive, x)...) : [x]
@@ -460,31 +463,6 @@ module Conversions
         return porosity .* π .* ((R .- d_hp).^3 .- (R .- d_hp .- d_ps).^3)
     end
 
-    """
-    Parameter configuration for a single model.
-    Holds names, anchor values, and prior bounds.
-    """
-    struct ModelConfig
-        name        :: String
-        param_names :: Vector{Symbol}
-        anchor      :: Vector{Float64}      # example_params — known plausible point
-        lower       :: Vector{Float64}      # prior lower bounds (log scale for LogNormal params)
-        upper       :: Vector{Float64}      # prior upper bounds (log scale for LogNormal params)
-        log_scaled  :: Vector{Bool}         # true if parameter is LogNormal (sweep in log space)
-        target_pairs:: Vector{Tuple{Int,Int}} # pairs to test for interactions (from algebraic analysis)
-    end
-
-    struct HDMRResult
-        config          :: ModelConfig
-        S_first         :: Matrix{Float64}   # d × n_outputs
-        S_pair          :: Matrix{Float64}   # n_pairs × n_outputs
-        S_total         :: Matrix{Float64}   # d × n_outputs
-        S_mean          :: Vector{Float64}   # d — averaged over outputs
-        d_eff           :: Int
-        log_ml          :: Float64           # approximate log marginal likelihood
-        z_scores_all    :: Vector{Float64}   # from all sweep samples combined
-    end
-
     # ====================================
     # ===== MODEL REPARAMETERISATION =====
     # ====================================
@@ -507,6 +485,32 @@ module Conversions
         original_names  :: Vector{Symbol}   # Names of the original parameters they replace
         forward         :: Function         # composite → original (what the model receives)
         inverse         :: Function         # original → composite (for initialising from example_params)
+    end
+
+    """
+    Parameter configuration for a single model.
+    Holds names, anchor values, and prior bounds.
+    """
+    struct ModelConfig
+        name        :: String
+        param_names :: Vector{Symbol}
+        anchor      :: Vector{Float64}      # example_params — known plausible point
+        lower       :: Vector{Float64}      # prior lower bounds (log scale for LogNormal params)
+        upper       :: Vector{Float64}      # prior upper bounds (log scale for LogNormal params)
+        log_scaled  :: Vector{Bool}         # true if parameter is LogNormal (sweep in log space)
+        target_pairs:: Vector{Tuple{Int,Int}} # pairs to test for interactions (from algebraic analysis)
+        reparams    :: Vector{Reparameterisation}
+    end
+
+    struct HDMRResult
+        config          :: ModelConfig
+        S_first         :: Matrix{Float64}   # d × n_outputs
+        S_pair          :: Matrix{Float64}   # n_pairs × n_outputs
+        S_total         :: Matrix{Float64}   # d × n_outputs
+        S_mean          :: Vector{Float64}   # d — averaged over outputs
+        d_eff           :: Int
+        log_ml          :: Float64           # approximate log marginal likelihood
+        z_scores_all    :: Vector{Float64}   # from all sweep samples combined
     end
 
     @variables K_cC Pₛ Pₛ_cs neg_δ_γ neg_δ_ω μ_γ μ_ω
@@ -772,6 +776,86 @@ module Conversions
     end
 
     """
+    closed_form_inverse(composite_name, eliminate, all_symbolic, expr)
+
+    Return the symbolic closed-form inverse for known coupling expressions
+    where symbolic_solve cannot handle the nonlinearity. All five composites
+    in the independent germination model have analytical inverses derived
+    from the model equations directly.
+
+    Inputs:
+        composite_name (Symbol)           - name of the composite (:σ_γ, :σ_ω,
+                                            :s_ref, :β_ref)
+        eliminate      (Symbol)           - original parameter to solve for
+        all_symbolic   (Dict{Symbol,Num}) - symbolic variable map
+        expr           (Num)              - the composite expression (with
+                                            geometry already substituted), used
+                                            to extract any embedded constants
+
+    Outputs:
+        Num or nothing - symbolic expression for the eliminated parameter,
+                        or nothing if no closed form is known for this
+                        composite/eliminate combination
+    """
+    function closed_form_inverse(composite_name::Symbol, eliminate::Symbol,
+                                all_symbolic::Dict{Symbol,Num},
+                                geom::Dict)
+
+        @variables composite_var
+
+        μ_γ = all_symbolic[:μ_γ]
+        μ_ω = all_symbolic[:μ_ω]
+        K_cC_sym = all_symbolic[:K_cC]
+
+        # Geometry constants read directly from geom
+        c₀_cs_val = geom[:c₀_cs_ref]
+        t_val     = geom[:t_ref]
+        V_cw_val  = geom[:V_cw_ref]
+        A_val     = geom[:A_ref]
+        V_val     = geom[:V_ref]
+        ϕ_val     = geom[:ϕ_ref]
+
+        if composite_name == :σ_γ && eliminate == :neg_δ_γ
+            # σ_γ = μ_γ · exp(-neg_δ_γ)  →  neg_δ_γ = log(μ_γ / σ_γ)
+            return log(μ_γ / composite_var)
+
+        elseif composite_name == :σ_ω && eliminate == :neg_δ_ω
+            # σ_ω = μ_ω · exp(-neg_δ_ω)  →  neg_δ_ω = log(μ_ω / σ_ω)
+            return log(μ_ω / composite_var)
+
+        elseif composite_name == :s_ref && eliminate == :K_cC
+            # s = c_cs / (K_cC + c_cs)  →  K_cC = c_cs · (1 - s) / s
+            c_cs_val = c₀_cs_val * (1 - exp(-t_val / (V_cw_val / (A_val * 1.0))))
+            # c_cs depends on Pₛ_cs which is free — use the symbolic form
+            # s · (K_cC + c_cs) = c_cs  →  K_cC = c_cs · (1/s - 1)
+            # Here c_cs is still symbolic in Pₛ_cs; express K_cC in terms of
+            # composite_var and the remaining free parameter Pₛ_cs
+            Pₛ_cs_sym = all_symbolic[:Pₛ_cs]
+            τ_cs_sym  = V_cw_val / (A_val * Pₛ_cs_sym)
+            c_cs_sym  = c₀_cs_val * (1 - exp(-t_val / τ_cs_sym))
+            return c_cs_sym * (1 - composite_var) / composite_var
+
+        elseif composite_name == :s_ref && eliminate == :Pₛ_cs
+            # From s and K_cC: c_cs = s · K_cC / (1 - s)
+            # From c_cs: τ_cs = -t / log(1 - c_cs/c₀_cs)
+            #            Pₛ_cs = V_cw / (A · τ_cs)
+            c_cs_sym = composite_var * K_cC_sym / (1 - composite_var)
+            τ_cs_sym = -t_val / log(1 - c_cs_sym / c₀_cs_val)
+            return V_cw_val / (A_val * τ_cs_sym)
+
+        elseif composite_name == :β_ref && eliminate == :Pₛ
+            # β = ϕ + (1-ϕ)·exp(-t / ((1-ϕ)·τ_β))
+            # τ_β = -t / ((1-ϕ) · log((β-ϕ)/(1-ϕ)))
+            # Pₛ  = V / (τ_β · A)
+            τ_β_sym = -t_val / ((1 - ϕ_val) * log((composite_var - ϕ_val) / (1 - ϕ_val)))
+            return V_val / (τ_β_sym * A_val)
+
+        else
+            return nothing
+        end
+    end
+
+    """
     Symbolically derive the forward and inverse transforms for a single
     reparameterisation, given a SymbolicCoupling and the original parameter
     to eliminate. Uses Symbolics.jl to solve the composite expression for
@@ -817,7 +901,7 @@ module Conversions
                                 and stored for documentation.
     """
     function build_reparam(coupling::SymbolicCoupling, eliminate::Symbol,
-                            all_symbolic::Dict{Symbol, Num})
+                            all_symbolic::Dict{Symbol, Num}, geom::Dict)
 
         expr = coupling.expr
         # Substitute fixed constants
@@ -830,19 +914,40 @@ module Conversions
 
         # Solve: composite_var = expr, for the eliminated parameter
         target_sym = all_symbolic[eliminate]
-        solutions = Symbolics.solve_for(composite_var ~ expr, target_sym)
+        # solutions = Symbolics.solve_for(composite_var ~ expr, target_sym)
 
-        if isempty(solutions)
-            error("Cannot invert $(coupling.composite_name) for $eliminate symbolically. Write manually.")
+        # ── Tier 1: try symbolic_solve (handles nonlinear) ───────────────────────
+        original_expr = nothing
+        try
+            solutions = Symbolics.symbolic_solve(composite_var ~ expr, target_sym)
+            if !isempty(solutions)
+                original_expr = first(solutions)
+            end
+        catch e
+            @warn "symbolic_solve failed for $(coupling.composite_name) → $eliminate: $e"
         end
 
-        original_expr = first(solutions)
+        # ── Tier 2: fall back to known closed-form inversions ────────────────────
+        if isnothing(original_expr)
+            original_expr = closed_form_inverse(
+                coupling.composite_name, eliminate, all_symbolic, geom)
+        end
+
+        if isnothing(original_expr)
+            error("Cannot invert $(coupling.composite_name) for $eliminate. " *
+                "Add a manual Reparameterisation instead.")
+        end
+
+        println("  Inverse expression: $eliminate = $original_expr")
+
+        remaining_syms = [all_symbolic[s] for s in coupling.original if s != eliminate]
+
+        # original_expr = first(solutions)
 
         # Compile both directions to fast Julia functions
         # Forward: (composite_var, remaining originals) → eliminated original
         forward_fn = build_function(original_expr,
-                                    [composite_var;
-                                    [all_symbolic[s] for s in coupling.original if s != eliminate]],
+                                    [composite_var; remaining_syms],
                                     expression=Val{false})
 
         # Inverse: original params → composite
@@ -890,7 +995,7 @@ module Conversions
     """
     function auto_reparameterise(coupled_pairs::Vector{Tuple{Symbol,Symbol}},
                                 coupling_library::Dict{Symbol, SymbolicCoupling},
-                                all_symbolic::Dict{Symbol, Num})
+                                all_symbolic::Dict{Symbol, Num}, geom::Dict)
 
         reparams = Reparameterisation[]
 
@@ -910,7 +1015,7 @@ module Conversions
             eliminate = p1   # caller decides based on S_first values
 
             forward_fn, inverse_fn, inv_expr = build_reparam(
-                coupling, eliminate, all_symbolic)
+                coupling, eliminate, all_symbolic, geom)
 
             println("Generated reparam for ($p1, $p2):")
             println("  Composite: $(coupling.composite_name) = $(coupling.expr)")
