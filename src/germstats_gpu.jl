@@ -96,7 +96,7 @@ __precompile__(false)
         params_d = CuArray(params_flat)
         times_d = CuArray(times)
 
-        accum_d = CUDA.zeros(Float32, P)              # final accumulators
+        accum_d = CUDA.zeros(Float32, P, T)              # final accumulators
 
         i = 1
         while i <= N
@@ -118,14 +118,14 @@ __precompile__(false)
             host_mat = reshape(host_buf, (T, P, len))           # T × P × len
             # sum across columns -> partial sums per parameter
             partials  = dropdims(sum(host_vol; dims=3), dims=3) # T × P
-            accum = Array(accum_d)                              # copy current accum to host
-            accum .+= vec(partials)                             # update
-            accum_d .= CuArray(accum)                           # copy back to device accumulators
+            # accum = Array(accum_d)                              # copy current accum to host
+            accum .+= partials' #vec(partials)                             # update
+            # accum_d .= CuArray(accum)                           # copy back to device accumulators
 
             i += len
         end
 
-        return Array(accum_d)
+        return accum # P × T:  accum[p, t] = integral for param set p at time t
     end
 
     # =====================================================================================
