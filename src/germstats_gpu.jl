@@ -6,6 +6,7 @@ __precompile__(false)
 
     using CUDA
     using FastGaussQuadrature
+    using Distributions
 
     export compute_germination
 
@@ -39,6 +40,10 @@ __precompile__(false)
     """
     function build_hermite_tensor_grid(n::Int, d::Int)
         xs, ws = gausshermite(n)  # Gauss-hermite nodes and weights
+
+        # Normalize weights for standard normal PDF
+        ws_normalized = ws ./ sqrt(π)
+
         N = n^d
         coords = Array{Float32}(undef, N * d)
         weights = Array{Float32}(undef, N)
@@ -51,7 +56,7 @@ __precompile__(false)
                 ik = (tmp % n) + 1
                 tmp ÷= n
                 coords[base + k] = Float32(xs[ik])  # Standard normal nodes
-                w *= Float32(ws[ik])
+                w *= Float32(ws_normalized[ik])
             end
             weights[idx+1] = w
         end
@@ -88,13 +93,15 @@ __precompile__(false)
     [1:1]   = sigma_R
     [2:2]   = mu_H
     [3:3]   = sigma_H
-    [4:4]   = c_ex
-    [5:5]   = P_I
-    [6:6]   = P_C
-    [7:7]   = K_s
-    [8:8]   = rho_s
-    [9:9]   = (reserved or additional params)
-    [10:10] = (reserved or additional params)
+    [4:4]   = mu_X
+    [5:5]   = sigma_X
+    [5:5]   = mu_Y
+    [6:6]   = sigma_Y
+    [7:7]   = c_ex
+    [8:8]   = P_I
+    [9:9]   = P_C
+    [10:10]   = K_s
+    [11:11]   = rho_s
     inputs:
         coords (Array{Float32}) - standard normal nodes from Gauss-Hermite
         base (Int32) - starting index for this quadrature point's coordinates
@@ -112,15 +119,19 @@ __precompile__(false)
         v = coords[base + 2]          # Standard normal for d_ps
         
         # Extract transformation parameters
-        μ_R = params[pbase + 1]
-        σ_R = params[pbase + 2]
-        μ_H = params[pbase + 3]
-        σ_H = params[pbase + 4]
-        c_ex = params[pbase + 5]
-        P_I = params[pbase + 6]
-        P_C = params[pbase + 7]
-        K_s = params[pbase + 8]
-        rho_s = params[pbase + 9]
+        mu_R = params[pbase + 1]
+        sigma_R = params[pbase + 2]
+        mu_H = params[pbase + 3]
+        sigma_H = params[pbase + 4]
+        mu_X = params[pbase + 5]
+        sigma_X = params[pbase + 6]
+        mu_Y = params[pbase + 7]
+        sigma_Y = params[pbase + 8]
+        c_ex = params[pbase + 9]
+        P_I = params[pbase + 10]
+        P_C = params[pbase + 11]
+        K_s = params[pbase + 12]
+        rho_s = params[pbase + 13]
         
         # Transform from standard normal to physical space
         r_s = mu_R + sigma_R * u
@@ -142,6 +153,10 @@ __precompile__(false)
         # Time-dependent signals
         beta = calc_beta(t, phi, tau_I)
         s = calc_signal(t, c_ex, K_s, tau_C)
+
+        # Distributions
+        dist_X = Normal(mu_X, sigma_X)
+        dist_Y = Normal(mu_Y, sigma_Y)
         
         # CDFs
         cdf_X = cdf(dist_X, beta)
@@ -159,7 +174,7 @@ __precompile__(false)
     function batch_kernel(coords_chunk, weights_chunk, d::Int32,
                         params_d, param_dim::Int32, times_d, T::Int32, outbuf, P::Int32, model_idx::Int32)
         tid = (blockIdx().x-1) * blockDim().x + threadIdx().x
-        Ntot = Int32(length(weights_chunk)) * P
+        Ntot = Int32(length(weights_chunk)) * P * T
         if tid <= Ntot
             # Decode flat index:  tid-1 = time_idx + T*(param_idx + P*pidx)
             tmp       = tid - 1
@@ -193,15 +208,17 @@ __precompile__(false)
     """
     function integrate_batched(n::Int, d::Int, params::Array{Float32,2}, times::Array{Float32,1}, model_idx::Int; chunk_size::Int=4096)
         coords_cpu, weights_cpu, N = build_hermite_tensor_grid(n, d)
-        P = size(params, 1); param_dim = size(params, 2)
+        P = size(params, 1)
+        param_dim = size(params, 2)
         T = length(times)
 
-        # @assert param_dim == 7
         params_flat = vec(params')                    # row-major flatten (M × param_dim)
         params_d = CuArray(params_flat)
         times_d = CuArray(times)
 
-        accum_d = CUDA.zeros(Float32, P, T)              # final accumulators
+        # Host-side accumulator for reduction
+        accum = zeros(Float32, P, T)
+        # accum_d = CUDA.zeros(Float32, P, T)              # final accumulators
 
         # Iterate over chunks
         i = 1
@@ -210,7 +227,7 @@ __precompile__(false)
             coords_chunk = CuArray(@view coords_cpu[(i-1)*d + 1 : (i-1)*d + len*d])
             weights_chunk = CuArray(@view weights_cpu[i : i+len-1])
             
-            total = len * P
+            total = len * P * T
             outbuf = CUDA.zeros(Float32, total)       # per-(point,param) contributions
 
             threads = 256
@@ -220,10 +237,10 @@ __precompile__(false)
             CUDA.synchronize()
             
             # COPY OUTBUF TO HOST AND REDUCE PER-PARAM (fast for moderate chunk_size)
-            host_buf = Array(outbuf)                            # length = len * P
+            host_buf = Array(outbuf)                            # length = len * P * T
             host_mat = reshape(host_buf, (T, P, len))           # T × P × len
             # sum across columns -> partial sums per parameter
-            partials  = dropdims(sum(host_vol; dims=3), dims=3) # T × P
+            partials  = dropdims(sum(host_mat; dims=3), dims=3) # T × P
             # accum = Array(accum_d)                              # copy current accum to host
             accum .+= partials' #vec(partials)                             # update
             # accum_d .= CuArray(accum)                           # copy back to device accumulators
@@ -346,7 +363,7 @@ __precompile__(false)
     inputs:
         model_alias (String) - alias of the germination model
         rho_s (Float32) - number density of spore colony (in um^(-1))
-        times (Array{Float32}) - time points to evaluate
+        times (Vector{Float32}) - time points to evaluate
         param_dict (Dict) - parameter dictionary, multiple values possible per key
     """
     function compute_germination(model_alias, rho_s, times, param_dict)
@@ -356,16 +373,20 @@ __precompile__(false)
 
         if model_alias == "independent"
             # Unpack parameter dictionary into an Array P x param_dim
-            param_arr = Array{Float32}(undef, n_params, sample_size)
+            param_arr = Array{Float32}(undef, sample_size, 14)
             param_arr[:, 1] .= Float32.(param_dict[:mu_R])
             param_arr[:, 2] .= Float32.(param_dict[:sigma_R])
             param_arr[:, 3] .= Float32.(param_dict[:mu_H])
             param_arr[:, 4] .= Float32.(param_dict[:sigma_H])
-            param_arr[:, 5] .= Float32.(param_dict[:c_ex])
-            param_arr[:, 6] .= Float32.(param_dict[:P_I])
-            param_arr[:, 7] .= Float32.(param_dict[:P_C])
-            param_arr[:, 8] .= Float32.(param_dict[:K_s])
-            param_arr[:, 9] .= Float32.(param_dict[:rho_s])
+            param_arr[:, 5] .= Float32.(param_dict[:mu_X])
+            param_arr[:, 6] .= Float32.(param_dict[:sigma_X])
+            param_arr[:, 7] .= Float32.(param_dict[:mu_Y])
+            param_arr[:, 8] .= Float32.(param_dict[:sigma_Y])
+            param_arr[:, 9] .= Float32.(param_dict[:c_ex])
+            param_arr[:, 10] .= Float32.(param_dict[:P_I])
+            param_arr[:, 11] .= Float32.(param_dict[:P_C])
+            param_arr[:, 12] .= Float32.(param_dict[:K_s])
+            param_arr[:, 13] .= Float32.(rho_s)
 
             germination = integrate_batched(8, 3, param_arr, times, 1)
         end
