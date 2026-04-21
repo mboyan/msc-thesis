@@ -198,7 +198,8 @@ __precompile__(false)
 
 
     """
-    Host orchestration: compute integral by
+    Host orchestration: compute germination
+    probability integral by
     streaming points in chunks
     inputs:
         n (Int) - number of Gauss-Legendre nodes
@@ -218,7 +219,6 @@ __precompile__(false)
 
         # Host-side accumulator for reduction
         accum = zeros(Float32, P, T)
-        # accum_d = CUDA.zeros(Float32, P, T)              # final accumulators
 
         # Iterate over chunks
         i = 1
@@ -249,6 +249,22 @@ __precompile__(false)
         end
 
         return accum # P × T:  accum[p, t] = integral for param set p at time t
+    end
+
+    """
+    Host orchestration: compute germination
+    probability of a feedback model by running
+    parallelised Monte Carlo integration for an
+    ensemble of ODEs for a sample of parameters.
+    """
+    function integrate_batched_ode(params::Array{Float32,2}, times::Array{Float32,1}, model_idx::Int)
+        P = size(params, 1)
+        param_dim = size(params, 2)
+        T = length(times)
+
+        params_flat = vec(params')                    # row-major flatten (M × param_dim)
+        # params_d = CuArray(params_flat)
+        # times_d = CuArray(times)
     end
 
     # =====================================================================================
@@ -389,6 +405,9 @@ __precompile__(false)
             param_arr[:, 13] .= Float32.(rho_s)
 
             germination = integrate_batched(8, 3, param_arr, times, 1)
+
+        elseif model_alias == "feedback_inhibitor_inducer_perm"
+            
         end
     end
 
