@@ -6,7 +6,11 @@ __precompile__(false)
 
     using CUDA
     using FastGaussQuadrature
+    using DifferentialEquations
+    using OrdinaryDiffEq
+    using DiffEqGPU
     using Distributions
+    using StaticArrays
 
     export compute_germination
 
@@ -88,7 +92,7 @@ __precompile__(false)
     Transforms standard normal nodes (u, v) to physical space (r_s, d_ps) 
     using: r_s = μ_R + σ_R * u, d_ps = μ_H + σ_H * v
     The normal PDFs are implicit in the Gauss-Hermite weights.
-    Parameters layout in flattened array (param_dim ≥ 11):
+    Parameters layout in flattened array:
     [0:0]   = mu_R
     [1:1]   = sigma_R
     [2:2]   = mu_H
@@ -132,10 +136,16 @@ __precompile__(false)
         P_C = params[pbase + 11]
         K_s = params[pbase + 12]
         rho_s = params[pbase + 13]
+
+        # Transform from standard Normal to LogNormal
+        mu_R_log = log(mu_R^2 / sqrt(sigma_R^2 + mu_R^2))
+        sigma_R_log = sqrt(log(sigma_R^2 / mu_R^2 + 1))
+        mu_H_log = log(mu_H^2 / sqrt(sigma_H^2 + mu_H^2))
+        sigma_H_log = sqrt(log(sigma_H^2 / mu_H^2 + 1))
         
-        # Transform from standard normal to physical space
-        r_s = mu_R + sigma_R * u
-        d_ps = mu_H + sigma_H * v
+        # Transform from LogNormal to physical space
+        r_s = exp(mu_R_log + sigma_R_log * u)
+        d_ps = exp(mu_H_log + sigma_H_log * v)
         
         # Clamp to physically meaningful values (optional, but recommended)
         r_s = max(r_s, 1f-6)      # Spore radius must be positive
@@ -169,7 +179,18 @@ __precompile__(false)
     end
 
     """
-    Kernel: write per-(point,param) contribution to outbuf
+    Kernel: write per-(point,param) contribution to outbuf.
+    inputs:
+        coords_chunk (Array{Float36}) - coordinates of Gauss-Legendre nodes for the current data chunk
+        weights_chunk (Array{Float36}) - Gauss-Legendre weights for the current data chunk
+        d (Int) - dimension of integral
+        params_d (CuArray) - GPU array of the parameter values
+        param_dim (Int) - number of parameters
+        times_d (CuArray) - GPU array of the time points for evaluation
+        T (Int) - number of time points
+        outbuf (CuArray) - buffer for saving preliminary values
+        P (Int) - size of parameter sample
+        model_idx (Int) - index of current model
     """
     function batch_kernel(coords_chunk, weights_chunk, d::Int32,
                         params_d, param_dim::Int32, times_d, T::Int32, outbuf, P::Int32, model_idx::Int32)
@@ -205,6 +226,8 @@ __precompile__(false)
         n (Int) - number of Gauss-Legendre nodes
         d (Int) - dimension of integral
         params (Array{Float32}) - parameters
+        times (Array{Float32}) - time points for evaluation
+        model_idx (Int) - index of model to use
         chunk_size (Int) - chunk size for parallel execution
     """
     function integrate_batched(n::Int, d::Int, params::Array{Float32,2}, times::Array{Float32,1}, model_idx::Int; chunk_size::Int=4096)
@@ -256,15 +279,93 @@ __precompile__(false)
     probability of a feedback model by running
     parallelised Monte Carlo integration for an
     ensemble of ODEs for a sample of parameters.
+    Parameters layout in flattened array:
+    [0:0]   = mu_O
+    [1:1]   = sigma_O
+    [2:2]   = mu_R
+    [3:3]   = sigma_R
+    [4:4]   = mu_H
+    [5:5]   = sigma_H
+    inputs:
+        params (Array{Float32}) - parameters
+        times (Array{Float32}) - time points for evaluation
+        model_idx (Int) - index of model to use
+        n_samples (Int) - ODE ensemble sample size
     """
-    function integrate_batched_ode(params::Array{Float32,2}, times::Array{Float32,1}, model_idx::Int)
+    function integrate_batched_ode(params::Array{Float32,2}, times::Array{Float32,1}, model_idx::Int; n_samples::Int=2048)
         P = size(params, 1)
         param_dim = size(params, 2)
         T = length(times)
 
-        params_flat = vec(params')                    # row-major flatten (M × param_dim)
+        # params_flat = vec(params')                    # row-major flatten (M × param_dim)
         # params_d = CuArray(params_flat)
         # times_d = CuArray(times)
+
+        # Unpack parameters
+        mu_O = params[:, 1]
+        sigma_O = params[:, 2]
+        # CONNTINUE HERE!!!!!!!!!!!!!
+
+        # Transform from standard Normal to LogNormal
+        mu_R_log = log(mu_R^2 / sqrt(sigma_R^2 + mu_R^2))
+        sigma_R_log = sqrt(log(sigma_R^2 / mu_R^2 + 1))
+        mu_H_log = log(mu_H^2 / sqrt(sigma_H^2 + mu_H^2))
+        sigma_H_log = sqrt(log(sigma_H^2 / mu_H^2 + 1))
+        mu_O_log = log(mu_O^2 / sqrt(sigma_O^2 + mu_O^2))
+        sigma_O_log = sqrt(log(sigma_O^2 / mu_O^2 + 1))
+
+        # Generate geometric samples
+        r_samples = quantile(LogNormal(mu_R_log, sigma_R_log))
+        dps_samples = quantile(LogNormal(mu_H_log, sigma_H_log))
+        Vs_samples = 4pi/3 .* r_samples .^ 3
+        As_samples = 4pi .* r_samples .^ 2
+        Vps_samples = calc_ps_vacant_vol.(r_samples, dps_samples)
+
+        # Generate initial concentration samples
+        c0_samples = uantile(LogNormal(mu_O_log, sigma_O_log))
+
+        # !!!!!!!!REVISE BELOW!!!!!!!!!!!!!!!!!!
+
+        # Wrapper to create problem for each sample
+        function prob_func(prob, i, repeat)
+            
+            # Parameters tuple
+            p_sample = @SVector [
+                Float32(P_perturbed_I), 
+                Float32(P_perturbed_C), 
+                Float32(P_max),
+                Float32(c_ex_C),
+                Float32(geom.A_s),
+                Float32(geom.V_s),
+                Float32(V_free),
+                Float32(geom.V_ps_eff),
+                Float32(K_s_C),
+                Float32(λ_C)
+            ]
+            
+            return remake(prob, u0=u0, p=p_sample)
+        end
+        
+        # # Initial problem (dummy, will be remade by prob_func)
+        # u0_dummy = @SVector [0.0f0, 1.0f0, 0.0f0]
+        # p_dummy = @SVector [
+        #     0.0f0, 0.0f0, Float32(P_max), Float32(c_ex_C),
+        #     1.0f0, 1.0f0, 1.0f0, 1.0f0, Float32(K_s_C), Float32(λ_C)
+        # ]
+        
+        # prob = ODEProblem{false}(germination_system!, u0_dummy, t_span, p_dummy)
+        # monteprob = EnsembleProblem(prob, prob_func=prob_func, safetycopy=false)
+        
+        # # Solve ensemble on GPU
+        # sols = solve(
+        #     monteprob, 
+        #     Tsit5(),
+        #     DiffEqGPU.EnsembleGPUKernel(CUDA.CUDABackend()),
+        #     trajectories=n_samples,
+        #     adaptive=true,
+        #     dt=0.001f0,
+        #     save_on=false
+        # )
     end
 
     # =====================================================================================
@@ -404,10 +505,17 @@ __precompile__(false)
             param_arr[:, 12] .= Float32.(param_dict[:K_s])
             param_arr[:, 13] .= Float32.(rho_s)
 
-            germination = integrate_batched(8, 3, param_arr, times, 1)
+            germination = integrate_batched(8, 2, param_arr, times, 1)
 
         elseif model_alias == "feedback_inhibitor_inducer_perm"
-            
+            # Unpack parameter dictionary into an Array P x param_dim
+            param_arr = Array{Float32}(undef, sample_size, 14)
+            param_arr[:, 1] .= Float32.(param_dict[:mu_O])
+            param_arr[:, 2] .= Float32.(param_dict[:sigma_O])
+            param_arr[:, 3] .= Float32.(param_dict[:mu_R])
+            param_arr[:, 4] .= Float32.(param_dict[:sigma_R])
+            param_arr[:, 5] .= Float32.(param_dict[:mu_H])
+            param_arr[:, 6] .= Float32.(param_dict[:sigma_H])
         end
     end
 
