@@ -33,7 +33,7 @@ jobs:
         continue-on-error: true
 
       - name: Install Julia (if missing)
-        uses: julia-actions/setup-julia@v2
+        uses: julia-actions/setup-julia@v3
         if: steps.julia_in_path.outcome != 'success'
         with:
           version: '1'
