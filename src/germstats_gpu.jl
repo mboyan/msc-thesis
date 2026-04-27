@@ -92,20 +92,6 @@ __precompile__(false)
     Transforms standard normal nodes (u, v) to physical space (r_s, d_ps) 
     using: r_s = μ_R + σ_R * u, d_ps = μ_H + σ_H * v
     The normal PDFs are implicit in the Gauss-Hermite weights.
-    Parameters layout in flattened array:
-    [0:0]   = mu_R
-    [1:1]   = sigma_R
-    [2:2]   = mu_H
-    [3:3]   = sigma_H
-    [4:4]   = mu_X
-    [5:5]   = sigma_X
-    [5:5]   = mu_Y
-    [6:6]   = sigma_Y
-    [7:7]   = c_ex
-    [8:8]   = P_I
-    [9:9]   = P_C
-    [10:10]   = K_s
-    [11:11]   = rho_s
     inputs:
         coords (Array{Float32}) - standard normal nodes from Gauss-Hermite
         base (Int32) - starting index for this quadrature point's coordinates
@@ -123,19 +109,19 @@ __precompile__(false)
         v = coords[base + 2]          # Standard normal for d_ps
         
         # Extract transformation parameters
-        mu_R = params[pbase + 1]
-        sigma_R = params[pbase + 2]
-        mu_H = params[pbase + 3]
-        sigma_H = params[pbase + 4]
-        mu_X = params[pbase + 5]
-        sigma_X = params[pbase + 6]
-        mu_Y = params[pbase + 7]
-        sigma_Y = params[pbase + 8]
-        c_ex = params[pbase + 9]
-        P_I = params[pbase + 10]
-        P_C = params[pbase + 11]
-        K_s = params[pbase + 12]
-        rho_s = params[pbase + 13]
+        rho_s = params[pbase + 1]
+        mu_R = params[pbase + 4]
+        sigma_R = params[pbase + 5]
+        mu_H = params[pbase + 6]
+        sigma_H = params[pbase + 7]
+        mu_X = params[pbase + 8]
+        sigma_X = params[pbase + 9]
+        mu_Y = params[pbase + 10]
+        sigma_Y = params[pbase + 11]
+        c_ex = params[pbase + 12]
+        P_I = params[pbase + 13]
+        P_C = params[pbase + 14]
+        K_s = params[pbase + 15]
 
         # Transform from standard Normal to LogNormal
         mu_R_log = log(mu_R^2 / sqrt(sigma_R^2 + mu_R^2))
@@ -275,17 +261,42 @@ __precompile__(false)
     end
 
     """
+    System of coupled ODEs for the feedback model
+    of inducer-dependent cell wall permeability.
+    """
+    function ode_system_A!(du, u, p, t; Pmax=1000.0f0)
+        c_in_I, c_out_I, c_in_C, germ = u
+    
+        # Unpack parameters for this specific spore
+        P_I, P_C, c_ex, A_s, V_s, V_free, V_ps, K_s, lambda_C, gamma, omega = p
+
+        # Check if thresholds are reached
+        if c_in_I < gamma && c_in_c > omega
+            du[1] = 0.0f0
+            du[2] = 0.0f0
+            du[3] = 0.0f0
+            du[4] = germ >= 1.0f0 ? 0.0f0 : 1.0f0
+        else
+            # Compute inducing signal s from c_in_C
+            s = c_in_C / (K_s + c_in_C)
+            
+            # Update permeability constants based on signal
+            P_I_pert = P_max_C - (P_max_C - P_I) * exp(-lambda_C * s)
+            P_C_pert = P_max_C - (P_max_C - P_C) * exp(-lambda_C * s)
+            
+            # ODE equations
+            du[1] = -(P_I_current * A_s / V_s) * (c_in_I - c_out_I)
+            du[2] = (P_I_current * A_s / V_free) * (c_in_I - c_out_I)
+            du[3] = -(P_C_current * A_s / V_ps) * (c_in_C - c_ex)
+            du[4] = 0.0f0
+        end
+    end
+
+    """
     Host orchestration: compute germination
     probability of a feedback model by running
     parallelised Monte Carlo integration for an
     ensemble of ODEs for a sample of parameters.
-    Parameters layout in flattened array:
-    [0:0]   = mu_O
-    [1:1]   = sigma_O
-    [2:2]   = mu_R
-    [3:3]   = sigma_R
-    [4:4]   = mu_H
-    [5:5]   = sigma_H
     inputs:
         params (Array{Float32}) - parameters
         times (Array{Float32}) - time points for evaluation
@@ -302,9 +313,24 @@ __precompile__(false)
         # times_d = CuArray(times)
 
         # Unpack parameters
-        mu_O = params[:, 1]
-        sigma_O = params[:, 2]
-        # CONNTINUE HERE!!!!!!!!!!!!!
+        mu_O = params[:, 2]
+        sigma_O = params[:, 3]
+        mu_R = params[:, 4]
+        sigma_R = params[:, 5]
+        mu_H = params[:, 6]
+        sigma_H = params[:, 7]
+        K_s = params[:, 15]
+        lambda_C = params[:, 17]
+
+        # Determine which thresholds are used
+        if model_idx in [2, 3, 9]
+            mu_X = params[:, 8]
+            sigma_X = params[:, 9]
+        end
+        if model_idx in [3, 8, 9]
+            mu_Y = params[:, 10]
+            sigma_Y = params[:, 11]
+        end
 
         # Transform from standard Normal to LogNormal
         mu_R_log = log(mu_R^2 / sqrt(sigma_R^2 + mu_R^2))
@@ -314,58 +340,109 @@ __precompile__(false)
         mu_O_log = log(mu_O^2 / sqrt(sigma_O^2 + mu_O^2))
         sigma_O_log = sqrt(log(sigma_O^2 / mu_O^2 + 1))
 
+        # Generate Sobol sample
+        sobol_samples = QuasiMonteCarlo.sample(n_samples, 5, SobolSample())
+
         # Generate geometric samples
-        r_samples = quantile(LogNormal(mu_R_log, sigma_R_log))
-        dps_samples = quantile(LogNormal(mu_H_log, sigma_H_log))
+        r_samples = quantile(LogNormal(mu_R_log, sigma_R_log), sobol_samples[1, :])
+        dps_samples = quantile(LogNormal(mu_H_log, sigma_H_log), sobol_samples[2, :])
         Vs_samples = 4pi/3 .* r_samples .^ 3
         As_samples = 4pi .* r_samples .^ 2
         Vps_samples = calc_ps_vacant_vol.(r_samples, dps_samples)
 
         # Generate initial concentration samples
-        c0_samples = uantile(LogNormal(mu_O_log, sigma_O_log))
+        c0_samples = quantile(LogNormal(mu_O_log, sigma_O_log), sobol_samples[3, :])
 
-        # !!!!!!!!REVISE BELOW!!!!!!!!!!!!!!!!!!
+        # Generate threshold samples
+        gamma_samples = quantile(Normal(mu_X, sigma_X), sobol_samples[4, :])
+        omega_samples = quantile(Normal(mu_X, sigma_X), sobol_samples[5, :])
+
+        # Save samples to device
+        Vs_samples_gpu = CuArray(Vs_samples)
+        As_samples_gpu = CuArray(As_samples)
+        Vps_samples_gpu = CuArray(Vps_samples)
 
         # Wrapper to create problem for each sample
         function prob_func(prob, i, repeat)
+
+            A_s = As_samples_gpu[i]
+            V_s = As_samples_gpu[i]
+            V_ps = As_samples_gpu[i]
+
+            gamma = gamma_samples[i]
+            omega = omega_samples[i]
             
             # Parameters tuple
             p_sample = @SVector [
-                Float32(P_perturbed_I), 
-                Float32(P_perturbed_C), 
-                Float32(P_max),
-                Float32(c_ex_C),
-                Float32(geom.A_s),
-                Float32(geom.V_s),
-                Float32(V_free),
-                Float32(geom.V_ps_eff),
-                Float32(K_s_C),
-                Float32(λ_C)
+                P_I,
+                P_C,
+                c_ex,
+                A_s,
+                V_s,
+                V_free,
+                V_ps,
+                K_s,
+                lambda_C,
+                gamma,
+                omega
             ]
             
             return remake(prob, u0=u0, p=p_sample)
         end
         
-        # # Initial problem (dummy, will be remade by prob_func)
-        # u0_dummy = @SVector [0.0f0, 1.0f0, 0.0f0]
-        # p_dummy = @SVector [
-        #     0.0f0, 0.0f0, Float32(P_max), Float32(c_ex_C),
-        #     1.0f0, 1.0f0, 1.0f0, 1.0f0, Float32(K_s_C), Float32(λ_C)
-        # ]
+        # Initial problem (dummy, will be remade by prob_func)
+        u0_dummy = @SVector [0.0f0, 1.0f0, 0.0f0, 0.0f0]
+        p_dummy = @SVector [
+            0.0f0, 0.0f0, Float32(P_max), Float32(c_ex_C),
+            1.0f0, 1.0f0, 1.0f0, 1.0f0, Float32(K_s_C), Float32(λ_C)
+        ]
         
-        # prob = ODEProblem{false}(germination_system!, u0_dummy, t_span, p_dummy)
-        # monteprob = EnsembleProblem(prob, prob_func=prob_func, safetycopy=false)
+        prob = ODEProblem{false}(ode_system_A!, u0_dummy, t_span, p_dummy)
+        monteprob = EnsembleProblem(prob, prob_func=prob_func, safetycopy=false)
         
-        # # Solve ensemble on GPU
-        # sols = solve(
-        #     monteprob, 
-        #     Tsit5(),
-        #     DiffEqGPU.EnsembleGPUKernel(CUDA.CUDABackend()),
-        #     trajectories=n_samples,
-        #     adaptive=true,
-        #     dt=0.001f0,
-        #     save_on=false
-        # )
+        # Solve ensemble on GPU
+        sols = solve(
+            monteprob, 
+            Tsit5(),
+            DiffEqGPU.EnsembleGPUKernel(CUDA.CUDABackend()),
+            trajectories=n_samples,
+            adaptive=true,
+            dt=0.001f0,
+            save_on=false
+        )
+
+        # Extract germination info from solutions
+        germinated = zeros(Bool, T, n_samples)
+        for i in 1:n_samples
+            sol = sols[i]
+            for j in eachindex(sol.t)
+                germinated[j, i] = sol.u[j][4] > 0
+            end
+        end
+
+        germination = mean(germinated, dims=2)
+
+        return germination
+
+        # for i in 1:n_samples
+        #     sol = sols[i]
+        #     germinated_i = false
+        #     germ_time = Inf32
+            
+        #     if sol.retcode == :Success
+        #         # Check if c_in_C ever exceeded threshold
+        #         for j in eachindex(sol.t)
+        #             if sol.u[j][3] > threshold_c_in_C  # c_in_C is 3rd component
+        #                 germinated_i = true
+        #                 germ_time = Float32(sol.t[j])
+        #                 break
+        #             end
+        #         end
+        #     end
+            
+        #     germinated[i] = germinated_i
+        #     germination_times[i] = germ_time
+        # end
     end
 
     # =====================================================================================
@@ -485,37 +562,37 @@ __precompile__(false)
     """
     function compute_germination(model_alias, rho_s, times, param_dict)
 
-        n_params = length(keys(param_dict))
-        sample_size = length(param_dict[:mu_X])
+        # n_params = length(keys(param_dict))
+        sample_size = length(param_dict[:mu_R])
+        param_keys = keys(param_dict)
+
+        # Unpack parameter dictionary into an Array P x param_dim
+        param_arr = Array{Float32}(undef, sample_size, 17)
+        param_arr[:, 1] .= Float32.(rho_s)
+        :mu_O in param_keys ? param_arr[:, 2] .= Float32.(param_dict[:mu_O]) : nothing
+        :sigma_O in param_keys ? param_arr[:, 3] .= Float32.(param_dict[:sigma_O]) : nothing
+        :mu_R in param_keys ? param_arr[:, 4] .= Float32.(param_dict[:mu_R]) : nothing
+        :sigma_R in param_keys ? param_arr[:, 5] .= Float32.(param_dict[:sigma_R]) : nothing
+        :mu_H in param_keys ? param_arr[:, 6] .= Float32.(param_dict[:mu_H]) : nothing
+        :sigma_H in param_keys ? param_arr[:, 7] .= Float32.(param_dict[:sigma_H]) : nothing
+        :mu_X in param_keys ? param_arr[:, 8] .= Float32.(param_dict[:mu_X]) : nothing
+        :sigma_X in param_keys ? param_arr[:, 9] .= Float32.(param_dict[:sigma_X]) : nothing
+        :mu_Y in param_keys ? param_arr[:, 10] .= Float32.(param_dict[:mu_Y]) : nothing
+        :sigma_Y in param_keys ? param_arr[:, 11] .= Float32.(param_dict[:sigma_Y]) : nothing
+        :c_ex in param_keys ? param_arr[:, 12] .= Float32.(param_dict[:c_ex]) : nothing
+        :P_I in param_keys ? param_arr[:, 13] .= Float32.(param_dict[:P_I]) : nothing
+        :P_C in param_keys ? param_arr[:, 14] .= Float32.(param_dict[:P_C]) : nothing
+        :K_s in param_keys ? param_arr[:, 15] .= Float32.(param_dict[:K_s]) : nothing
+        :lambda_I in param_keys ? param_arr[:, 16] .= Float32.(param_dict[:lambda_I]) : nothing
+        :lambda_C in param_keys ? param_arr[:, 17] .= Float32.(param_dict[:lambda_C]) : nothing
 
         if model_alias == "independent"
-            # Unpack parameter dictionary into an Array P x param_dim
-            param_arr = Array{Float32}(undef, sample_size, 14)
-            param_arr[:, 1] .= Float32.(param_dict[:mu_R])
-            param_arr[:, 2] .= Float32.(param_dict[:sigma_R])
-            param_arr[:, 3] .= Float32.(param_dict[:mu_H])
-            param_arr[:, 4] .= Float32.(param_dict[:sigma_H])
-            param_arr[:, 5] .= Float32.(param_dict[:mu_X])
-            param_arr[:, 6] .= Float32.(param_dict[:sigma_X])
-            param_arr[:, 7] .= Float32.(param_dict[:mu_Y])
-            param_arr[:, 8] .= Float32.(param_dict[:sigma_Y])
-            param_arr[:, 9] .= Float32.(param_dict[:c_ex])
-            param_arr[:, 10] .= Float32.(param_dict[:P_I])
-            param_arr[:, 11] .= Float32.(param_dict[:P_C])
-            param_arr[:, 12] .= Float32.(param_dict[:K_s])
-            param_arr[:, 13] .= Float32.(rho_s)
 
             germination = integrate_batched(8, 2, param_arr, times, 1)
 
         elseif model_alias == "feedback_inhibitor_inducer_perm"
-            # Unpack parameter dictionary into an Array P x param_dim
-            param_arr = Array{Float32}(undef, sample_size, 14)
-            param_arr[:, 1] .= Float32.(param_dict[:mu_O])
-            param_arr[:, 2] .= Float32.(param_dict[:sigma_O])
-            param_arr[:, 3] .= Float32.(param_dict[:mu_R])
-            param_arr[:, 4] .= Float32.(param_dict[:sigma_R])
-            param_arr[:, 5] .= Float32.(param_dict[:mu_H])
-            param_arr[:, 6] .= Float32.(param_dict[:sigma_H])
+            
+            germination = nothing
         end
     end
 
