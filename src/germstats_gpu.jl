@@ -11,6 +11,7 @@ __precompile__(false)
     using DiffEqGPU
     using Distributions
     using StaticArrays
+    using QuasiMonteCarlo
 
     export compute_germination
 
@@ -303,22 +304,28 @@ __precompile__(false)
         model_idx (Int) - index of model to use
         n_samples (Int) - ODE ensemble sample size
     """
-    function integrate_batched_ode(params::Array{Float32,2}, times::Array{Float32,1}, model_idx::Int; n_samples::Int=2048)
+    function integrate_ode(params::Array{Float32,2}, times::Array{Float32,1}, model_idx::Int; n_samples::Int=2048)
         P = size(params, 1)
         param_dim = size(params, 2)
         T = length(times)
+
+        sobol_dim = 5
 
         # params_flat = vec(params')                    # row-major flatten (M × param_dim)
         # params_d = CuArray(params_flat)
         # times_d = CuArray(times)
 
         # Unpack parameters
+        rho_s = params[:, 1]
         mu_O = params[:, 2]
         sigma_O = params[:, 3]
         mu_R = params[:, 4]
         sigma_R = params[:, 5]
         mu_H = params[:, 6]
         sigma_H = params[:, 7]
+        c_ex = params[:, 12]
+        P_I = params[:, 13]
+        P_C = params[:, 14]
         K_s = params[:, 15]
         lambda_C = params[:, 17]
 
@@ -333,58 +340,85 @@ __precompile__(false)
         end
 
         # Transform from standard Normal to LogNormal
-        mu_R_log = log(mu_R^2 / sqrt(sigma_R^2 + mu_R^2))
-        sigma_R_log = sqrt(log(sigma_R^2 / mu_R^2 + 1))
-        mu_H_log = log(mu_H^2 / sqrt(sigma_H^2 + mu_H^2))
-        sigma_H_log = sqrt(log(sigma_H^2 / mu_H^2 + 1))
-        mu_O_log = log(mu_O^2 / sqrt(sigma_O^2 + mu_O^2))
-        sigma_O_log = sqrt(log(sigma_O^2 / mu_O^2 + 1))
+        mu_R_log = log.(mu_R.^2 ./ sqrt.(sigma_R.^2 + mu_R.^2))
+        sigma_R_log = sqrt.(log.(sigma_R.^2 ./ mu_R.^2 .+ 1))
+        mu_H_log = log.(mu_H.^2 ./ sqrt.(sigma_H.^2 + mu_H.^2))
+        sigma_H_log = sqrt.(log.(sigma_H.^2 ./ mu_H.^2 .+ 1))
+        mu_O_log = log.(mu_O.^2 ./ sqrt.(sigma_O.^2 + mu_O.^2))
+        sigma_O_log = sqrt.(log.(sigma_O.^2 ./ mu_O.^2 .+ 1))
 
         # Generate Sobol sample
-        sobol_samples = QuasiMonteCarlo.sample(n_samples, 5, SobolSample())
+        sobol_samples = QuasiMonteCarlo.sample(n_samples, sobol_dim, SobolSample())
 
         # Generate geometric samples
-        r_samples = quantile(LogNormal(mu_R_log, sigma_R_log), sobol_samples[1, :])
-        dps_samples = quantile(LogNormal(mu_H_log, sigma_H_log), sobol_samples[2, :])
+        r_samples = quantile.(LogNormal.(mu_R_log, sigma_R_log), sobol_samples[1, :])
+        dps_samples = quantile.(LogNormal.(mu_H_log, sigma_H_log), sobol_samples[2, :])
         Vs_samples = 4pi/3 .* r_samples .^ 3
         As_samples = 4pi .* r_samples .^ 2
         Vps_samples = calc_ps_vacant_vol.(r_samples, dps_samples)
+        Vfree_samples = 1 ./ rho_s .- Vs_samples
 
         # Generate initial concentration samples
-        c0_samples = quantile(LogNormal(mu_O_log, sigma_O_log), sobol_samples[3, :])
+        c0_samples = quantile.(LogNormal.(mu_O_log, sigma_O_log), sobol_samples[3, :])
 
         # Generate threshold samples
-        gamma_samples = quantile(Normal(mu_X, sigma_X), sobol_samples[4, :])
-        omega_samples = quantile(Normal(mu_X, sigma_X), sobol_samples[5, :])
+        gamma_samples = quantile.(Normal.(mu_X, sigma_X), sobol_samples[4, :])
+        omega_samples = quantile.(Normal.(mu_X, sigma_X), sobol_samples[5, :])
+
+        # Match Sobol samples with parameter samples
+        n_samples_flat = P * n_samples
+        Vs_samples = repeat(Vs_samples, outer=[1, P])
+        Vs_samples = reshape(Vs_samples, n_samples_flat)
+        As_samples = repeat(As_samples, outer=[1, P])
+        As_samples = reshape(As_samples, n_samples_flat)
+        Vps_samples = repeat(Vps_samples, outer=[1, P])
+        Vps_samples = reshape(Vps_samples, n_samples_flat)
+        c0_samples = repeat(c0_samples, outer=[1, P])
+        c0_samples = reshape(c0_samples, n_samples_flat)
+        gamma_samples = repeat(gamma_samples, outer=[1, P])
+        gamma_samples = reshape(gamma_samples, n_samples_flat)
+        omega_samples = repeat(omega_samples, outer=[1, P])
+        omega_samples = reshape(omega_samples, n_samples_flat)
+        c_ex = repeat(c_ex, inner=[n_samples])
+        c_ex = reshape(c_ex, n_samples_flat)
+        P_I = repeat(P_I, inner=[n_samples])
+        P_I = reshape(P_I, n_samples_flat)
+        P_C = repeat(P_C, inner=[n_samples])
+        P_C = reshape(P_C, n_samples_flat)
+        K_s = repeat(K_s, inner=[n_samples])
+        K_s = reshape(K_s, n_samples_flat)
+        lambda_C = repeat(lambda_C, inner=[n_samples])
+        lambda_C = reshape(lambda_C, n_samples_flat)
 
         # Save samples to device
         Vs_samples_gpu = CuArray(Vs_samples)
         As_samples_gpu = CuArray(As_samples)
         Vps_samples_gpu = CuArray(Vps_samples)
+        Vfree_samples_gpu = CuArray(Vfree_samples)
+        gamma_samples_gpu = CuArray(gamma_samples)
+        omega_samples_gpu = CuArray(omega_samples)
+        c_ex_gpu = CuArray(c_ex)
+        P_I_gpu = CuArray(P_I)
+        P_C_gpu = CuArray(P_C)
+        K_s_gpu = CuArray(K_s)
+        lambda_C_gpu = CuArray(lambda_C)
 
         # Wrapper to create problem for each sample
         function prob_func(prob, i, repeat)
 
-            A_s = As_samples_gpu[i]
-            V_s = As_samples_gpu[i]
-            V_ps = As_samples_gpu[i]
-
-            gamma = gamma_samples[i]
-            omega = omega_samples[i]
-            
             # Parameters tuple
             p_sample = @SVector [
-                P_I,
-                P_C,
-                c_ex,
-                A_s,
-                V_s,
-                V_free,
-                V_ps,
-                K_s,
-                lambda_C,
-                gamma,
-                omega
+                P_I_gpu[i],
+                P_C_gpu[i],
+                c_ex_gpu[i],
+                As_samples_gpu[i],
+                Vs_samples_gpu[i],
+                Vfree_samples_gpu[i],
+                V_ps_gpu[i],
+                K_s_gpu[i],
+                lambda_C_gpu[i],
+                gamma_samples_gpu[i],
+                omega_samples_gpu[i]
             ]
             
             return remake(prob, u0=u0, p=p_sample)
@@ -393,11 +427,12 @@ __precompile__(false)
         # Initial problem (dummy, will be remade by prob_func)
         u0_dummy = @SVector [0.0f0, 1.0f0, 0.0f0, 0.0f0]
         p_dummy = @SVector [
-            0.0f0, 0.0f0, Float32(P_max), Float32(c_ex_C),
-            1.0f0, 1.0f0, 1.0f0, 1.0f0, Float32(K_s_C), Float32(λ_C)
+            0.0f0, 0.0f0, Float32(c_ex[1]),
+            1.0f0, 1.0f0, 1.0f0, 1.0f0, Float32(K_s[1]), Float32(lambda_C[1]),
+            0.0f0, 1.0f0
         ]
         
-        prob = ODEProblem{false}(ode_system_A!, u0_dummy, t_span, p_dummy)
+        prob = ODEProblem{false}(ode_system_A!, u0_dummy, times[end], p_dummy)
         monteprob = EnsembleProblem(prob, prob_func=prob_func, safetycopy=false)
         
         # Solve ensemble on GPU
@@ -405,20 +440,22 @@ __precompile__(false)
             monteprob, 
             Tsit5(),
             DiffEqGPU.EnsembleGPUKernel(CUDA.CUDABackend()),
-            trajectories=n_samples,
+            trajectories=n_samples_flat,
             adaptive=true,
             dt=0.001f0,
             save_on=false
         )
 
         # Extract germination info from solutions
-        germinated = zeros(Bool, T, n_samples)
-        for i in 1:n_samples
+        germinated = zeros(Bool, T, n_samples_flat)
+        @inbounds for i in 1:n_samples_flat
             sol = sols[i]
             for j in eachindex(sol.t)
                 germinated[j, i] = sol.u[j][4] > 0
             end
         end
+
+        germinated = reshape(germinated, (T, n_samples, P))
 
         germination = mean(germinated, dims=2)
 
@@ -592,7 +629,12 @@ __precompile__(false)
 
         elseif model_alias == "feedback_inhibitor_inducer_perm"
             
-            germination = nothing
+            germination = integrate_ode(param_arr, times, 2)
+
+        elseif model_alias == "feedback_inhibitor_inducer_perm"
+            
+            germination = integrate_ode(param_arr, times, 3)
+            
         end
     end
 
