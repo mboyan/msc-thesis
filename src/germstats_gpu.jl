@@ -265,32 +265,30 @@ __precompile__(false)
     System of coupled ODEs for the feedback model
     of inducer-dependent cell wall permeability.
     """
-    function ode_system_A!(du, u, p, t; Pmax=1000.0f0)
+    function ode_system_A!(du, u, p, t)#; Pmax=1000.0f0)
         c_in_I, c_out_I, c_in_C, germ = u
     
         # Unpack parameters for this specific spore
         P_I, P_C, c_ex, A_s, V_s, V_free, V_ps, K_s, lambda_C, gamma, omega = p
 
+        # Compute inducing signal s from c_in_C
+        s = c_in_C / (K_s + c_in_C)
+        
+        # Update permeability constants based on signal
+        P_I_pert = 1000.0f0 - (1000.0f0 - P_I) * exp(-lambda_C * s)
+        P_C_pert = 1000.0f0 - (1000.0f0 - P_C) * exp(-lambda_C * s)
+        
+        # ODE equations
+        du[1] = -(P_I_pert * A_s / V_s) * (c_in_I - c_out_I)
+        du[2] = (P_I_pert * A_s / V_free) * (c_in_I - c_out_I)
+        du[3] = -(P_C_pert * A_s / V_ps) * (c_in_C - c_ex)
+
         # Check if thresholds are reached
-        if c_in_I < gamma && c_in_c > omega
-            du[1] = 0.0f0
-            du[2] = 0.0f0
-            du[3] = 0.0f0
-            du[4] = germ >= 1.0f0 ? 0.0f0 : 1.0f0
-        else
-            # Compute inducing signal s from c_in_C
-            s = c_in_C / (K_s + c_in_C)
-            
-            # Update permeability constants based on signal
-            P_I_pert = P_max_C - (P_max_C - P_I) * exp(-lambda_C * s)
-            P_C_pert = P_max_C - (P_max_C - P_C) * exp(-lambda_C * s)
-            
-            # ODE equations
-            du[1] = -(P_I_current * A_s / V_s) * (c_in_I - c_out_I)
-            du[2] = (P_I_current * A_s / V_free) * (c_in_I - c_out_I)
-            du[3] = -(P_C_current * A_s / V_ps) * (c_in_C - c_ex)
-            du[4] = 0.0f0
-        end
+        # if c_in_I < gamma && c_in_c > omega
+        #     du[4] = germ >= 1.0f0 ? 0.0f0 : 1.0f0
+        # else
+        du[4] = 0.0f0
+        # end
     end
 
     """
@@ -403,32 +401,44 @@ __precompile__(false)
         K_s_gpu = CuArray(K_s)
         lambda_C_gpu = CuArray(lambda_C)
 
+        # Initial conditions
+        c0_samples_gpu = CuArray(c0_samples)
+        coutI_gpu = CUDA.zeros(Float32, n_samples_flat)
+        cinC_gpu = CUDA.zeros(Float32, n_samples_flat)
+
         # Wrapper to create problem for each sample
         function prob_func(prob, i, repeat)
 
+            u0 = CUDA.@allowscalar @SVector [
+                c0_samples_gpu[i],
+                coutI_gpu[i],
+                cinC_gpu[i],
+                0.0f0
+            ]
+
             # Parameters tuple
-            p_sample = @SVector [
+            p_i = CUDA.@allowscalar @SVector [
                 P_I_gpu[i],
                 P_C_gpu[i],
                 c_ex_gpu[i],
                 As_samples_gpu[i],
                 Vs_samples_gpu[i],
                 Vfree_samples_gpu[i],
-                V_ps_gpu[i],
+                Vps_samples_gpu[i],
                 K_s_gpu[i],
                 lambda_C_gpu[i],
                 gamma_samples_gpu[i],
                 omega_samples_gpu[i]
             ]
             
-            return remake(prob, u0=u0, p=p_sample)
+            return remake(prob, u0=u0, p=p_i)
         end
         
         # Initial problem (dummy, will be remade by prob_func)
         u0_dummy = @SVector [0.0f0, 1.0f0, 0.0f0, 0.0f0]
         p_dummy = @SVector [
-            0.0f0, 0.0f0, Float32(c_ex[1]),
-            1.0f0, 1.0f0, 1.0f0, 1.0f0, Float32(K_s[1]), Float32(lambda_C[1]),
+            0.0f0, 0.0f0, 0.0f0,
+            1.0f0, 1.0f0, 1.0f0, 0.0f0, 0.0f0, 1.0f0,
             0.0f0, 1.0f0
         ]
         
@@ -439,7 +449,8 @@ __precompile__(false)
         sols = solve(
             monteprob, 
             Tsit5(),
-            DiffEqGPU.EnsembleGPUKernel(CUDA.CUDABackend()),
+            # DiffEqGPU.EnsembleGPUKernel(CUDA.CUDABackend()),
+            DiffEqGPU.EnsembleGPUArray(CUDA.CUDABackend()),
             trajectories=n_samples_flat,
             adaptive=true,
             dt=0.001f0,
@@ -460,26 +471,6 @@ __precompile__(false)
         germination = mean(germinated, dims=2)
 
         return germination
-
-        # for i in 1:n_samples
-        #     sol = sols[i]
-        #     germinated_i = false
-        #     germ_time = Inf32
-            
-        #     if sol.retcode == :Success
-        #         # Check if c_in_C ever exceeded threshold
-        #         for j in eachindex(sol.t)
-        #             if sol.u[j][3] > threshold_c_in_C  # c_in_C is 3rd component
-        #                 germinated_i = true
-        #                 germ_time = Float32(sol.t[j])
-        #                 break
-        #             end
-        #         end
-        #     end
-            
-        #     germinated[i] = germinated_i
-        #     germination_times[i] = germ_time
-        # end
     end
 
     # =====================================================================================
