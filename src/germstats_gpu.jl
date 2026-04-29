@@ -265,7 +265,7 @@ __precompile__(false)
     System of coupled ODEs for the feedback model
     of inducer-dependent cell wall permeability.
     """
-    function ode_system_A!(du, u, p, t)#; Pmax=1000.0f0)
+    function ode_system_A!(du, u, p, t)
         c_in_I, c_out_I, c_in_C, germ = u
     
         # Unpack parameters for this specific spore
@@ -284,11 +284,11 @@ __precompile__(false)
         du[3] = -(P_C_pert * A_s / V_ps) * (c_in_C - c_ex)
 
         # Check if thresholds are reached
-        # if c_in_I < gamma && c_in_c > omega
-        #     du[4] = germ >= 1.0f0 ? 0.0f0 : 1.0f0
-        # else
-        du[4] = 0.0f0
-        # end
+        if c_in_I < gamma && c_in_C > omega
+            du[4] = germ >= 1.0f0 ? 0.0f0 : 1.0f0
+        else
+            du[4] = 0.0f0
+        end
     end
 
     """
@@ -308,10 +308,6 @@ __precompile__(false)
         T = length(times)
 
         sobol_dim = 5
-
-        # params_flat = vec(params')                    # row-major flatten (M × param_dim)
-        # params_d = CuArray(params_flat)
-        # times_d = CuArray(times)
 
         # Unpack parameters
         rho_s = params[:, 1]
@@ -389,47 +385,57 @@ __precompile__(false)
         lambda_C = reshape(lambda_C, n_samples_flat)
 
         # Save samples to device
-        Vs_samples_gpu = CuArray(Vs_samples)
-        As_samples_gpu = CuArray(As_samples)
-        Vps_samples_gpu = CuArray(Vps_samples)
-        Vfree_samples_gpu = CuArray(Vfree_samples)
-        gamma_samples_gpu = CuArray(gamma_samples)
-        omega_samples_gpu = CuArray(omega_samples)
-        c_ex_gpu = CuArray(c_ex)
-        P_I_gpu = CuArray(P_I)
-        P_C_gpu = CuArray(P_C)
-        K_s_gpu = CuArray(K_s)
-        lambda_C_gpu = CuArray(lambda_C)
+        # Vs_samples_gpu = CuArray(Vs_samples)
+        # As_samples_gpu = CuArray(As_samples)
+        # Vps_samples_gpu = CuArray(Vps_samples)
+        # Vfree_samples_gpu = CuArray(Vfree_samples)
+        # gamma_samples_gpu = CuArray(gamma_samples)
+        # omega_samples_gpu = CuArray(omega_samples)
+        # c_ex_gpu = CuArray(c_ex)
+        # P_I_gpu = CuArray(P_I)
+        # P_C_gpu = CuArray(P_C)
+        # K_s_gpu = CuArray(K_s)
+        # lambda_C_gpu = CuArray(lambda_C)
 
-        # Initial conditions
-        c0_samples_gpu = CuArray(c0_samples)
-        coutI_gpu = CUDA.zeros(Float32, n_samples_flat)
-        cinC_gpu = CUDA.zeros(Float32, n_samples_flat)
+        # # Initial conditions
+        # c0_samples_gpu = CuArray(c0_samples)
+        # coutI_gpu = CUDA.zeros(Float32, n_samples_flat)
+        # cinC_gpu = CUDA.zeros(Float32, n_samples_flat)
+
+        u0_sets = [
+            [
+                c0_samples[i],
+                0.0f0,
+                0.0f0,
+                0.0f0
+            ] for i in 1:n_samples_flat
+        ]
+
+        param_sets = [
+            [
+                P_I[i],
+                P_C[i],
+                c_ex[i],
+                As_samples[i],
+                Vs_samples[i],
+                Vfree_samples[i],
+                Vps_samples[i],
+                K_s[i],
+                lambda_C[i],
+                gamma_samples[i],
+                omega_samples[i]
+            ] for i in 1:n_samples_flat
+        ]
+
+        # Stack into matrices (n_states × n_samples) and upload once
+        u0_matrix = Float32.(hcat([collect(u) for u in u0_sets]...))
+        p_matrix  = Float32.(hcat([collect(p) for p in param_sets]...))
 
         # Wrapper to create problem for each sample
         function prob_func(prob, i, repeat)
 
-            u0 = CUDA.@allowscalar @SVector [
-                c0_samples_gpu[i],
-                coutI_gpu[i],
-                cinC_gpu[i],
-                0.0f0
-            ]
-
-            # Parameters tuple
-            p_i = CUDA.@allowscalar @SVector [
-                P_I_gpu[i],
-                P_C_gpu[i],
-                c_ex_gpu[i],
-                As_samples_gpu[i],
-                Vs_samples_gpu[i],
-                Vfree_samples_gpu[i],
-                Vps_samples_gpu[i],
-                K_s_gpu[i],
-                lambda_C_gpu[i],
-                gamma_samples_gpu[i],
-                omega_samples_gpu[i]
-            ]
+            u0 = u0_matrix[:, i]#u0_sets[i]
+            p_i = p_matrix[:, i]#param_sets[i]
             
             return remake(prob, u0=u0, p=p_i)
         end
@@ -442,7 +448,7 @@ __precompile__(false)
             0.0f0, 1.0f0
         ]
         
-        prob = ODEProblem{false}(ode_system_A!, u0_dummy, times[end], p_dummy)
+        prob = ODEProblem{true}(ode_system_A!, u0_dummy, times[end], p_dummy)
         monteprob = EnsembleProblem(prob, prob_func=prob_func, safetycopy=false)
         
         # Solve ensemble on GPU
@@ -452,9 +458,12 @@ __precompile__(false)
             # DiffEqGPU.EnsembleGPUKernel(CUDA.CUDABackend()),
             DiffEqGPU.EnsembleGPUArray(CUDA.CUDABackend()),
             trajectories=n_samples_flat,
+            # u0=u0_matrix,   # GPU matrix, bypasses prob_func
+            # p=p_matrix,    # GPU matrix, bypasses prob_func
             adaptive=true,
             dt=0.001f0,
-            save_on=false
+            saveat = times
+            # save_on=false
         )
 
         # Extract germination info from solutions
@@ -462,6 +471,7 @@ __precompile__(false)
         @inbounds for i in 1:n_samples_flat
             sol = sols[i]
             for j in eachindex(sol.t)
+                # println("Sol time $(sol.t[j]), input time $(times[j])")
                 germinated[j, i] = sol.u[j][4] > 0
             end
         end
@@ -469,6 +479,7 @@ __precompile__(false)
         germinated = reshape(germinated, (T, n_samples, P))
 
         germination = mean(germinated, dims=2)
+        germination = dropdims(germination; dims=2)'
 
         return germination
     end
@@ -539,43 +550,6 @@ __precompile__(false)
         return porosity * π * ((r - d_hp)^3 - (r - d_hp - d_ps)^3)
     end
 
-    # """
-    # rho_s, V_s, A_s, V_ps, P_I, P_C
-    # Two-factor germination criterion.
-    # inputs:
-    #     r (Float32) - current spore radius (in um)
-    #     d_ps (Float32) - current inner cell wall thickness (in um)
-    #     t (Float32) - time (in seconds)
-    #     c_ex (Float32) - ambient inducer concentration (in 1e-5 M)
-    #     K_s (Float32) - half-saturation constant for inducing signal
-    #     f_R (Float32) - probability density function for spore radius R
-    #     f_H (Float32) - probability density funciton for inner cell wall thickness H
-    # """
-    # @inline function two_factor_germ(r, d_ps, t, c_ex, P_I, P_C, K_s, f_R, f_H)
-
-    #     # Geometric variables
-    #     V_s, A_s = calc_spore_geom(r)
-    #     V_ps = calc_ps_vacant_vol(r, d_ps)
-
-    #     # Secondary variables
-    #     phi = rho_s * V_s
-    #     tau_I = V_s / (P_I * A_s)
-    #     tau_C = V_ps / (P_C * A_s)
-
-    #     # Time-dependent signals
-    #     beta = calc_beta(t, phi, tau_I)
-    #     s = calc_signal(t, c_ex, K_s, tau_C)
-
-    #     # CDFs
-    #     cdf_X = cdf(dist_X, beta)
-    #     cdf_Y = cdf(dist_Y, s)
-
-    #     # Probability densities
-    #     # ??????
-
-    #     return (1 - cdf_X) * cdf_Y * f_R * f_H
-    # end
-
     # =====================================================================================
     # ====================== GERMINATION FRACTION CALCULATION =============================
     # =====================================================================================
@@ -624,7 +598,7 @@ __precompile__(false)
 
         elseif model_alias == "feedback_inhibitor_inducer_perm"
             
-            germination = integrate_ode(param_arr, times, 3)
+            germination = integrate_ode(param_arr, times, 3; n_samples=64)
             
         end
     end
