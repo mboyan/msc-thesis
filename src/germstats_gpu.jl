@@ -302,7 +302,7 @@ __precompile__(false)
         model_idx (Int) - index of model to use
         n_samples (Int) - ODE ensemble sample size
     """
-    function integrate_ode(params::Array{Float32,2}, times::Array{Float32,1}, model_idx::Int; n_samples::Int=2048)
+    function integrate_ode(params::Array{Float32,2}, times::Array{Float32,1}, model_idx::Int; n_samples::Int=1024)
         P = size(params, 1)
         param_dim = size(params, 2)
         T = length(times)
@@ -317,6 +317,12 @@ __precompile__(false)
         sigma_R = params[:, 5]
         mu_H = params[:, 6]
         sigma_H = params[:, 7]
+
+        mu_X = params[:, 8]
+        sigma_X = params[:, 9]
+        mu_Y = params[:, 10]
+        sigma_Y = params[:, 11]
+
         c_ex = params[:, 12]
         P_I = params[:, 13]
         P_C = params[:, 14]
@@ -324,118 +330,76 @@ __precompile__(false)
         lambda_C = params[:, 17]
 
         # Determine which thresholds are used
-        if model_idx in [2, 3, 9]
-            mu_X = params[:, 8]
-            sigma_X = params[:, 9]
-        end
-        if model_idx in [3, 8, 9]
-            mu_Y = params[:, 10]
-            sigma_Y = params[:, 11]
-        end
-
-        # Transform from standard Normal to LogNormal
-        mu_R_log = log.(mu_R.^2 ./ sqrt.(sigma_R.^2 + mu_R.^2))
-        sigma_R_log = sqrt.(log.(sigma_R.^2 ./ mu_R.^2 .+ 1))
-        mu_H_log = log.(mu_H.^2 ./ sqrt.(sigma_H.^2 + mu_H.^2))
-        sigma_H_log = sqrt.(log.(sigma_H.^2 ./ mu_H.^2 .+ 1))
-        mu_O_log = log.(mu_O.^2 ./ sqrt.(sigma_O.^2 + mu_O.^2))
-        sigma_O_log = sqrt.(log.(sigma_O.^2 ./ mu_O.^2 .+ 1))
+        # if model_idx in [2, 3, 9]
+        #     mu_X = params[:, 8]
+        #     sigma_X = params[:, 9]
+        # end
+        # if model_idx in [3, 8, 9]
+        #     mu_Y = params[:, 10]
+        #     sigma_Y = params[:, 11]
+        # end
 
         # Generate Sobol sample
         sobol_samples = QuasiMonteCarlo.sample(n_samples, sobol_dim, SobolSample())
 
-        # Generate geometric samples
-        r_samples = quantile.(LogNormal.(mu_R_log, sigma_R_log), sobol_samples[1, :])
-        dps_samples = quantile.(LogNormal.(mu_H_log, sigma_H_log), sobol_samples[2, :])
-        Vs_samples = 4pi/3 .* r_samples .^ 3
-        As_samples = 4pi .* r_samples .^ 2
-        Vps_samples = calc_ps_vacant_vol.(r_samples, dps_samples)
-        Vfree_samples = 1 ./ rho_s .- Vs_samples
-
-        # Generate initial concentration samples
-        c0_samples = quantile.(LogNormal.(mu_O_log, sigma_O_log), sobol_samples[3, :])
-
-        # Generate threshold samples
-        gamma_samples = quantile.(Normal.(mu_X, sigma_X), sobol_samples[4, :])
-        omega_samples = quantile.(Normal.(mu_X, sigma_X), sobol_samples[5, :])
-
-        # Match Sobol samples with parameter samples
+        # Construct flat parameter collections and initial conditions
         n_samples_flat = P * n_samples
-        Vs_samples = repeat(Vs_samples, outer=[1, P])
-        Vs_samples = reshape(Vs_samples, n_samples_flat)
-        As_samples = repeat(As_samples, outer=[1, P])
-        As_samples = reshape(As_samples, n_samples_flat)
-        Vps_samples = repeat(Vps_samples, outer=[1, P])
-        Vps_samples = reshape(Vps_samples, n_samples_flat)
-        c0_samples = repeat(c0_samples, outer=[1, P])
-        c0_samples = reshape(c0_samples, n_samples_flat)
-        gamma_samples = repeat(gamma_samples, outer=[1, P])
-        gamma_samples = reshape(gamma_samples, n_samples_flat)
-        omega_samples = repeat(omega_samples, outer=[1, P])
-        omega_samples = reshape(omega_samples, n_samples_flat)
-        c_ex = repeat(c_ex, inner=[n_samples])
-        c_ex = reshape(c_ex, n_samples_flat)
-        P_I = repeat(P_I, inner=[n_samples])
-        P_I = reshape(P_I, n_samples_flat)
-        P_C = repeat(P_C, inner=[n_samples])
-        P_C = reshape(P_C, n_samples_flat)
-        K_s = repeat(K_s, inner=[n_samples])
-        K_s = reshape(K_s, n_samples_flat)
-        lambda_C = repeat(lambda_C, inner=[n_samples])
-        lambda_C = reshape(lambda_C, n_samples_flat)
+        u0_matrix = zeros(Float32, 4, n_samples_flat)
+        p_matrix = zeros(Float32, 11, n_samples_flat)
+        @inbounds for i in 1:P
 
-        # Save samples to device
-        # Vs_samples_gpu = CuArray(Vs_samples)
-        # As_samples_gpu = CuArray(As_samples)
-        # Vps_samples_gpu = CuArray(Vps_samples)
-        # Vfree_samples_gpu = CuArray(Vfree_samples)
-        # gamma_samples_gpu = CuArray(gamma_samples)
-        # omega_samples_gpu = CuArray(omega_samples)
-        # c_ex_gpu = CuArray(c_ex)
-        # P_I_gpu = CuArray(P_I)
-        # P_C_gpu = CuArray(P_C)
-        # K_s_gpu = CuArray(K_s)
-        # lambda_C_gpu = CuArray(lambda_C)
+            # Transform from standard Normal to LogNormal
+            mu_R_log = log(mu_R[i]^2 / sqrt(sigma_R[i]^2 + mu_R[i]^2))
+            sigma_R_log = sqrt(log(sigma_R[i]^2 / mu_R[i]^2 + 1))
+            mu_H_log = log(mu_H[i]^2 / sqrt(sigma_H[i]^2 + mu_H[i]^2))
+            sigma_H_log = sqrt(log(sigma_H[i]^2 / mu_H[i]^2 + 1))
+            mu_O_log = log(mu_O[i]^2 / sqrt(sigma_O[i]^2 + mu_O[i]^2))
+            sigma_O_log = sqrt(log(sigma_O[i]^2 / mu_O[i]^2 .+ 1))
 
-        # # Initial conditions
-        # c0_samples_gpu = CuArray(c0_samples)
-        # coutI_gpu = CUDA.zeros(Float32, n_samples_flat)
-        # cinC_gpu = CUDA.zeros(Float32, n_samples_flat)
+            # Generate geometric samples
+            r = quantile.(LogNormal(mu_R_log, sigma_R_log), sobol_samples[1, :])
+            d_ps = quantile.(LogNormal(mu_H_log, sigma_H_log), sobol_samples[2, :])
 
-        u0_sets = [
-            [
-                c0_samples[i],
-                0.0f0,
-                0.0f0,
-                0.0f0
-            ] for i in 1:n_samples_flat
-        ]
+            # Generate initial concentration samples
+            c0 = quantile.(LogNormal(mu_O_log, sigma_O_log), sobol_samples[3, :])
 
-        param_sets = [
-            [
-                P_I[i],
-                P_C[i],
-                c_ex[i],
-                As_samples[i],
-                Vs_samples[i],
-                Vfree_samples[i],
-                Vps_samples[i],
-                K_s[i],
-                lambda_C[i],
-                gamma_samples[i],
-                omega_samples[i]
-            ] for i in 1:n_samples_flat
-        ]
+            # Generate threshold samples
+            gamma = quantile.(Normal(mu_X[i], sigma_X[i]), sobol_samples[4, :])
+            omega = quantile.(Normal(mu_Y[i], sigma_Y[i]), sobol_samples[5, :])
 
-        # Stack into matrices (n_states × n_samples) and upload once
-        u0_matrix = Float32.(hcat([collect(u) for u in u0_sets]...))
-        p_matrix  = Float32.(hcat([collect(p) for p in param_sets]...))
+            @inbounds for j in 1:n_samples
+                
+                idx = (j - 1) * P + i
+                
+                V_s = 4pi/3 * r[j] ^ 3
+                A_s = 4pi * r[j] ^ 2
+                V_ps = calc_ps_vacant_vol(r[j], d_ps[j])
+                V_free = 1 / rho_s[i] - V_s
+
+                u0_matrix[1, idx] = Float32(c0[j])
+                u0_matrix[2, idx] = 0.0f0
+                u0_matrix[3, idx] = 0.0f0
+                u0_matrix[4, idx] = 0.0f0
+
+                p_matrix[1, idx] = P_I[i]
+                p_matrix[2, idx] = P_C[i]
+                p_matrix[3, idx] = c_ex[i]
+                p_matrix[4, idx] = A_s
+                p_matrix[5, idx] = V_s
+                p_matrix[6, idx] = V_free
+                p_matrix[7, idx] = V_ps
+                p_matrix[8, idx] = K_s[i]
+                p_matrix[9, idx] = lambda_C[i]
+                p_matrix[10, idx] = gamma[j]
+                p_matrix[11, idx] = omega[j]
+            end
+        end
 
         # Wrapper to create problem for each sample
         function prob_func(prob, i, repeat)
 
-            u0 = u0_matrix[:, i]#u0_sets[i]
-            p_i = p_matrix[:, i]#param_sets[i]
+            u0 = u0_matrix[:, i]
+            p_i = p_matrix[:, i]
             
             return remake(prob, u0=u0, p=p_i)
         end
@@ -596,9 +560,9 @@ __precompile__(false)
             
             germination = integrate_ode(param_arr, times, 2)
 
-        elseif model_alias == "feedback_inhibitor_inducer_perm"
+        elseif model_alias == "feedback_combined_inducer_perm"
             
-            germination = integrate_ode(param_arr, times, 3; n_samples=64)
+            germination = integrate_ode(param_arr, times, 3)
             
         end
     end
