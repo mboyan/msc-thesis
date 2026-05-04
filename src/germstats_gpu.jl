@@ -265,7 +265,7 @@ __precompile__(false)
     System of coupled ODEs for the feedback model
     of inducer-dependent cell wall permeability.
     """
-    function ode_system_A!(du, u, p, t)
+    function ode_system_A(u, p, t)
         c_in_I, c_out_I, c_in_C, germ = u
     
         # Unpack parameters for this specific spore
@@ -279,16 +279,16 @@ __precompile__(false)
         P_C_pert = 1000.0f0 - (1000.0f0 - P_C) * exp(-lambda_C * s)
         
         # ODE equations
-        du[1] = -(P_I_pert * A_s / V_s) * (c_in_I - c_out_I)
-        du[2] = (P_I_pert * A_s / V_free) * (c_in_I - c_out_I)
-        du[3] = -(P_C_pert * A_s / V_ps) * (c_in_C - c_ex)
+        du1 = -(P_I_pert * A_s / V_s) * (c_in_I - c_out_I)
+        du2 = (P_I_pert * A_s / V_free) * (c_in_I - c_out_I)
+        du3 = -(P_C_pert * A_s / V_ps) * (c_in_C - c_ex)
 
-        # Check if thresholds are reached
-        if c_in_I < gamma && c_in_C > omega
-            du[4] = germ >= 1.0f0 ? 0.0f0 : 1.0f0
-        else
-            du[4] = 0.0f0
-        end
+        # GPU-friendly germination logic (no control flow)
+        thresholds_met = Float32((c_in_I < gamma) && (c_in_C > omega))
+        germ_not_full = Float32(germ < 1.0f0)
+        du4 = thresholds_met * germ_not_full
+
+        return SVector{4}(du1, du2, du3, du4)
     end
 
     """
@@ -329,16 +329,6 @@ __precompile__(false)
         K_s = params[:, 15]
         lambda_C = params[:, 17]
 
-        # Determine which thresholds are used
-        # if model_idx in [2, 3, 9]
-        #     mu_X = params[:, 8]
-        #     sigma_X = params[:, 9]
-        # end
-        # if model_idx in [3, 8, 9]
-        #     mu_Y = params[:, 10]
-        #     sigma_Y = params[:, 11]
-        # end
-
         # Generate Sobol sample
         sobol_samples = QuasiMonteCarlo.sample(n_samples, sobol_dim, SobolSample())
 
@@ -346,6 +336,8 @@ __precompile__(false)
         n_samples_flat = P * n_samples
         u0_matrix = zeros(Float32, 4, n_samples_flat)
         p_matrix = zeros(Float32, 11, n_samples_flat)
+        u0_vec = Vector{SVector{4, Float32}}()
+        p_vec = Vector{SVector{11, Float32}}()
         @inbounds for i in 1:P
 
             # Transform from standard Normal to LogNormal
@@ -376,30 +368,28 @@ __precompile__(false)
                 V_ps = calc_ps_vacant_vol(r[j], d_ps[j])
                 V_free = 1 / rho_s[i] - V_s
 
-                u0_matrix[1, idx] = Float32(c0[j])
-                u0_matrix[2, idx] = 0.0f0
-                u0_matrix[3, idx] = 0.0f0
-                u0_matrix[4, idx] = 0.0f0
-
-                p_matrix[1, idx] = P_I[i]
-                p_matrix[2, idx] = P_C[i]
-                p_matrix[3, idx] = c_ex[i]
-                p_matrix[4, idx] = A_s
-                p_matrix[5, idx] = V_s
-                p_matrix[6, idx] = V_free
-                p_matrix[7, idx] = V_ps
-                p_matrix[8, idx] = K_s[i]
-                p_matrix[9, idx] = lambda_C[i]
-                p_matrix[10, idx] = gamma[j]
-                p_matrix[11, idx] = omega[j]
+                push!(u0_vec, @SVector [Float32(c0[j]), 0.0f0, 0.0f0, 0.0f0])
+                push!(p_vec, @SVector [
+                    P_I[i],
+                    P_C[i],
+                    c_ex[i],
+                    A_s,
+                    V_s,
+                    V_free,
+                    V_ps,
+                    K_s[i],
+                    lambda_C[i],
+                    gamma[j],
+                    omega[j]
+                ])
             end
         end
 
         # Wrapper to create problem for each sample
         function prob_func(prob, i, repeat)
 
-            u0 = u0_matrix[:, i]
-            p_i = p_matrix[:, i]
+            u0 = u0_vec[i]#u0_matrix[:, i]
+            p_i = p_vec[i]#p_matrix[:, i]
             
             return remake(prob, u0=u0, p=p_i)
         end
@@ -412,15 +402,15 @@ __precompile__(false)
             0.0f0, 1.0f0
         ]
         
-        prob = ODEProblem{true}(ode_system_A!, u0_dummy, times[end], p_dummy)
+        prob = ODEProblem{false}(ode_system_A, u0_dummy, times[end], p_dummy)
         monteprob = EnsembleProblem(prob, prob_func=prob_func, safetycopy=false)
         
         # Solve ensemble on GPU
         sols = solve(
             monteprob, 
-            Tsit5(),
-            # DiffEqGPU.EnsembleGPUKernel(CUDA.CUDABackend()),
-            DiffEqGPU.EnsembleGPUArray(CUDA.CUDABackend()),
+            GPUTsit5(),
+            DiffEqGPU.EnsembleGPUKernel(CUDA.CUDABackend()),
+            # DiffEqGPU.EnsembleGPUArray(CUDA.CUDABackend()),
             trajectories=n_samples_flat,
             # u0=u0_matrix,   # GPU matrix, bypasses prob_func
             # p=p_matrix,    # GPU matrix, bypasses prob_func
@@ -432,12 +422,9 @@ __precompile__(false)
 
         # Extract germination info from solutions
         germinated = zeros(Bool, T, n_samples_flat)
-        @inbounds for i in 1:n_samples_flat
-            sol = sols[i]
-            for j in eachindex(sol.t)
-                # println("Sol time $(sol.t[j]), input time $(times[j])")
-                germinated[j, i] = sol.u[j][4] > 0
-            end
+        Threads.@threads for i in 1:n_samples_flat
+            germ_vals = getindex.(sols[i].u, 4)  # Extract 4th component for all timepoints
+            germinated[:, i] .= germ_vals .> 0
         end
 
         germinated = reshape(germinated, (T, n_samples, P))
