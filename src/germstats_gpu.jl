@@ -284,7 +284,7 @@ __precompile__(false)
         du3 = -(P_C_pert * A_s / V_ps) * (c_in_C - c_ex)
 
         # GPU-friendly germination logic (no control flow)
-        thresholds_met = Float32((c_in_I < gamma) && (c_in_C > omega))
+        thresholds_met = Float32((c_in_I < gamma) && (s > omega))
         germ_not_full = Float32(germ < 1.0f0)
         du4 = thresholds_met * germ_not_full
 
@@ -302,7 +302,7 @@ __precompile__(false)
         model_idx (Int) - index of model to use
         n_samples (Int) - ODE ensemble sample size
     """
-    function integrate_ode(params::Array{Float32,2}, times::Array{Float32,1}, model_idx::Int; n_samples::Int=1024)
+    function integrate_ode(params::Array{Float32,2}, times::Array{Float32,1}, model_idx::Int; n_samples::Int=256)
         P = size(params, 1)
         param_dim = size(params, 2)
         T = length(times)
@@ -334,10 +334,12 @@ __precompile__(false)
 
         # Construct flat parameter collections and initial conditions
         n_samples_flat = P * n_samples
-        u0_matrix = zeros(Float32, 4, n_samples_flat)
-        p_matrix = zeros(Float32, 11, n_samples_flat)
+        # u0_matrix = zeros(Float32, 4, n_samples_flat)
+        # p_matrix = zeros(Float32, 11, n_samples_flat)
         u0_vec = Vector{SVector{4, Float32}}()
         p_vec = Vector{SVector{11, Float32}}()
+        gamma_samples = zeros(Float32, n_samples_flat)
+        omega_samples = zeros(Float32, n_samples_flat)
         @inbounds for i in 1:P
 
             # Transform from standard Normal to LogNormal
@@ -361,7 +363,8 @@ __precompile__(false)
 
             @inbounds for j in 1:n_samples
                 
-                idx = (j - 1) * P + i
+                # idx = (j - 1) * P + i
+                idx = (i - 1) * n_samples + j
                 
                 V_s = 4pi/3 * r[j] ^ 3
                 A_s = 4pi * r[j] ^ 2
@@ -373,15 +376,18 @@ __precompile__(false)
                     P_I[i],
                     P_C[i],
                     c_ex[i],
-                    A_s,
-                    V_s,
-                    V_free,
-                    V_ps,
+                    Float32(A_s),
+                    Float32(V_s),
+                    Float32(V_free),
+                    Float32(V_ps),
                     K_s[i],
                     lambda_C[i],
-                    gamma[j],
-                    omega[j]
+                    Float32(gamma[j]),
+                    Float32(omega[j])
                 ])
+
+                gamma_samples[idx] = Float32(gamma[j])
+                omega_samples[idx] = Float32(omega[j])
             end
         end
 
@@ -410,21 +416,29 @@ __precompile__(false)
             monteprob, 
             GPUTsit5(),
             DiffEqGPU.EnsembleGPUKernel(CUDA.CUDABackend()),
-            # DiffEqGPU.EnsembleGPUArray(CUDA.CUDABackend()),
             trajectories=n_samples_flat,
-            # u0=u0_matrix,   # GPU matrix, bypasses prob_func
-            # p=p_matrix,    # GPU matrix, bypasses prob_func
             adaptive=true,
             dt=0.001f0,
             saveat = times
-            # save_on=false
         )
 
         # Extract germination info from solutions
         germinated = zeros(Bool, T, n_samples_flat)
+        # Threads.@threads for i in 1:n_samples_flat
+        #     germ_vals = getindex.(sols[i].u, 4)  # Extract 4th component for all timepoints
+        #     germinated[:, i] .= germ_vals .> 0
+        # end
         Threads.@threads for i in 1:n_samples_flat
-            germ_vals = getindex.(sols[i].u, 4)  # Extract 4th component for all timepoints
-            germinated[:, i] .= germ_vals .> 0
+            u_trajectory = sols[i].u
+            # Check threshold criterion at each timepoint, with ratchet logic
+            germ_flag = false
+            @inbounds for (ti, u) in enumerate(u_trajectory)
+                c_in_I, c_out_I, c_in_C, germ = u
+                s = c_in_C / (K_s[i] + c_in_C)
+                threshold_met = (c_in_I < gamma_samples[i]) && (s > omega_samples[i])
+                germ_flag = germ_flag || threshold_met
+                germinated[ti, i] = germ_flag
+            end
         end
 
         germinated = reshape(germinated, (T, n_samples, P))
