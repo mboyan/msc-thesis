@@ -269,14 +269,16 @@ __precompile__(false)
         c_in_I, c_out_I, c_in_C, germ = u
     
         # Unpack parameters for this specific spore
-        P_I, P_C, c_ex, A_s, V_s, V_free, V_ps, K_s, lambda_C, gamma, omega = p
+        P_I, P_C, c_ex, K_s, lambda_C, A_s, V_s, V_free, V_ps, gamma, omega = p
 
         # Compute inducing signal s from c_in_C
         s = c_in_C / (K_s + c_in_C)
         
         # Update permeability constants based on signal
-        P_I_pert = 1000.0f0 - (1000.0f0 - P_I) * exp(-lambda_C * s)
-        P_C_pert = 1000.0f0 - (1000.0f0 - P_C) * exp(-lambda_C * s)
+        # P_I_pert = 1000.0f0 - (1000.0f0 - P_I) * exp(-lambda_C * s)
+        # P_C_pert = 1000.0f0 - (1000.0f0 - P_C) * exp(-lambda_C * s)
+        P_I_pert = P_I - (1000.0f0 - P_I) * expm1(-lambda_C * s) # less numerical error than above
+        P_C_pert = P_C - (1000.0f0 - P_C) * expm1(-lambda_C * s)
         
         # ODE equations
         du1 = -(P_I_pert * A_s / V_s) * (c_in_I - c_out_I)
@@ -376,12 +378,12 @@ __precompile__(false)
                     P_I[i],
                     P_C[i],
                     c_ex[i],
+                    K_s[i],
+                    lambda_C[i],
                     Float32(A_s),
                     Float32(V_s),
                     Float32(V_free),
                     Float32(V_ps),
-                    K_s[i],
-                    lambda_C[i],
                     Float32(gamma[j]),
                     Float32(omega[j])
                 ])
@@ -403,9 +405,9 @@ __precompile__(false)
         # Initial problem (dummy, will be remade by prob_func)
         u0_dummy = @SVector [0.0f0, 1.0f0, 0.0f0, 0.0f0]
         p_dummy = @SVector [
-            0.0f0, 0.0f0, 0.0f0,
-            1.0f0, 1.0f0, 1.0f0, 0.0f0, 0.0f0, 1.0f0,
-            0.0f0, 1.0f0
+            1.0f0, 1.0f0, 1.0f0,
+            1.0f0, 1.0f0, 1.0f0, 1.0f0, 1.0f0, 1.0f0,
+            1.0f0, 1.0f0
         ]
         
         prob = ODEProblem{false}(ode_system_A, u0_dummy, times[end], p_dummy)
@@ -424,12 +426,14 @@ __precompile__(false)
 
         # Extract germination info from solutions
         germinated = zeros(Bool, T, n_samples_flat)
+        # test = zeros(Float32, T, n_samples_flat)
         # Threads.@threads for i in 1:n_samples_flat
         #     germ_vals = getindex.(sols[i].u, 4)  # Extract 4th component for all timepoints
         #     germinated[:, i] .= germ_vals .> 0
         # end
         Threads.@threads for i in 1:n_samples_flat
             u_trajectory = sols[i].u
+            # println(u_trajectory[end])
             # Check threshold criterion at each timepoint, with ratchet logic
             germ_flag = false
             @inbounds for (ti, u) in enumerate(u_trajectory)
@@ -438,10 +442,17 @@ __precompile__(false)
                 threshold_met = (c_in_I < gamma_samples[i]) && (s > omega_samples[i])
                 germ_flag = germ_flag || threshold_met
                 germinated[ti, i] = germ_flag
+                # test[ti, i] = c_in_I
             end
         end
 
         germinated = reshape(germinated, (T, n_samples, P))
+        # println(test[end, 1])
+        # println(test[end, 257])
+        # test = reshape(test, (T, n_samples, P))
+        # println(test[end, :, 1])
+        # println(test[end, :, 2])
+        # println(test[end, :, 3])
 
         germination = mean(germinated, dims=2)
         germination = dropdims(germination; dims=2)'
