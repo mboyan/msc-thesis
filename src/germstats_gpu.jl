@@ -287,6 +287,8 @@ __precompile__(false)
         # P_C_pert = P_C - (1000.0f0 - P_C) * expm1(-lambda_C * s)
         P_I_pert = 1000.0f0 * (1.0f0 - exp_factor) + P_I * exp_factor
         P_C_pert = 1000.0f0 * (1.0f0 - exp_factor) + P_C * exp_factor
+        # P_I_pert = 60000.0f0 * (1.0f0 - exp_factor) + P_I * exp_factor # Pmax scaled to minutes
+        # P_C_pert = 60000.0f0 * (1.0f0 - exp_factor) + P_C * exp_factor # Pmax scaled to minutes
         
         # ODE equations
         du1 = -(P_I_pert * A_s / V_s) * (c_in_I - c_out_I)
@@ -319,6 +321,10 @@ __precompile__(false)
 
         sobol_dim = 5
 
+        # Rescale time to minutes for faster solutions
+        # tscale = 1.0#60.0
+        # times = times ./ tscale
+
         # Unpack parameters
         rho_s = params[:, 1]
         mu_O = params[:, 2]
@@ -334,8 +340,8 @@ __precompile__(false)
         sigma_Y = params[:, 11]
 
         c_ex = params[:, 12]
-        P_I = params[:, 13]
-        P_C = params[:, 14]
+        P_I = params[:, 13] #* tscale
+        P_C = params[:, 14] #* tscale
         K_s = params[:, 15]
         lambda_C = params[:, 17]
 
@@ -409,18 +415,11 @@ __precompile__(false)
             1.0f0, 1.0f0, 1.0f0, 1.0f0, 1.0f0, 1.0f0,
             1.0f0, 1.0f0
         ]
-
-        # u0_test = @SVector [Float32(1.0), 0.0f0, 0.0f0, 0.0f0]
-        # p_test = @SVector [1.0f0, 1.0f0, 1.0f0, 1.0f0, 0.0f0, 1.0f0, 1.0f0, 1.0f0, 1.0f0, 1.0f0, 1.0f0]
-
-        # prob_test = ODEProblem{false}(ode_system_A, u0_vec[1], (0.0f0, 10.0f0), p_vec[1])
-
-        # @time sol = solve(prob_test, GPUTsit5(), adaptive=false, dt=0.001f0)
         
         prob = ODEProblem{false}(ode_system_A, u0_dummy, times[end], p_dummy)
         monteprob = EnsembleProblem(prob, prob_func=prob_func, safetycopy=false)
 
-        dt = Float32(min(maximum(diff(times)), 1.0))
+        dt = Float32(min(maximum(diff(times)), 10.0))
         
         # Solve ensemble on GPU
         sols = solve(
@@ -430,10 +429,6 @@ __precompile__(false)
             DiffEqGPU.EnsembleGPUKernel(CUDA.CUDABackend()),
             trajectories=n_samples_flat,
             adaptive=false,
-            # reltol=1f-4,
-            # abstol=1f-7,
-            # maxiters=1f8,
-            # dt=0.1f0,
             dt=dt,
             saveat = times
         )
