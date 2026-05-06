@@ -272,13 +272,21 @@ __precompile__(false)
         P_I, P_C, c_ex, K_s, lambda_C, A_s, V_s, V_free, V_ps, gamma, omega = p
 
         # Compute inducing signal s from c_in_C
-        s = c_in_C / (K_s + c_in_C)
+        s = c_in_C / (K_s + c_in_C + 1f-10)
+        s = min(max(s, 0.0f0), 1.0f0)
+
+        # Smooth regularization: avoids expm1 singularity
+        # x = lambda_C * s
+        # exp_approx = (2.0f0 - x) / (2.0f0 + x)
+        exp_factor = exp(-lambda_C * s)
         
         # Update permeability constants based on signal
-        # P_I_pert = 1000.0f0 - (1000.0f0 - P_I) * exp(-lambda_C * s)
-        # P_C_pert = 1000.0f0 - (1000.0f0 - P_C) * exp(-lambda_C * s)
-        P_I_pert = P_I - (1000.0f0 - P_I) * expm1(-lambda_C * s) # less numerical error than above
-        P_C_pert = P_C - (1000.0f0 - P_C) * expm1(-lambda_C * s)
+        # P_I_pert = P_I#1000.0f0 - (1000.0f0 - P_I) * exp(-lambda_C * s)
+        # P_C_pert = P_C#1000.0f0 - (1000.0f0 - P_C) * exp(-lambda_C * s)
+        # P_I_pert = P_I - (1000.0f0 - P_I) * expm1(-lambda_C * s) # less numerical error than above
+        # P_C_pert = P_C - (1000.0f0 - P_C) * expm1(-lambda_C * s)
+        P_I_pert = 1000.0f0 * (1.0f0 - exp_factor) + P_I * exp_factor
+        P_C_pert = 1000.0f0 * (1.0f0 - exp_factor) + P_C * exp_factor
         
         # ODE equations
         du1 = -(P_I_pert * A_s / V_s) * (c_in_I - c_out_I)
@@ -304,7 +312,7 @@ __precompile__(false)
         model_idx (Int) - index of model to use
         n_samples (Int) - ODE ensemble sample size
     """
-    function integrate_ode(params::Array{Float32,2}, times::Array{Float32,1}, model_idx::Int; n_samples::Int=256)
+    function integrate_ode(params::Array{Float32,2}, times::Array{Float32,1}, model_idx::Int; n_samples::Int=1024)
         P = size(params, 1)
         param_dim = size(params, 2)
         T = length(times)
@@ -340,8 +348,6 @@ __precompile__(false)
         # p_matrix = zeros(Float32, 11, n_samples_flat)
         u0_vec = Vector{SVector{4, Float32}}()
         p_vec = Vector{SVector{11, Float32}}()
-        gamma_samples = zeros(Float32, n_samples_flat)
-        omega_samples = zeros(Float32, n_samples_flat)
         @inbounds for i in 1:P
 
             # Transform from standard Normal to LogNormal
@@ -365,9 +371,6 @@ __precompile__(false)
 
             @inbounds for j in 1:n_samples
                 
-                # idx = (j - 1) * P + i
-                idx = (i - 1) * n_samples + j
-                
                 V_s = 4pi/3 * r[j] ^ 3
                 A_s = 4pi * r[j] ^ 2
                 V_ps = calc_ps_vacant_vol(r[j], d_ps[j])
@@ -387,9 +390,6 @@ __precompile__(false)
                     Float32(gamma[j]),
                     Float32(omega[j])
                 ])
-
-                gamma_samples[idx] = Float32(gamma[j])
-                omega_samples[idx] = Float32(omega[j])
             end
         end
 
@@ -409,50 +409,44 @@ __precompile__(false)
             1.0f0, 1.0f0, 1.0f0, 1.0f0, 1.0f0, 1.0f0,
             1.0f0, 1.0f0
         ]
+
+        # u0_test = @SVector [Float32(1.0), 0.0f0, 0.0f0, 0.0f0]
+        # p_test = @SVector [1.0f0, 1.0f0, 1.0f0, 1.0f0, 0.0f0, 1.0f0, 1.0f0, 1.0f0, 1.0f0, 1.0f0, 1.0f0]
+
+        # prob_test = ODEProblem{false}(ode_system_A, u0_vec[1], (0.0f0, 10.0f0), p_vec[1])
+
+        # @time sol = solve(prob_test, GPUTsit5(), adaptive=false, dt=0.001f0)
         
         prob = ODEProblem{false}(ode_system_A, u0_dummy, times[end], p_dummy)
         monteprob = EnsembleProblem(prob, prob_func=prob_func, safetycopy=false)
+
+        dt = Float32(min(maximum(diff(times)), 1.0))
         
         # Solve ensemble on GPU
         sols = solve(
             monteprob, 
             GPUTsit5(),
+            # GPURosenbrock23(),
             DiffEqGPU.EnsembleGPUKernel(CUDA.CUDABackend()),
             trajectories=n_samples_flat,
-            adaptive=true,
-            dt=0.001f0,
+            adaptive=false,
+            # reltol=1f-4,
+            # abstol=1f-7,
+            # maxiters=1f8,
+            # dt=0.1f0,
+            dt=dt,
             saveat = times
         )
 
         # Extract germination info from solutions
         germinated = zeros(Bool, T, n_samples_flat)
         # test = zeros(Float32, T, n_samples_flat)
-        # Threads.@threads for i in 1:n_samples_flat
-        #     germ_vals = getindex.(sols[i].u, 4)  # Extract 4th component for all timepoints
-        #     germinated[:, i] .= germ_vals .> 0
-        # end
         Threads.@threads for i in 1:n_samples_flat
-            u_trajectory = sols[i].u
-            # println(u_trajectory[end])
-            # Check threshold criterion at each timepoint, with ratchet logic
-            germ_flag = false
-            @inbounds for (ti, u) in enumerate(u_trajectory)
-                c_in_I, c_out_I, c_in_C, germ = u
-                s = c_in_C / (K_s[i] + c_in_C)
-                threshold_met = (c_in_I < gamma_samples[i]) && (s > omega_samples[i])
-                germ_flag = germ_flag || threshold_met
-                germinated[ti, i] = germ_flag
-                # test[ti, i] = c_in_I
-            end
+            germ_vals = getindex.(sols[i].u, 4)  # Extract 4th component for all timepoints
+            germinated[:, i] .= germ_vals .> 0
         end
 
         germinated = reshape(germinated, (T, n_samples, P))
-        # println(test[end, 1])
-        # println(test[end, 257])
-        # test = reshape(test, (T, n_samples, P))
-        # println(test[end, :, 1])
-        # println(test[end, :, 2])
-        # println(test[end, :, 3])
 
         germination = mean(germinated, dims=2)
         germination = dropdims(germination; dims=2)'
