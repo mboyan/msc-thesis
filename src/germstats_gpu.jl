@@ -68,26 +68,6 @@ __precompile__(false)
         return coords, weights, N
     end
 
-    # """
-    # Integrand for independent inhibition/induction
-    # """
-    # @inline function integrand_point_0(coords, base::Int32, d::Int32, params, pbase::Int32, t::Float32)
-    #     # coords: flattened coords array
-    #     # params: flattened params array (M * param_dim)
-    #     val = 1.0f0
-    #     @inbounds for k in 0:(d-1)
-    #         xi = coords[base + k + 1]
-    #         val *= (1f0 - xi^2)          # example integrand
-    #     end
-    #     # Example param dependence: params[pbase + 1] ... params[pbase+7]
-    #     # incorporate parameters into val as needed. Example multiply by sum(params):
-    #     s = 0f0
-    #     @inbounds for j in 0:6
-    #         s += params[pbase + j + 1]
-    #     end
-    #     return val * (1f0 + 0.001f0 * s) * exp(-t)  # example usage
-    # end
-
     """
     Integrand for independent inhibition/induction using Gauss-Hermite.
     Transforms standard normal nodes (u, v) to physical space (r_s, d_ps) 
@@ -166,6 +146,89 @@ __precompile__(false)
     end
 
     """
+    Integrand for inducer-dependent inhibition threshold using Gauss-Hermite.
+    Transforms standard normal nodes (u, v) to physical space (r_s, d_ps) 
+    using: r_s = μ_R + σ_R * u, d_ps = μ_H + σ_H * v
+    The normal PDFs are implicit in the Gauss-Hermite weights.
+    inputs:
+        coords (Array{Float32}) - standard normal nodes from Gauss-Hermite
+        base (Int32) - starting index for this quadrature point's coordinates
+        d (Int32) - dimension (should be 2 for your problem)
+        params (Array{Float32}) - flattened parameter array
+        pbase (Float32) - starting index for this parameter set
+        t (Float32) - time point for evaluation
+        thresh_mode (Int32) - inhibitor-triggered (0) or 2-factor-triggered (1) germination
+    """
+    @inline function integrand_point_B(coords, base::Int32, d::Int32, params,
+                                            pbase::Int32, t::Float32, thresh_mode::Int32)
+        
+        
+        # Extract standard normal nodes
+        u = coords[base + 1]          # Standard normal for r_s
+        v = coords[base + 2]          # Standard normal for d_ps
+        
+        # Extract transformation parameters
+        rho_s = params[pbase + 1]
+        mu_R = params[pbase + 4]
+        sigma_R = params[pbase + 5]
+        mu_H = params[pbase + 6]
+        sigma_H = params[pbase + 7]
+        mu_X = params[pbase + 8]
+        sigma_X = params[pbase + 9]
+        mu_Y = params[pbase + 10]
+        sigma_Y = params[pbase + 11]
+        c_ex = params[pbase + 12]
+        P_I = params[pbase + 13]
+        P_C = params[pbase + 14]
+        K_s = params[pbase + 15]
+        k_gamma = params[pbase + 18]
+
+        # Transform from standard Normal to LogNormal
+        mu_R_log = log(mu_R^2 / sqrt(sigma_R^2 + mu_R^2))
+        sigma_R_log = sqrt(log(sigma_R^2 / mu_R^2 + 1))
+        mu_H_log = log(mu_H^2 / sqrt(sigma_H^2 + mu_H^2))
+        sigma_H_log = sqrt(log(sigma_H^2 / mu_H^2 + 1))
+        
+        # Transform from LogNormal to physical space
+        r_s = exp(mu_R_log + sigma_R_log * u)
+        d_ps = exp(mu_H_log + sigma_H_log * v)
+        
+        # Clamp to physically meaningful values (optional, but recommended)
+        r_s = max(r_s, 1f-6)      # Spore radius must be positive
+        d_ps = max(d_ps, 1f-6)    # Cell wall thickness must be positive
+        
+        # Compute geometric variables
+        V_s, A_s = calc_spore_geom(r_s)
+        V_ps = calc_ps_vacant_vol(r_s, d_ps)
+        
+        # Compute secondary variables
+        phi = rho_s * V_s
+        tau_I = V_s / (P_I * A_s)
+        tau_C = V_ps / (P_C * A_s)
+        
+        # Time-dependent signals
+        beta = calc_beta(t, phi, tau_I)
+        s = calc_signal(t, c_ex, K_s, tau_C)
+
+        # Distributions
+        dist_X = Normal(mu_X, sigma_X)
+        dist_Y = Normal(mu_Y, sigma_Y)
+        
+        # CDFs
+        cdf_X = cdf(dist_X, beta - k_gamma * s)
+        if thresh_mode == 1
+            cdf_Y = cdf(dist_Y, s)
+        else
+            cdf_Y = 1f0
+        end
+        
+        # Return integrand (NO explicit f_R, f_H—they're in the Hermite weights!)
+        val = (1f0 - cdf_X) * cdf_Y
+        
+        return val
+    end
+
+    """
     Kernel: write per-(point,param) contribution to outbuf.
     inputs:
         coords_chunk (Array{Float36}) - coordinates of Gauss-Legendre nodes for the current data chunk
@@ -197,6 +260,12 @@ __precompile__(false)
             
             if model_idx == 1 # Independent induction/inhibition
                 val = integrand_point_0(coords_chunk, base, d, params_d, pbase, t)
+            elseif model_idx == 4
+                val = integrand_point_B(coords_chunk, base, d, params_d, pbase, t, Int32(0))
+            elseif model_idx == 5
+                val = integrand_point_B(coords_chunk, base, d, params_d, pbase, t, Int32(1))
+            else
+                val = 0.0f0
             end
             w   = weights_chunk[pidx + 1]
             outbuf[tid] = val * w
@@ -251,9 +320,7 @@ __precompile__(false)
             host_mat = reshape(host_buf, (T, P, len))           # T × P × len
             # sum across columns -> partial sums per parameter
             partials  = dropdims(sum(host_mat; dims=3), dims=3) # T × P
-            # accum = Array(accum_d)                              # copy current accum to host
-            accum .+= partials' #vec(partials)                             # update
-            # accum_d .= CuArray(accum)                           # copy back to device accumulators
+            accum .+= partials'                                 # update
 
             i += len
         end
@@ -263,32 +330,24 @@ __precompile__(false)
 
     """
     System of coupled ODEs for the feedback model
-    of inducer-dependent cell wall permeability.
+    of inducer-dependent cell wall permeability
+    and 2-factor germination triggering.
     """
     function ode_system_A(u, p, t)
         c_in_I, c_out_I, c_in_C, germ = u
     
         # Unpack parameters for this specific spore
-        P_I, P_C, c_ex, K_s, lambda_C, A_s, V_s, V_free, V_ps, gamma, omega = p
+        thresh_mode, P_I, P_C, c_ex, K_s, lambda_C, A_s, V_s, V_free, V_ps, gamma, omega = p
 
         # Compute inducing signal s from c_in_C
         s = c_in_C / (K_s + c_in_C + 1f-10)
         s = min(max(s, 0.0f0), 1.0f0)
 
-        # Smooth regularization: avoids expm1 singularity
-        # x = lambda_C * s
-        # exp_approx = (2.0f0 - x) / (2.0f0 + x)
         exp_factor = exp(-lambda_C * s)
         
         # Update permeability constants based on signal
-        # P_I_pert = P_I#1000.0f0 - (1000.0f0 - P_I) * exp(-lambda_C * s)
-        # P_C_pert = P_C#1000.0f0 - (1000.0f0 - P_C) * exp(-lambda_C * s)
-        # P_I_pert = P_I - (1000.0f0 - P_I) * expm1(-lambda_C * s) # less numerical error than above
-        # P_C_pert = P_C - (1000.0f0 - P_C) * expm1(-lambda_C * s)
         P_I_pert = 1000.0f0 * (1.0f0 - exp_factor) + P_I * exp_factor
         P_C_pert = 1000.0f0 * (1.0f0 - exp_factor) + P_C * exp_factor
-        # P_I_pert = 60000.0f0 * (1.0f0 - exp_factor) + P_I * exp_factor # Pmax scaled to minutes
-        # P_C_pert = 60000.0f0 * (1.0f0 - exp_factor) + P_C * exp_factor # Pmax scaled to minutes
         
         # ODE equations
         du1 = -(P_I_pert * A_s / V_s) * (c_in_I - c_out_I)
@@ -296,7 +355,13 @@ __precompile__(false)
         du3 = -(P_C_pert * A_s / V_ps) * (c_in_C - c_ex)
 
         # GPU-friendly germination logic (no control flow)
-        thresholds_met = Float32((c_in_I < gamma) && (s > omega))
+        if thresh_mode == 0.0f0
+            # Inducer-dependent germination triggering
+            thresholds_met = Float32(c_in_I < gamma)
+        else
+            # 2-factor germination triggering
+            thresholds_met = Float32((c_in_I < gamma) && (s > omega))
+        end
         germ_not_full = Float32(germ < 1.0f0)
         du4 = thresholds_met * germ_not_full
 
@@ -345,15 +410,20 @@ __precompile__(false)
         K_s = params[:, 15]
         lambda_C = params[:, 17]
 
+        # Determine threshold mode
+        if model_idx == 2
+            thresh_mode = 0.0f0
+        else
+            thresh_mode = 1.0f0
+        end
+
         # Generate Sobol sample
         sobol_samples = QuasiMonteCarlo.sample(n_samples, sobol_dim, SobolSample())
 
         # Construct flat parameter collections and initial conditions
         n_samples_flat = P * n_samples
-        # u0_matrix = zeros(Float32, 4, n_samples_flat)
-        # p_matrix = zeros(Float32, 11, n_samples_flat)
         u0_vec = Vector{SVector{4, Float32}}()
-        p_vec = Vector{SVector{11, Float32}}()
+        p_vec = Vector{SVector{12, Float32}}()
         @inbounds for i in 1:P
 
             # Transform from standard Normal to LogNormal
@@ -384,6 +454,7 @@ __precompile__(false)
 
                 push!(u0_vec, @SVector [Float32(c0[j]), 0.0f0, 0.0f0, 0.0f0])
                 push!(p_vec, @SVector [
+                    thresh_mode,
                     P_I[i],
                     P_C[i],
                     c_ex[i],
@@ -402,8 +473,8 @@ __precompile__(false)
         # Wrapper to create problem for each sample
         function prob_func(prob, i, repeat)
 
-            u0 = u0_vec[i]#u0_matrix[:, i]
-            p_i = p_vec[i]#p_matrix[:, i]
+            u0 = u0_vec[i]
+            p_i = p_vec[i]
             
             return remake(prob, u0=u0, p=p_i)
         end
@@ -411,7 +482,7 @@ __precompile__(false)
         # Initial problem (dummy, will be remade by prob_func)
         u0_dummy = @SVector [0.0f0, 1.0f0, 0.0f0, 0.0f0]
         p_dummy = @SVector [
-            1.0f0, 1.0f0, 1.0f0,
+            0.0f0, 1.0f0, 1.0f0, 1.0f0,
             1.0f0, 1.0f0, 1.0f0, 1.0f0, 1.0f0, 1.0f0,
             1.0f0, 1.0f0
         ]
@@ -534,7 +605,7 @@ __precompile__(false)
         param_keys = keys(param_dict)
 
         # Unpack parameter dictionary into an Array P x param_dim
-        param_arr = Array{Float32}(undef, sample_size, 17)
+        param_arr = Array{Float32}(undef, sample_size, 18)
         param_arr[:, 1] .= Float32.(rho_s)
         :mu_O in param_keys ? param_arr[:, 2] .= Float32.(param_dict[:mu_O]) : nothing
         :sigma_O in param_keys ? param_arr[:, 3] .= Float32.(param_dict[:sigma_O]) : nothing
@@ -552,19 +623,18 @@ __precompile__(false)
         :K_s in param_keys ? param_arr[:, 15] .= Float32.(param_dict[:K_s]) : nothing
         :lambda_I in param_keys ? param_arr[:, 16] .= Float32.(param_dict[:lambda_I]) : nothing
         :lambda_C in param_keys ? param_arr[:, 17] .= Float32.(param_dict[:lambda_C]) : nothing
+        :k_gamma in param_keys ? param_arr[:, 18] .= Float32.(param_dict[:k_gamma]) : nothing
 
         if model_alias == "independent"
-
             germination = integrate_batched(8, 2, param_arr, times, 1)
-
         elseif model_alias == "feedback_inhibitor_inducer_perm"
-            
             germination = integrate_ode(param_arr, times, 2)
-
         elseif model_alias == "feedback_combined_inducer_perm"
-            
             germination = integrate_ode(param_arr, times, 3)
-            
+        elseif model_alias == "inducer_thresh"
+            germination = integrate_batched(8, 2, param_arr, times, 4)
+        elseif model_alias == "combined_inducer_thresh"
+            germination = integrate_batched(8, 2, param_arr, times, 5)
         end
     end
 
