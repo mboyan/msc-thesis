@@ -15,29 +15,6 @@ __precompile__(false)
 
     export compute_germination
 
-    # """
-    # Build tensor-product coords & weights
-    # for Gauss-Legendre quadrature
-    # """
-    # function build_tensor_grid(n::Int, d::Int)
-    #     xs, ws = gausslegendre(n)
-    #     N = n^d
-    #     coords = Array{Float32}(undef, N * d)
-    #     weights = Array{Float32}(undef, N)
-    #     for idx in 0:(N-1)
-    #         base = idx * d
-    #         tmp = idx
-    #         w = 1f0
-    #         for k in 1:d
-    #             ik = (tmp % n) + 1
-    #             tmp ÷= n
-    #             coords[base + k] = Float32(xs[ik])
-    #             w *= Float32(ws[ik])
-    #         end
-    #         weights[idx+1] = w
-    #     end
-    #     return coords, weights, N
-    # end
 
     """
     Build tensor-product coords & weights
@@ -104,28 +81,8 @@ __precompile__(false)
         P_C = params[pbase + 14]
         K_s = params[pbase + 15]
 
-        # Transform from standard Normal to LogNormal
-        mu_R_log = log(mu_R^2 / sqrt(sigma_R^2 + mu_R^2))
-        sigma_R_log = sqrt(log(sigma_R^2 / mu_R^2 + 1))
-        mu_H_log = log(mu_H^2 / sqrt(sigma_H^2 + mu_H^2))
-        sigma_H_log = sqrt(log(sigma_H^2 / mu_H^2 + 1))
-        
-        # Transform from LogNormal to physical space
-        r_s = exp(mu_R_log + sigma_R_log * u)
-        d_ps = exp(mu_H_log + sigma_H_log * v)
-        
-        # Clamp to physically meaningful values (optional, but recommended)
-        r_s = max(r_s, 1f-6)      # Spore radius must be positive
-        d_ps = max(d_ps, 1f-6)    # Cell wall thickness must be positive
-        
-        # Compute geometric variables
-        V_s, A_s = calc_spore_geom(r_s)
-        V_ps = calc_ps_vacant_vol(r_s, d_ps)
-        
-        # Compute secondary variables
-        phi = rho_s * V_s
-        tau_I = V_s / (P_I * A_s)
-        tau_C = V_ps / (P_C * A_s)
+        V_s, A_s, V_ps = calc_geom_variables(u, v, mu_R, sigma_R, mu_H, sigma_H)
+        phi, tau_I, tau_C = calc_secondary_variables(rho_s, V_s, V_ps, A_s, P_I, P_C)
         
         # Time-dependent signals
         beta = calc_beta(t, phi, tau_I)
@@ -183,28 +140,8 @@ __precompile__(false)
         K_s = params[pbase + 15]
         k_gamma = params[pbase + 18]
 
-        # Transform from standard Normal to LogNormal
-        mu_R_log = log(mu_R^2 / sqrt(sigma_R^2 + mu_R^2))
-        sigma_R_log = sqrt(log(sigma_R^2 / mu_R^2 + 1))
-        mu_H_log = log(mu_H^2 / sqrt(sigma_H^2 + mu_H^2))
-        sigma_H_log = sqrt(log(sigma_H^2 / mu_H^2 + 1))
-        
-        # Transform from LogNormal to physical space
-        r_s = exp(mu_R_log + sigma_R_log * u)
-        d_ps = exp(mu_H_log + sigma_H_log * v)
-        
-        # Clamp to physically meaningful values (optional, but recommended)
-        r_s = max(r_s, 1f-6)      # Spore radius must be positive
-        d_ps = max(d_ps, 1f-6)    # Cell wall thickness must be positive
-        
-        # Compute geometric variables
-        V_s, A_s = calc_spore_geom(r_s)
-        V_ps = calc_ps_vacant_vol(r_s, d_ps)
-        
-        # Compute secondary variables
-        phi = rho_s * V_s
-        tau_I = V_s / (P_I * A_s)
-        tau_C = V_ps / (P_C * A_s)
+        V_s, A_s, V_ps = calc_geom_variables(u, v, mu_R, sigma_R, mu_H, sigma_H)
+        phi, tau_I, tau_C = calc_secondary_variables(rho_s, V_s, V_ps, A_s, P_I, P_C)
         
         # Time-dependent signals
         beta = calc_beta(t, phi, tau_I)
@@ -221,6 +158,75 @@ __precompile__(false)
         else
             cdf_Y = 1f0
         end
+        
+        # Return integrand (NO explicit f_R, f_H—they're in the Hermite weights!)
+        val = (1f0 - cdf_X) * cdf_Y
+        
+        return val
+    end
+
+    """
+    Integrand for inhibitor-dependent induction signal using Gauss-Hermite.
+    Transforms standard normal nodes (u, v) to physical space (r_s, d_ps) 
+    using: r_s = μ_R + σ_R * u, d_ps = μ_H + σ_H * v
+    The normal PDFs are implicit in the Gauss-Hermite weights.
+    inputs:
+        coords (Array{Float32}) - standard normal nodes from Gauss-Hermite
+        base (Int32) - starting index for this quadrature point's coordinates
+        d (Int32) - dimension (should be 2 for your problem)
+        params (Array{Float32}) - flattened parameter array
+        pbase (Float32) - starting index for this parameter set
+        t (Float32) - time point for evaluation
+        thresh_mode (Int32) - inhibitor-triggered (0) or 2-factor-triggered (1) germination
+    """
+    @inline function integrand_point_C(coords, base::Int32, d::Int32, params,
+                                            pbase::Int32, t::Float32, thresh_mode::Int32)
+        
+        # Extract standard normal nodes
+        u = coords[base + 1]          # Standard normal for r_s
+        v = coords[base + 2]          # Standard normal for d_ps
+        w = coords[base + 3]          # Standard normal for c_0
+        
+        # Extract transformation parameters
+        rho_s = params[pbase + 1]
+        mu_R = params[pbase + 4]
+        sigma_R = params[pbase + 5]
+        mu_H = params[pbase + 6]
+        sigma_H = params[pbase + 7]
+        mu_X = params[pbase + 8]
+        sigma_X = params[pbase + 9]
+        mu_Y = params[pbase + 10]
+        sigma_Y = params[pbase + 11]
+        c_ex = params[pbase + 12]
+        P_I = params[pbase + 13]
+        P_C = params[pbase + 14]
+        K_s = params[pbase + 15]
+        K_I = params[pbase + 20]
+        n = params[pbase + 21]
+
+        mu_O_log = log(mu_R^2 / sqrt(sigma_R^2 + mu_R^2))
+        sigma_O_log = sqrt(log(sigma_R^2 / mu_R^2 + 1))
+        c_0 = exp(mu_O_log + sigma_O_log * w)
+
+        V_s, A_s, V_ps = calc_geom_variables(u, v, mu_R, sigma_R, mu_H, sigma_H)
+        phi, tau_I, tau_C = calc_secondary_variables(rho_s, V_s, V_ps, A_s, P_I, P_C)
+        
+        # Time-dependent signals
+        beta = calc_beta(t, phi, tau_I)
+        s = calc_signal(t, c_ex, K_s, tau_C)
+        s_mod = s / (1 + (beta * c_0 / K_I)^n)
+
+        # Distributions
+        dist_X = Normal(mu_X, sigma_X)
+        dist_Y = Normal(mu_Y, sigma_Y)
+        
+        # CDFs
+        if thresh_mode == 1
+            cdf_X = cdf(dist_X, beta)
+        else
+            cdf_X = 0f0
+        end
+        cdf_Y = cdf(dist_Y, s_mod)
         
         # Return integrand (NO explicit f_R, f_H—they're in the Hermite weights!)
         val = (1f0 - cdf_X) * cdf_Y
@@ -264,6 +270,10 @@ __precompile__(false)
                 val = integrand_point_B(coords_chunk, base, d, params_d, pbase, t, Int32(0))
             elseif model_idx == 5
                 val = integrand_point_B(coords_chunk, base, d, params_d, pbase, t, Int32(1))
+            elseif model_idx == 6
+                val = integrand_point_C(coords_chunk, base, d, params_d, pbase, t, Int32(0))
+            elseif model_idx == 7
+                val = integrand_point_C(coords_chunk, base, d, params_d, pbase, t, Int32(1))
             else
                 val = 0.0f0
             end
@@ -369,6 +379,46 @@ __precompile__(false)
     end
 
     """
+    System of coupled ODEs for the feedback model
+    of inhibitor-dependent cell wall permeability
+    and 2-factor germination triggering.
+    """
+    function ode_system_D(u, p, t)
+        c_in_I, c_out_I, c_in_C, germ = u
+    
+        # Unpack parameters for this specific spore
+        thresh_mode, P_I, P_C, c_ex, K_s, lambda_I, A_s, V_s, V_free, V_ps, gamma, omega = p
+
+        # Compute inducing signal s from c_in_C
+        s = c_in_C / (K_s + c_in_C + 1f-10)
+        s = min(max(s, 0.0f0), 1.0f0)
+
+        exp_factor = exp(-lambda_I * c_in_I)
+        
+        # Update permeability constants based on signal
+        P_I_pert = P_I * exp_factor
+        P_C_pert = P_C * exp_factor
+        
+        # ODE equations
+        du1 = -(P_I_pert * A_s / V_s) * (c_in_I - c_out_I)
+        du2 = (P_I_pert * A_s / V_free) * (c_in_I - c_out_I)
+        du3 = -(P_C_pert * A_s / V_ps) * (c_in_C - c_ex)
+
+        # GPU-friendly germination logic (no control flow)
+        if thresh_mode == 0.0f0
+            # Inducer-dependent germination triggering
+            thresholds_met = Float32(s > omega)
+        else
+            # 2-factor germination triggering
+            thresholds_met = Float32((c_in_I < gamma) && (s > omega))
+        end
+        germ_not_full = Float32(germ < 1.0f0)
+        du4 = thresholds_met * germ_not_full
+
+        return SVector{4}(du1, du2, du3, du4)
+    end
+
+    """
     Host orchestration: compute germination
     probability of a feedback model by running
     parallelised Monte Carlo integration for an
@@ -379,16 +429,12 @@ __precompile__(false)
         model_idx (Int) - index of model to use
         n_samples (Int) - ODE ensemble sample size
     """
-    function integrate_ode(params::Array{Float32,2}, times::Array{Float32,1}, model_idx::Int; n_samples::Int=1024)
+    function integrate_ode(params::Array{Float32,2}, times::Array{Float32,1}, model_idx::Int, ode_system; n_samples::Int=1024)
         P = size(params, 1)
         param_dim = size(params, 2)
         T = length(times)
 
         sobol_dim = 5
-
-        # Rescale time to minutes for faster solutions
-        # tscale = 1.0#60.0
-        # times = times ./ tscale
 
         # Unpack parameters
         rho_s = params[:, 1]
@@ -405,16 +451,24 @@ __precompile__(false)
         sigma_Y = params[:, 11]
 
         c_ex = params[:, 12]
-        P_I = params[:, 13] #* tscale
-        P_C = params[:, 14] #* tscale
+        P_I = params[:, 13]
+        P_C = params[:, 14]
         K_s = params[:, 15]
+        lambda_I = params[:, 16]
         lambda_C = params[:, 17]
 
         # Determine threshold mode
-        if model_idx == 2
+        if model_idx in [2, 8]
             thresh_mode = 0.0f0
         else
             thresh_mode = 1.0f0
+        end
+
+        # Determine lambda factor
+        if model_idx in [2, 3]
+            lambda_factor = lambda_C
+        else
+            lambda_factor = lambda_I
         end
 
         # Generate Sobol sample
@@ -459,7 +513,7 @@ __precompile__(false)
                     P_C[i],
                     c_ex[i],
                     K_s[i],
-                    lambda_C[i],
+                    lambda_factor[i],
                     Float32(A_s),
                     Float32(V_s),
                     Float32(V_free),
@@ -487,7 +541,7 @@ __precompile__(false)
             1.0f0, 1.0f0
         ]
         
-        prob = ODEProblem{false}(ode_system_A, u0_dummy, times[end], p_dummy)
+        prob = ODEProblem{false}(ode_system, u0_dummy, times[end], p_dummy)
         monteprob = EnsembleProblem(prob, prob_func=prob_func, safetycopy=false)
 
         dt = Float32(min(maximum(diff(times)), 10.0))
@@ -586,6 +640,42 @@ __precompile__(false)
         return porosity * π * ((r - d_hp)^3 - (r - d_hp - d_ps)^3)
     end
 
+    """
+    Transform the R and H means and sd's
+    from standard Normal to LogNormal
+    and sample using Gauss-Hermite nodes,
+    then compute spore and vacant cell wall volume
+    and spore surface area.
+    """
+    @inline function calc_geom_variables(u, v, mu_R, sigma_R, mu_H, sigma_H)
+
+        mu_R_log = log(mu_R^2 / sqrt(sigma_R^2 + mu_R^2))
+        sigma_R_log = sqrt(log(sigma_R^2 / mu_R^2 + 1))
+        mu_H_log = log(mu_H^2 / sqrt(sigma_H^2 + mu_H^2))
+        sigma_H_log = sqrt(log(sigma_H^2 / mu_H^2 + 1))
+
+        # Transform from LogNormal to physical space
+        r_s = exp(mu_R_log + sigma_R_log * u)
+        d_ps = exp(mu_H_log + sigma_H_log * v)
+
+        # Compute geometric variables
+        V_s, A_s = calc_spore_geom(r_s)
+        V_ps = calc_ps_vacant_vol(r_s, d_ps)
+
+        return V_s, A_s, V_ps
+    end
+
+    """
+    Compute secondary variables relevant
+    for germination.
+    """
+    @inline function calc_secondary_variables(rho_s, V_s, V_ps, A_s, P_I, P_C)
+        phi = rho_s * V_s
+        tau_I = V_s / (P_I * A_s)
+        tau_C = V_ps / (P_C * A_s)
+        return phi, tau_I, tau_C
+    end
+
     # =====================================================================================
     # ====================== GERMINATION FRACTION CALCULATION =============================
     # =====================================================================================
@@ -605,7 +695,7 @@ __precompile__(false)
         param_keys = keys(param_dict)
 
         # Unpack parameter dictionary into an Array P x param_dim
-        param_arr = Array{Float32}(undef, sample_size, 18)
+        param_arr = Array{Float32}(undef, sample_size, 21)
         param_arr[:, 1] .= Float32.(rho_s)
         :mu_O in param_keys ? param_arr[:, 2] .= Float32.(param_dict[:mu_O]) : nothing
         :sigma_O in param_keys ? param_arr[:, 3] .= Float32.(param_dict[:sigma_O]) : nothing
@@ -624,17 +714,28 @@ __precompile__(false)
         :lambda_I in param_keys ? param_arr[:, 16] .= Float32.(param_dict[:lambda_I]) : nothing
         :lambda_C in param_keys ? param_arr[:, 17] .= Float32.(param_dict[:lambda_C]) : nothing
         :k_gamma in param_keys ? param_arr[:, 18] .= Float32.(param_dict[:k_gamma]) : nothing
+        :k_omega in param_keys ? param_arr[:, 19] .= Float32.(param_dict[:k_omega]) : nothing
+        :K_I in param_keys ? param_arr[:, 20] .= Float32.(param_dict[:K_I]) : nothing
+        :n in param_keys ? param_arr[:, 21] .= Float32.(param_dict[:n]) : nothing
 
         if model_alias == "independent"
             germination = integrate_batched(8, 2, param_arr, times, 1)
         elseif model_alias == "feedback_inhibitor_inducer_perm"
-            germination = integrate_ode(param_arr, times, 2)
+            germination = integrate_ode(param_arr, times, 2, ode_system_A)
         elseif model_alias == "feedback_combined_inducer_perm"
-            germination = integrate_ode(param_arr, times, 3)
-        elseif model_alias == "inducer_thresh"
+            germination = integrate_ode(param_arr, times, 3, ode_system_A)
+        elseif model_alias == "inhibitor_thresh"
             germination = integrate_batched(8, 2, param_arr, times, 4)
-        elseif model_alias == "combined_inducer_thresh"
+        elseif model_alias == "combined_inhibitor_thresh"
             germination = integrate_batched(8, 2, param_arr, times, 5)
+        elseif model_alias == "inducer_signal"
+            germination = integrate_batched(8, 3, param_arr, times, 6)
+        elseif model_alias == "combined_inducer_signal"
+            germination = integrate_batched(8, 3, param_arr, times, 7)
+        elseif model_alias == "feedback_inducer_inhibitor_perm"
+            germination = integrate_ode(param_arr, times, 8, ode_system_D)
+        elseif model_alias == "feedback_combined_inhibitor_perm"
+            germination = integrate_ode(param_arr, times, 9, ode_system_D)
         end
     end
 
