@@ -187,6 +187,7 @@ __precompile__(false)
         
         # Extract transformation parameters
         rho_s, mu_R, sigma_R, mu_H, sigma_H, mu_X, sigma_X, mu_Y, sigma_Y, c_ex, P_I, P_C, K_s = unpack_standard_parameters(params, pbase)
+        k_gamma = params[pbase + 18]
         K_I = params[pbase + 20]
         n = params[pbase + 21]
 
@@ -204,12 +205,18 @@ __precompile__(false)
         dist_Y = Normal(mu_Y, sigma_Y)
         
         # CDFs
-        if thresh_mode == 1
+        if thresh_mode == 1                         # Normal inhibition threshold
             cdf_X = cdf(dist_X, beta)
-        else
+        elseif thresh_mode == 2 || thresh_mode == 3 # Shifted inhibition threshold
+            cdf_X = cdf(dist_X, beta - k_gamma * s_mod)
+        else                                        # No inhibition threshold
             cdf_X = 0f0
         end
-        cdf_Y = cdf(dist_Y, s_mod)
+        if thresh_mode == 3                         # Normal induction threshold
+            cdf_Y = cdf(dist_Y, s_mod)
+        else                                        # No induction threshold
+            cdf_Y = 1f0
+        end
         
         # Return integrand (NO explicit f_R, f_H—they're in the Hermite weights!)
         val = (1f0 - cdf_X) * cdf_Y
@@ -260,10 +267,10 @@ __precompile__(false)
         dist_Y = Normal(mu_Y, sigma_Y)
         
         # CDFs
-        if thresh_mode == 1
+        if thresh_mode == 1                         # Normal inhibition threshold
             cdf_X = cdf(dist_X, beta)
         else
-            cdf_X = 0f0
+            cdf_X = 0f0                             # No inhibition threshold
         end
         cdf_Y = cdf(dist_Y, s - k_omega * b)
         
@@ -317,6 +324,10 @@ __precompile__(false)
                 val = integrand_point_E(coords_chunk, base, d, params_d, pbase, t, Int32(0))
             elseif model_idx == 11
                 val = integrand_point_E(coords_chunk, base, d, params_d, pbase, t, Int32(1))
+            elseif model_idx == 22
+                val = integrand_point_C(coords_chunk, base, d, params_d, pbase, t, Int32(2))
+            elseif model_idx == 23
+                val = integrand_point_C(coords_chunk, base, d, params_d, pbase, t, Int32(3))
             else
                 val = 0.0f0
             end
@@ -414,12 +425,12 @@ __precompile__(false)
             # 2-factor germination triggering
             thresholds_met = Float32((c_in_I < gamma) && (s > omega))
         elseif thresh_mode == 3.0f0
-            # Shifted inducer-dependent germination triggering
+            # Shifted inhibitor-dependent germination triggering
             thresholds_met = Float32(c_in_I < gamma + k_gamma * s)
         elseif thresh_mode == 4.0f0
             b = c_in_I / (K_b + c_in_I + 1f-10)
             b = min(max(b, 0.0f0), 1.0f0)
-            # Shifted inhibitor-dependent germination triggering
+            # Shifted inducer-dependent germination triggering
             thresholds_met = Float32(s > omega + k_omega * b)
         elseif thresh_mode == 5.0f0
             # 2-factor germination triggering with shifted gamma
@@ -427,7 +438,7 @@ __precompile__(false)
         else
             b = c_in_I / (K_b + c_in_I + 1f-10)
             b = min(max(b, 0.0f0), 1.0f0)
-            # Shifted inhibitor-dependent germination triggering
+            # 2-factor germination triggering with shifted omega
             thresholds_met = Float32((c_in_I < gamma) && (s > omega + k_omega * b))
         end
         germ_not_full = Float32(germ < 1.0f0)
@@ -465,9 +476,15 @@ __precompile__(false)
         if thresh_mode == 1.0f0
             # Inducer-dependent germination triggering
             thresholds_met = Float32(s > omega)
-        else
+        elseif thresh_mode == 2.0f0
             # 2-factor germination triggering
             thresholds_met = Float32((c_in_I < gamma) && (s > omega))
+        elseif thresh_mode == 3.0f0
+            # Shifted inhibitor-dependent germination triggering
+            thresholds_met = Float32(c_in_I < gamma + k_gamma * s)
+        else
+            # 2-factor germination triggering with shifted gamma
+            thresholds_met = Float32((c_in_I < gamma + k_gamma * s) && (s > omega))
         end
         germ_not_full = Float32(germ < 1.0f0)
         du4 = thresholds_met * germ_not_full
@@ -613,11 +630,11 @@ __precompile__(false)
             thresh_mode = 1.0f0 # Inducer threshold
         elseif model_idx in [3, 9, 16, 19]
             thresh_mode = 2.0f0 # Both thresholds
-        elseif model_idx in [12] # Shifted inhibitor threshold
+        elseif model_idx in [12, 24] # Shifted inhibitor threshold
             thresh_mode = 3.0f0
         elseif model_idx in [20] # Shifted inducer threshold
             thresh_mode = 4.0f0
-        elseif model_idx in [13] # Both thresholds + shifted inhibitor threshold
+        elseif model_idx in [13, 25] # Both thresholds + shifted inhibitor threshold
             thresh_mode = 5.0f0
         elseif model_idx in [21] # Both thresholds + shifted inducer threshold
             thresh_mode = 6.0f0
@@ -943,6 +960,14 @@ __precompile__(false)
             germination = integrate_ode(param_arr, times, 20, ode_system_A)
         elseif model_alias == "feedback_combined_inhibitor_thresh_inducer_perm" # AE
             germination = integrate_ode(param_arr, times, 21, ode_system_A)
+        elseif model_alias == "inhibitor_thresh_inducer_signal" # BCi
+            germination = integrate_batched(8, 3, param_arr, times, 22)
+        elseif model_alias == "combined_inhibitor_thresh_inducer_signal" # BC
+            germination = integrate_batched(8, 3, param_arr, times, 23)
+        elseif model_alias == "feedback_inhibitor_inducer_thresh_inhibitor_perm" # BDc
+            germination = integrate_ode(param_arr, times, 24, ode_system_D)
+        elseif model_alias == "feedback_combined_inducer_thresh_inhibitor_perm" # BD
+            germination = integrate_ode(param_arr, times, 25, ode_system_D)
         end
     end
 
