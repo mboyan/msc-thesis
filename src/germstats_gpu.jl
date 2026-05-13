@@ -212,10 +212,10 @@ __precompile__(false)
         else                                        # No inhibition threshold
             cdf_X = 0f0
         end
-        if thresh_mode == 3                         # Normal induction threshold
-            cdf_Y = cdf(dist_Y, s_mod)
-        else                                        # No induction threshold
+        if thresh_mode ==2 || thresh_mode == 3      # No induction threshold
             cdf_Y = 1f0
+        else                                        # Normal induction threshold
+            cdf_Y = cdf(dist_Y, s_mod)
         end
         
         # Return integrand (NO explicit f_R, f_H—they're in the Hermite weights!)
@@ -241,7 +241,6 @@ __precompile__(false)
     @inline function integrand_point_E(coords, base::Int32, d::Int32, params,
                                             pbase::Int32, t::Float32, thresh_mode::Int32)
         
-        
         # Extract standard normal nodes
         u = coords[base + 1]          # Standard normal for r_s
         v = coords[base + 2]          # Standard normal for d_ps
@@ -249,6 +248,7 @@ __precompile__(false)
         
         # Extract transformation parameters
         rho_s, mu_R, sigma_R, mu_H, sigma_H, mu_X, sigma_X, mu_Y, sigma_Y, c_ex, P_I, P_C, K_s = unpack_standard_parameters(params, pbase)
+        k_gamma = params[pbase + 18]
         k_omega = params[pbase + 19]
         K_b = params[pbase + 22]
 
@@ -269,6 +269,8 @@ __precompile__(false)
         # CDFs
         if thresh_mode == 1                         # Normal inhibition threshold
             cdf_X = cdf(dist_X, beta)
+        elseif thresh_mode == 2                     # Shifted inhibition threshold
+            cdf_X = cdf(dist_X, beta - k_gamma * s)
         else
             cdf_X = 0f0                             # No inhibition threshold
         end
@@ -328,6 +330,8 @@ __precompile__(false)
                 val = integrand_point_C(coords_chunk, base, d, params_d, pbase, t, Int32(2))
             elseif model_idx == 23
                 val = integrand_point_C(coords_chunk, base, d, params_d, pbase, t, Int32(3))
+            elseif model_idx == 26
+                val = integrand_point_E(coords_chunk, base, d, params_d, pbase, t, Int32(2))
             else
                 val = 0.0f0
             end
@@ -400,7 +404,7 @@ __precompile__(false)
         c_in_I, c_out_I, c_in_C, germ = u
     
         # Unpack parameters for this specific spore
-        thresh_mode, P_I, P_C, c_ex, K_s, K_b, K_I, n, lambda_I, lambda_C, k_gamma, k_omega, A_s, V_s, V_free, V_ps, gamma, omega = p
+        thresh_mode, P_I, P_C, c_ex, K_s, K_b, K_I, n, lambda_I, lambda_C, k_gamma, k_omega, A_s, V_s, V_free, V_ps, gamma, omega, c0 = p
 
         # Compute inducing signal s from c_in_C
         s = c_in_C / (K_s + c_in_C + 1f-10)
@@ -420,13 +424,13 @@ __precompile__(false)
         # GPU-friendly germination logic (no control flow)
         if thresh_mode == 0.0f0
             # Inducer-dependent germination triggering
-            thresholds_met = Float32(c_in_I < gamma)
+            thresholds_met = Float32(c_in_I < gamma * c0)
         elseif thresh_mode == 2.0f0
             # 2-factor germination triggering
-            thresholds_met = Float32((c_in_I < gamma) && (s > omega))
+            thresholds_met = Float32((c_in_I < gamma * c0) && (s > omega))
         elseif thresh_mode == 3.0f0
             # Shifted inhibitor-dependent germination triggering
-            thresholds_met = Float32(c_in_I < gamma + k_gamma * s)
+            thresholds_met = Float32(c_in_I < (gamma + k_gamma * s) * c0)
         elseif thresh_mode == 4.0f0
             b = c_in_I / (K_b + c_in_I + 1f-10)
             b = min(max(b, 0.0f0), 1.0f0)
@@ -434,12 +438,12 @@ __precompile__(false)
             thresholds_met = Float32(s > omega + k_omega * b)
         elseif thresh_mode == 5.0f0
             # 2-factor germination triggering with shifted gamma
-            thresholds_met = Float32((c_in_I < gamma + k_gamma * s) && (s > omega))
+            thresholds_met = Float32((c_in_I < (gamma + k_gamma * s) * c0) && (s > omega))
         else
             b = c_in_I / (K_b + c_in_I + 1f-10)
             b = min(max(b, 0.0f0), 1.0f0)
             # 2-factor germination triggering with shifted omega
-            thresholds_met = Float32((c_in_I < gamma) && (s > omega + k_omega * b))
+            thresholds_met = Float32((c_in_I < gamma * c0) && (s > omega + k_omega * b))
         end
         germ_not_full = Float32(germ < 1.0f0)
         du4 = thresholds_met * germ_not_full
@@ -455,7 +459,7 @@ __precompile__(false)
         c_in_I, c_out_I, c_in_C, germ = u
     
         # Unpack parameters for this specific spore
-        thresh_mode, P_I, P_C, c_ex, K_s, K_b, K_I, n, lambda_I, lambda_C, k_gamma, k_omega, A_s, V_s, V_free, V_ps, gamma, omega = p
+        thresh_mode, P_I, P_C, c_ex, K_s, K_b, K_I, n, lambda_I, lambda_C, k_gamma, k_omega, A_s, V_s, V_free, V_ps, gamma, omega, c0 = p
 
         # Compute inducing signal s from c_in_C
         s = c_in_C / (K_s + c_in_C + 1f-10)
@@ -478,13 +482,13 @@ __precompile__(false)
             thresholds_met = Float32(s > omega)
         elseif thresh_mode == 2.0f0
             # 2-factor germination triggering
-            thresholds_met = Float32((c_in_I < gamma) && (s > omega))
+            thresholds_met = Float32((c_in_I < gamma * c0) && (s > omega))
         elseif thresh_mode == 3.0f0
             # Shifted inhibitor-dependent germination triggering
-            thresholds_met = Float32(c_in_I < gamma + k_gamma * s)
+            thresholds_met = Float32(c_in_I < (gamma + k_gamma * s) * c0)
         else
             # 2-factor germination triggering with shifted gamma
-            thresholds_met = Float32((c_in_I < gamma + k_gamma * s) && (s > omega))
+            thresholds_met = Float32((c_in_I < (gamma + k_gamma * s) * c0) && (s > omega))
         end
         germ_not_full = Float32(germ < 1.0f0)
         du4 = thresholds_met * germ_not_full
@@ -501,7 +505,7 @@ __precompile__(false)
         c_in_I, c_out_I, c_in_C, germ = u
     
         # Unpack parameters for this specific spore
-        thresh_mode, P_I, P_C, c_ex, K_s, K_b, K_I, n, lambda_I, lambda_C, k_gamma, k_omega, A_s, V_s, V_free, V_ps, gamma, omega = p
+        thresh_mode, P_I, P_C, c_ex, K_s, K_b, K_I, n, lambda_I, lambda_C, k_gamma, k_omega, A_s, V_s, V_free, V_ps, gamma, omega, c0 = p
 
         # Compute inducing signal s from c_in_C
         s = c_in_C / (K_s + c_in_C + 1f-10)
@@ -521,14 +525,14 @@ __precompile__(false)
 
         # GPU-friendly germination logic (no control flow)
         if thresh_mode == 0.0f0
-            # Inducer-dependent germination triggering
+            # Inhibitor-dependent germination triggering
             thresholds_met = Float32(c_in_I < gamma)
         elseif thresh_mode == 1.0f0
             # 2-factor germination triggering
             thresholds_met = Float32(s > omega)
         else
             # 2-factor germination triggering with shifted gamma
-            thresholds_met = Float32((c_in_I < gamma) && (s > omega))
+            thresholds_met = Float32((c_in_I < gamma * c0) && (s > omega))
         end
         germ_not_full = Float32(germ < 1.0f0)
         du4 = thresholds_met * germ_not_full
@@ -544,7 +548,7 @@ __precompile__(false)
         c_in_I, c_out_I, c_in_C, germ = u
     
         # Unpack parameters for this specific spore
-        thresh_mode, P_I, P_C, c_ex, K_s, K_b, K_I, n, lambda_I, lambda_C, k_gamma, k_omega, A_s, V_s, V_free, V_ps, gamma, omega = p
+        thresh_mode, P_I, P_C, c_ex, K_s, K_b, K_I, n, lambda_I, lambda_C, k_gamma, k_omega, A_s, V_s, V_free, V_ps, gamma, omega, c0 = p
 
         # Compute inducing signal s from c_in_C
         s = c_in_C / (K_s + c_in_C + 1f-10)
@@ -565,13 +569,60 @@ __precompile__(false)
         # GPU-friendly germination logic (no control flow)
         if thresh_mode == 0.0f0
             # Inducer-dependent germination triggering
-            thresholds_met = Float32(c_in_I < gamma)
+            thresholds_met = Float32(c_in_I < gamma * c0)
         elseif thresh_mode == 1.0f0
             # 2-factor germination triggering
             thresholds_met = Float32(s > omega)
         else
             # 2-factor germination triggering with shifted gamma
-            thresholds_met = Float32((c_in_I < gamma) && (s > omega))
+            thresholds_met = Float32((c_in_I < gamma * c0) && (s > omega))
+        end
+        germ_not_full = Float32(germ < 1.0f0)
+        du4 = thresholds_met * germ_not_full
+
+        return SVector{4}(du1, du2, du3, du4)
+    end
+
+    """
+    System of coupled ODEs for the feedback model
+    of inhibitor-dependent cell wall permeability
+    and inhibitor-suppressed inducing signal.
+    """
+    function ode_system_CD(u, p, t)
+        c_in_I, c_out_I, c_in_C, germ = u
+    
+        # Unpack parameters for this specific spore
+        thresh_mode, P_I, P_C, c_ex, K_s, K_b, K_I, n, lambda_I, lambda_C, k_gamma, k_omega, A_s, V_s, V_free, V_ps, gamma, omega, c0 = p
+
+        # Compute inducing signal s from c_in_C
+        s = c_in_C / (K_s + c_in_C + 1f-10)
+        s = min(max(s, 0.0f0), 1.0f0)
+        s = s / (1 + (c_in_I / K_I)^n)
+
+        exp_factor = exp(-lambda_I * c_in_I)
+        
+        # Update permeability constants based on signal
+        P_I_pert = P_I * exp_factor
+        P_C_pert = P_C * exp_factor
+        
+        # ODE equations
+        du1 = -(P_I_pert * A_s / V_s) * (c_in_I - c_out_I)
+        du2 = (P_I_pert * A_s / V_free) * (c_in_I - c_out_I)
+        du3 = -(P_C_pert * A_s / V_ps) * (c_in_C - c_ex)
+
+        # GPU-friendly germination logic (no control flow)
+        if thresh_mode == 1.0f0
+            # Inducer-dependent germination triggering
+            thresholds_met = Float32(s > omega)
+        elseif thresh_mode == 2.0f0
+            # 2-factor germination triggering
+            thresholds_met = Float32((c_in_I < gamma * c0) && (s > omega))
+        elseif thresh_mode == 3.0f0
+            # Shifted inhibitor-dependent germination triggering
+            thresholds_met = Float32(c_in_I < (gamma + k_gamma * s) * c0)
+        else
+            # 2-factor germination triggering with shifted gamma
+            thresholds_met = Float32((c_in_I < (gamma + k_gamma * s) * c0) && (s > omega))
         end
         germ_not_full = Float32(germ < 1.0f0)
         du4 = thresholds_met * germ_not_full
@@ -626,9 +677,9 @@ __precompile__(false)
         # Determine threshold mode
         if model_idx in [2, 14, 17]
             thresh_mode = 0.0f0 # Inhibitor threshold
-        elseif model_idx in [8, 15, 18]
+        elseif model_idx in [8, 15, 18, 27]
             thresh_mode = 1.0f0 # Inducer threshold
-        elseif model_idx in [3, 9, 16, 19]
+        elseif model_idx in [3, 9, 16, 19, 28]
             thresh_mode = 2.0f0 # Both thresholds
         elseif model_idx in [12, 24] # Shifted inhibitor threshold
             thresh_mode = 3.0f0
@@ -648,7 +699,7 @@ __precompile__(false)
         # Construct flat parameter collections and initial conditions
         n_samples_flat = P * n_samples
         u0_vec = Vector{SVector{4, Float32}}()
-        p_vec = Vector{SVector{18, Float32}}()
+        p_vec = Vector{SVector{19, Float32}}()
         @inbounds for i in 1:P
 
             # Transform from standard Normal to LogNormal
@@ -663,7 +714,7 @@ __precompile__(false)
             r = quantile.(LogNormal(mu_R_log, sigma_R_log), sobol_samples[1, :])
             d_ps = quantile.(LogNormal(mu_H_log, sigma_H_log), sobol_samples[2, :])
 
-            # Generate initial concentration samples
+            # Generate initial inhibitor concentration samples
             c0 = quantile.(LogNormal(mu_O_log, sigma_O_log), sobol_samples[3, :])
 
             # Generate threshold samples
@@ -696,7 +747,8 @@ __precompile__(false)
                     Float32(V_free),
                     Float32(V_ps),
                     Float32(gamma[j]),
-                    Float32(omega[j])
+                    Float32(omega[j]),
+                    Float32(c0[j])
                 ])
             end
         end
@@ -715,13 +767,17 @@ __precompile__(false)
         p_dummy = @SVector [
             0.0f0, 1.0f0, 1.0f0, 1.0f0,
             1.0f0, 1.0f0, 1.0f0, 1.0f0, 1.0f0, 1.0f0,
-            1.0f0, 1.0f0
+            1.0f0, 1.0f0, 1.0f0, 1.0f0, 1.0f0, 1.0f0,
+            1.0f0, 1.0f0, 1.0f0
         ]
         
         prob = ODEProblem{false}(ode_system, u0_dummy, times[end], p_dummy)
         monteprob = EnsembleProblem(prob, prob_func=prob_func, safetycopy=false)
 
         dt = Float32(min(maximum(diff(times)), 10.0))
+
+        @show extrema(getindex.(p_vec, 15))  # V_free: should be > 0
+        @show dt
         
         # Solve ensemble on GPU
         sols = solve(
@@ -739,6 +795,7 @@ __precompile__(false)
         germinated = zeros(Bool, T, n_samples_flat)
         # test = zeros(Float32, T, n_samples_flat)
         Threads.@threads for i in 1:n_samples_flat
+            println(getindex.(sols[i].u, 2)[1:10])
             germ_vals = getindex.(sols[i].u, 4)  # Extract 4th component for all timepoints
             germinated[:, i] .= germ_vals .> 0
         end
@@ -968,6 +1025,12 @@ __precompile__(false)
             germination = integrate_ode(param_arr, times, 24, ode_system_D)
         elseif model_alias == "feedback_combined_inducer_thresh_inhibitor_perm" # BD
             germination = integrate_ode(param_arr, times, 25, ode_system_D)
+        elseif model_alias == "combined_inhibitor_thresh_inducer_thresh" # BE
+            germination = integrate_batched(8, 3, param_arr, times, 26)
+        elseif model_alias == "feedback_inducer_inhibitor_perm_signal" # CDc
+            germination = integrate_ode(param_arr, times, 27, ode_system_CD)
+        elseif model_alias == "feedback_combined_inhibitor_perm_signal" # CD
+            germination = integrate_ode(param_arr, times, 28, ode_system_CD)
         end
     end
 

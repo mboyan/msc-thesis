@@ -2701,7 +2701,7 @@ __precompile__(false)
         K_fs - half-saturation constants (M)
     """
     function thresh_criterion_inhibitor(cins, thresholds, ks=nothing, K_fs=nothing, n=nothing)
-        return cins[1, :] .< thresholds[1, :]
+        return cins[1, :] .< thresholds[1, :] .* cins[1, 1]
     end
 
     """
@@ -2727,7 +2727,7 @@ __precompile__(false)
         K_fs - inducer half-saturation constant as 1-element vector (M)
     """
     function thresh_criterion_combined(cins, thresholds, ks, K_fs, n=nothing)
-        return (cins[1, :] .< thresholds[1, :]) .* (cins[2, :] ./ (cins[2, :] .+ K_fs[2]) .> thresholds[2, :])
+        return (cins[1, :] .< thresholds[1, :] .* cins[1, 1]) .* (cins[2, :] ./ (cins[2, :] .+ K_fs[2]) .> thresholds[2, :])
     end
 
     """
@@ -2741,7 +2741,7 @@ __precompile__(false)
     """
     function thresh_criterion_inhibitor_shift(cins, thresholds, ks, K_fs, n=nothing)
         thresh_bias_signal = ks[1] .* cins[2, :]  ./ (cins[2, :] .+ K_fs[2])
-        return cins[1, :] .< thresholds[1, :] .+ thresh_bias_signal
+        return cins[1, :] .< (thresholds[1, :] .+ thresh_bias_signal) .* cins[1, 1]
     end
 
     """
@@ -2756,7 +2756,7 @@ __precompile__(false)
     function thresh_criterion_combined_inhibitor_shift(cins, thresholds, ks, K_fs, n=nothing)
         inducer_signal = cins[2, :]  ./ (cins[2, :] .+ K_fs[2])
         thresh_bias_signal = ks[1] .* inducer_signal
-        return (cins[1, :] .< thresholds[1, :] .+ thresh_bias_signal) .* (inducer_signal .> thresholds[2, :])
+        return (cins[1, :] .< (thresholds[1, :] .+ thresh_bias_signal) .* cins[1, 1]) .* (inducer_signal .> thresholds[2, :])
     end
 
     """
@@ -2784,7 +2784,7 @@ __precompile__(false)
     """
     function thresh_criterion_combined_inducer_shift(cins, thresholds, ks, K_fs, n=nothing)
         thresh_bias_signal = ks[1] .* cins[1, :]  ./ (cins[1, :] .+ K_fs[1])
-        return (cins[1, :] .< thresholds[1, :]) .* (cins[2, :] ./ (cins[2, :] .+ K_fs[2]) .> thresholds[2, :] .+ thresh_bias_signal)
+        return (cins[1, :] .< thresholds[1, :] .* cins[1, 1]) .* (cins[2, :] ./ (cins[2, :] .+ K_fs[2]) .> thresholds[2, :] .+ thresh_bias_signal)
     end
 
     """
@@ -2814,7 +2814,7 @@ __precompile__(false)
     """
     function thresh_criterion_combined_inducer_signal(cins, thresholds, ks, K_fs, n)
         signal_inhibition = 1 ./ (1 .+ (cins[1, :] ./ K_fs[3]) .^ n)  # K_fs[3] is K_I
-        return (cins[1, :] .< thresholds[1, :] ) .* (signal_inhibition .* cins[2, :] ./ (cins[2, :] .+ K_fs[2]) .> thresholds[1, :])
+        return (cins[1, :] .< thresholds[1, :]  .* cins[1, 1]) .* (signal_inhibition .* cins[2, :] ./ (cins[2, :] .+ K_fs[2]) .> thresholds[1, :])
     end
 
     """
@@ -2829,7 +2829,7 @@ __precompile__(false)
     function thresh_criterion_combined_shift(cins, thresholds, ks, K_fs, n=nothing)
         thresh_bias_signal_I = ks[1] .* cins[1, :]  ./ (cins[1, :] .+ K_fs[1])
         thresh_bias_signal_C = ks[2] .* cins[2, :]  ./ (cins[2, :] .+ K_fs[2])
-        return (cins[1, :] .< thresholds[1, :] .+ thresh_bias_signal_C) .* (cins[2, :] ./ (cins[2, :] .+ K_fs[2]) .> thresholds[2, :] .+ thresh_bias_signal_I)
+        return (cins[1, :] .< (thresholds[1, :] .+ thresh_bias_signal_C) .* cins[1, 1]) .* (cins[2, :] ./ (cins[2, :] .+ K_fs[2]) .> thresholds[2, :] .+ thresh_bias_signal_I)
     end
 
     """
@@ -2846,7 +2846,7 @@ __precompile__(false)
     function thresh_criterion_inhibitor_signal_shift(cins, thresholds, ks, K_fs, n)
         cins .= max.(cins, 0.0)
         thresh_bias_signal = ks[1] .* cins[2, :] ./ (cins[2, :] .+ K_fs[2]) ./ (1 .+ (cins[1, :] ./ K_fs[3]) .^ n)  # K_fs[3] is K_I
-        return cins[1, :] .< thresholds[1, :] .+ thresh_bias_signal
+        return cins[1, :] .< (thresholds[1, :] .+ thresh_bias_signal) .* cins[1, 1]
     end
 
     """
@@ -2863,7 +2863,7 @@ __precompile__(false)
     function thresh_criterion_combined_inhibitor_signal_shift(cins, thresholds, ks, K_fs, n)
         cins .= max.(cins, 0.0)
         signal = cins[2, :] ./ (cins[2, :] .+ K_fs[2]) ./ (1 .+ (cins[1, :] ./ K_fs[3]) .^ n)  # K_fs[3] is K_I
-        return (cins[1, :] .< thresholds[1, :] .+ ks[1] .* signal) .* (signal .> thresholds[2, :])
+        return (cins[1, :] .< (thresholds[1, :] .+ ks[1] .* signal) .* cins[1, 1]) .* (signal .> thresholds[2, :])
     end
 
     """
@@ -2899,7 +2899,7 @@ __precompile__(false)
         cins .= max.(cins, 0.0)
         signal_inhibition = 1 ./ (1 .+ (cins[1, :] ./ K_fs[3]) .^ n)  # K_fs[3] is K_I
         thresh_bias_signal = ks[1] .* cins[1, :]  ./ (cins[1, :] .+ K_fs[1])
-        return (cins[1, :] .< thresholds[1, :]) .* (signal_inhibition .* cins[2, :] ./ (cins[2, :] .+ K_fs[2]) .> thresholds[2, :] .+ thresh_bias_signal)
+        return (cins[1, :] .< thresholds[1, :] .* cins[1, 1]) .* (signal_inhibition .* cins[2, :] ./ (cins[2, :] .+ K_fs[2]) .> thresholds[2, :] .+ thresh_bias_signal)
     end
 
     """
@@ -2918,7 +2918,7 @@ __precompile__(false)
         signal_inhibition = 1 ./ (1 .+ (cins[1, :] ./ K_fs[3]) .^ n)  # K_fs[3] is K_I
         thresh_bias_signal_I = ks[1] .* cins[1, :]  ./ (cins[1, :] .+ K_fs[1])
         thresh_bias_signal_C = ks[2] .* cins[2, :]  ./ (cins[2, :] .+ K_fs[2])
-        return (cins[1, :] .< thresholds[1, :] .+ thresh_bias_signal_C) .* (signal_inhibition .* cins[2, :] ./ (cins[2, :] .+ K_fs[2]) .> thresholds[2, :] .+ thresh_bias_signal_I)
+        return (cins[1, :] .< (thresholds[1, :] .+ thresh_bias_signal_C) .* cins[1, 1]) .* (signal_inhibition .* cins[2, :] ./ (cins[2, :] .+ K_fs[2]) .> thresholds[2, :] .+ thresh_bias_signal_I)
     end
 
     """
