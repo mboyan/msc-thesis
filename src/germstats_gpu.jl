@@ -775,9 +775,6 @@ __precompile__(false)
         monteprob = EnsembleProblem(prob, prob_func=prob_func, safetycopy=false)
 
         dt = Float32(min(maximum(diff(times)), 10.0))
-
-        @show extrema(getindex.(p_vec, 15))  # V_free: should be > 0
-        @show dt
         
         # Solve ensemble on GPU
         sols = solve(
