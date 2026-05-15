@@ -411,15 +411,29 @@ __precompile__(false)
         s = min(max(s, 0.0f0), 1.0f0)
 
         exp_factor = exp(-lambda_C * s)
+
+        # exponent = -(1 + lambda_C * s) * 0.001f0
+
+        # Limit permeability to Pmax = 1000 μm/s
+        # PmaxA = 1000.0f0 * A_s
+        # rateI = PmaxA * (1.0f0 - exp(exponent * P_I))
+        # rateC = PmaxA * (1.0f0 - exp(exponent * P_C))
         
         # Update permeability constants based on signal
         P_I_pert = 1000.0f0 * (1.0f0 - exp_factor) + P_I * exp_factor
         P_C_pert = 1000.0f0 * (1.0f0 - exp_factor) + P_C * exp_factor
+
+        # Concentration differences
+        diffI = c_in_I - c_out_I
+        diffC = c_in_C - c_ex
         
         # ODE equations
-        du1 = -(P_I_pert * A_s / V_s) * (c_in_I - c_out_I)
-        du2 = (P_I_pert * A_s / V_free) * (c_in_I - c_out_I)
-        du3 = -(P_C_pert * A_s / V_ps) * (c_in_C - c_ex)
+        du1 = -(P_I_pert * A_s / V_s) * diffI
+        du2 = (P_I_pert * A_s / V_free) * diffI
+        du3 = -(P_C_pert * A_s / V_ps) * diffC
+        # du1 = -(rateI / V_s) * diffI
+        # du2 = (rateI / V_free) * diffI
+        # du3 = -(rateC / V_ps) * diffC
 
         # GPU-friendly germination logic (no control flow)
         if thresh_mode == 0.0f0
@@ -447,6 +461,21 @@ __precompile__(false)
         end
         germ_not_full = Float32(germ < 1.0f0)
         du4 = thresholds_met * germ_not_full
+
+        
+        # println("")
+        # if du1 > 0 || du2 < 0
+        #     println("Instability detected.")
+        # end
+        # @show exponent
+        # @show rateI
+        # @show rateC
+        # @show c_in_I
+        # @show c_out_I
+        # @show c_in_C
+        # @show s
+        # @show [du1, du2, du3, du4]
+        # @show [A_s, V_s, V_free, V_ps]
 
         return SVector{4}(du1, du2, du3, du4)
     end
@@ -641,7 +670,7 @@ __precompile__(false)
         model_idx (Int) - index of model to use
         n_samples (Int) - ODE ensemble sample size
     """
-    function integrate_ode(params::Array{Float32,2}, times::Array{Float32,1}, model_idx::Int, ode_system; n_samples::Int=1024)
+    function integrate_ode(params::Array{Float32,2}, times::Array{Float32,1}, model_idx::Int, ode_system; n_samples::Int=64)
         P = size(params, 1)
         param_dim = size(params, 2)
         T = length(times)
@@ -775,24 +804,48 @@ __precompile__(false)
         monteprob = EnsembleProblem(prob, prob_func=prob_func, safetycopy=false)
 
         dt = Float32(min(maximum(diff(times)), 10.0))
-        
-        # Solve ensemble on GPU
+
+        # Solve ensemble on CPU
+        # sols = solve(
+        #     monteprob, 
+        #     Tsit5(),
+        #     trajectories=n_samples_flat,
+        #     adaptive=true,
+        #     dt=Float32(1.0),  # ← Start small, solver will grow dt
+        #     saveat=times,
+        #     callback=PositiveDomain(),
+        #     abstol=1e-8,
+        #     reltol=1e-6
+        # )
         sols = solve(
             monteprob, 
-            GPUTsit5(),
-            # GPURosenbrock23(),
-            DiffEqGPU.EnsembleGPUKernel(CUDA.CUDABackend()),
+            Tsit5(),
+            # Rosenbrock23(),
+            # DiffEqGPU.EnsembleGPUKernel(CUDA.CUDABackend()),
             trajectories=n_samples_flat,
             adaptive=false,
             dt=dt,
-            saveat = times
+            saveat=times
         )
+        
+        # Solve ensemble on GPU
+        # sols = solve(
+        #     monteprob, 
+        #     GPUTsit5(),
+        #     # GPURosenbrock23(),
+        #     DiffEqGPU.EnsembleGPUKernel(CUDA.CUDABackend()),
+        #     trajectories=n_samples_flat,
+        #     adaptive=false,
+        #     dt=dt,
+        #     saveat = times
+        # )
 
         # Extract germination info from solutions
         germinated = zeros(Bool, T, n_samples_flat)
         # test = zeros(Float32, T, n_samples_flat)
-        Threads.@threads for i in 1:n_samples_flat
-            println(getindex.(sols[i].u, 2)[1:10])
+        #Threads.@threads 
+        for i in 1:n_samples_flat
+            println(getindex.(sols[i].u, 1)[1:10])
             germ_vals = getindex.(sols[i].u, 4)  # Extract 4th component for all timepoints
             germinated[:, i] .= germ_vals .> 0
         end
@@ -974,9 +1027,9 @@ __precompile__(false)
 
         if model_alias == "independent" # 0
             germination = integrate_batched(8, 2, param_arr, times, 1)
-        elseif model_alias == "feedback_inhibitor_inducer_perm" # Ai
+        elseif model_alias == "feedback_inhibitor_inducer_perm" # Ai !!!!!!!!!!!!
             germination = integrate_ode(param_arr, times, 2, ode_system_A)
-        elseif model_alias == "feedback_combined_inducer_perm" # A
+        elseif model_alias == "feedback_combined_inducer_perm" # A !!!!!!!!!!!!
             germination = integrate_ode(param_arr, times, 3, ode_system_A)
         elseif model_alias == "inhibitor_thresh" # Bi
             germination = integrate_batched(8, 2, param_arr, times, 4)
@@ -994,25 +1047,25 @@ __precompile__(false)
             germination = integrate_batched(8, 3, param_arr, times, 10)
         elseif model_alias == "combined_inducer_thresh" # E
             germination = integrate_batched(8, 3, param_arr, times, 11)
-        elseif model_alias == "feedback_inhibitor_inducer_perm_thresh" # ABi
-            germination = integrate_ode(param_arr, times, 12, ode_system_A)
-        elseif model_alias == "feedback_combined_inducer_perm_thresh" # AB
+        elseif model_alias == "feedback_inhibitor_inducer_perm_thresh" # ABi !!!!!!!!!!!!
+            germination = integrate_ode(param_arr, times, 12, ode_system_A) 
+        elseif model_alias == "feedback_combined_inducer_perm_thresh" # AB !!!!!!!!!!!!
             germination = integrate_ode(param_arr, times, 13, ode_system_A)
         elseif model_alias == "feedback_inhibitor_inducer_perm_inhibitor_signal" # ACi
             germination = integrate_ode(param_arr, times, 14, ode_system_AC)
-        elseif model_alias == "feedback_inducer_inducer_perm_inhibitor_signal" # ACc
+        elseif model_alias == "feedback_inducer_inducer_perm_inhibitor_signal" # ACc !!!!!
             germination = integrate_ode(param_arr, times, 15, ode_system_AC)
-        elseif model_alias == "feedback_combined_inducer_perm_inhibitor_signal" # AC
+        elseif model_alias == "feedback_combined_inducer_perm_inhibitor_signal" # AC !!!!!
             germination = integrate_ode(param_arr, times, 16, ode_system_AC)
-        elseif model_alias == "feedback_inhibitor_inhibitor_inducer_perm" # ADi
+        elseif model_alias == "feedback_inhibitor_inhibitor_inducer_perm" # ADi !!!!!!!!!!!!
             germination = integrate_ode(param_arr, times, 17, ode_system_AD)
-        elseif model_alias == "feedback_inducer_inhibitor_inducer_perm" # ADc
+        elseif model_alias == "feedback_inducer_inhibitor_inducer_perm" # ADc !!!!!!!!!!!!
             germination = integrate_ode(param_arr, times, 18, ode_system_AD)
-        elseif model_alias == "feedback_combined_inhibitor_inducer_perm" # AD
+        elseif model_alias == "feedback_combined_inhibitor_inducer_perm" # AD !!!!!!!!!!!!
             germination = integrate_ode(param_arr, times, 19, ode_system_AD)
-        elseif model_alias == "feedback_inducer_inhibitor_thresh_inducer_perm" # AEc
+        elseif model_alias == "feedback_inducer_inhibitor_thresh_inducer_perm" # AEc !!!!!!!!!!!!
             germination = integrate_ode(param_arr, times, 20, ode_system_A)
-        elseif model_alias == "feedback_combined_inhibitor_thresh_inducer_perm" # AE
+        elseif model_alias == "feedback_combined_inhibitor_thresh_inducer_perm" # AE !!!!!!!!!!!!
             germination = integrate_ode(param_arr, times, 21, ode_system_A)
         elseif model_alias == "inhibitor_thresh_inducer_signal" # BCi
             germination = integrate_batched(8, 3, param_arr, times, 22)
@@ -1026,7 +1079,7 @@ __precompile__(false)
             germination = integrate_batched(8, 3, param_arr, times, 26)
         elseif model_alias == "feedback_inducer_inhibitor_perm_signal" # CDc
             germination = integrate_ode(param_arr, times, 27, ode_system_CD)
-        elseif model_alias == "feedback_combined_inhibitor_perm_signal" # CD
+        elseif model_alias == "feedback_combined_inhibitor_perm_signal" # CD ???????
             germination = integrate_ode(param_arr, times, 28, ode_system_CD)
         end
     end
