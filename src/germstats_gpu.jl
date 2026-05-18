@@ -397,6 +397,13 @@ __precompile__(false)
     end
 
     """
+    Smooth threshold function.
+    """
+    @inline function threshold_smooth(x, thresh)
+        return 1.0f0 / (1.0f0 + exp(-10.0f0 * (x - thresh)))
+    end
+
+    """
     System of coupled ODEs for the feedback model
     of inducer-dependent cell wall permeability.
     """
@@ -410,74 +417,243 @@ __precompile__(false)
         s = c_in_C / (K_s + c_in_C + 1f-10)
         s = min(max(s, 0.0f0), 1.0f0)
 
-        exp_factor = exp(-lambda_C * s)
+        # exp_factor = exp(-lambda_C * s)
 
-        # exponent = -(1 + lambda_C * s) * 0.001f0
+        exponent = -(1 + lambda_C * s) * 0.001f0
 
         # Limit permeability to Pmax = 1000 μm/s
-        # PmaxA = 1000.0f0 * A_s
+        PmaxA = 1000.0f0 * A_s
         # rateI = PmaxA * (1.0f0 - exp(exponent * P_I))
         # rateC = PmaxA * (1.0f0 - exp(exponent * P_C))
+        rateI = PmaxA * (-expm1(exponent * P_I))
+        rateC = PmaxA * (-expm1(exponent * P_C))
+        # expr1 = 1000.0f0 * (6.9077553f0 + log(A_s))
+        # expr2 = (1 + lambda_C * s)
+        # rateI = max(PmaxA - exp(0.001f0 * expr1 - P_I * expr2), 0.0f0)
+        # rateC = max(PmaxA - exp(0.001f0 * expr1 - P_C * expr2), 0.0f0)
         
         # Update permeability constants based on signal
-        P_I_pert = 1000.0f0 * (1.0f0 - exp_factor) + P_I * exp_factor
-        P_C_pert = 1000.0f0 * (1.0f0 - exp_factor) + P_C * exp_factor
+        # P_I_pert = 1000.0f0 * (1.0f0 - exp_factor) + P_I * exp_factor
+        # P_C_pert = 1000.0f0 * (1.0f0 - exp_factor) + P_C * exp_factor
 
         # Concentration differences
         diffI = c_in_I - c_out_I
         diffC = c_in_C - c_ex
         
         # ODE equations
-        du1 = -(P_I_pert * A_s / V_s) * diffI
-        du2 = (P_I_pert * A_s / V_free) * diffI
-        du3 = -(P_C_pert * A_s / V_ps) * diffC
-        # du1 = -(rateI / V_s) * diffI
-        # du2 = (rateI / V_free) * diffI
-        # du3 = -(rateC / V_ps) * diffC
+        # du1 = -(P_I_pert * A_s / V_s) * diffI
+        # du2 = (P_I_pert * A_s / V_free) * diffI
+        # du3 = -(P_C_pert * A_s / V_ps) * diffC
+        du1 = -(rateI / V_s) * diffI
+        du2 = (rateI / V_free) * diffI
+        du3 = -(rateC / V_ps) * diffC
 
         # GPU-friendly germination logic (no control flow)
         if thresh_mode == 0.0f0
             # Inducer-dependent germination triggering
-            thresholds_met = Float32(c_in_I < gamma * c0)
+            # thresholds_met = Float32(c_in_I < gamma * c0)
+            thresholds_met = threshold_smooth(gamma * c0, c_in_I)
         elseif thresh_mode == 2.0f0
             # 2-factor germination triggering
-            thresholds_met = Float32((c_in_I < gamma * c0) && (s > omega))
+            # thresholds_met = Float32((c_in_I < gamma * c0) && (s > omega))
+            thresholds_met = threshold_smooth(gamma * c0, c_in_I) * threshold_smooth(s, omega)
         elseif thresh_mode == 3.0f0
             # Shifted inhibitor-dependent germination triggering
-            thresholds_met = Float32(c_in_I < (gamma + k_gamma * s) * c0)
+            # thresholds_met = Float32(c_in_I < (gamma + k_gamma * s) * c0)
+            thresholds_met = threshold_smooth((gamma + k_gamma * s) * c0, c_in_I)
         elseif thresh_mode == 4.0f0
             b = c_in_I / (K_b + c_in_I + 1f-10)
             b = min(max(b, 0.0f0), 1.0f0)
             # Shifted inducer-dependent germination triggering
-            thresholds_met = Float32(s > omega + k_omega * b)
+            # thresholds_met = Float32(s > omega + k_omega * b)
+            thresholds_met = threshold_smooth(s, omega + k_omega * b)
         elseif thresh_mode == 5.0f0
             # 2-factor germination triggering with shifted gamma
-            thresholds_met = Float32((c_in_I < (gamma + k_gamma * s) * c0) && (s > omega))
+            # thresholds_met = Float32((c_in_I < (gamma + k_gamma * s) * c0) && (s > omega))
+            thresholds_met = threshold_smooth((gamma + k_gamma * s) * c0, c_in_I) * threshold_smooth(s, omega)
         else
             b = c_in_I / (K_b + c_in_I + 1f-10)
             b = min(max(b, 0.0f0), 1.0f0)
             # 2-factor germination triggering with shifted omega
-            thresholds_met = Float32((c_in_I < gamma * c0) && (s > omega + k_omega * b))
+            # thresholds_met = Float32((c_in_I < gamma * c0) && (s > omega + k_omega * b))
+            thresholds_met = threshold_smooth(gamma * c0, c_in_I) * threshold_smooth(s, omega + k_omega * b)
         end
-        germ_not_full = Float32(germ < 1.0f0)
+        # germ_not_full = Float32(germ < 1.0f0)
+        germ_not_full = threshold_smooth(1.0f0, germ)
         du4 = thresholds_met * germ_not_full
 
         
-        # println("")
-        # if du1 > 0 || du2 < 0
-        #     println("Instability detected.")
-        # end
+        println("")
+        if du1 > 0 || du2 < 0
+            println("Instability detected.")
+        end
         # @show exponent
-        # @show rateI
-        # @show rateC
-        # @show c_in_I
-        # @show c_out_I
-        # @show c_in_C
-        # @show s
-        # @show [du1, du2, du3, du4]
-        # @show [A_s, V_s, V_free, V_ps]
+        @show rateI
+        @show rateC
+        @show c_in_I
+        @show c_out_I
+        @show c_in_C
+        @show s
+        @show [du1, du2, du3, du4]
+        @show [A_s, V_s, V_free, V_ps]
 
         return SVector{4}(du1, du2, du3, du4)
+    end
+
+    """
+    !!!!!!!!!!!!!!WIP!!!!!!!!!!!!!!!!
+    """
+    function ode_system_A_jacobian!(J, u, p, t)
+        c_in_I, c_out_I, c_in_C, germ = u
+        thresh_mode, P_I, P_C, c_ex, K_s, K_b, K_I, n, lambda_I, lambda_C, k_gamma, k_omega, A_s, V_s, V_free, V_ps, gamma, omega, c0 = p
+
+        # Compute s and exponent (same as in ODE function)
+        s = c_in_C / (K_s + c_in_C + 1f-10)
+        s = min(max(s, 0.0f0), 1.0f0)
+        exponent = -(1 + lambda_C * s) * 0.001f0
+        
+        # Pre-compute rates
+        PmaxA = 1000.0f0 * A_s
+        rateI = PmaxA * (-expm1(exponent * P_I))
+        rateC = PmaxA * (-expm1(exponent * P_C))
+        
+        # Concentration differences
+        diffI = c_in_I - c_out_I
+        diffC = c_in_C - c_ex
+        
+        # Derivatives of s and exponent w.r.t. c_in_C
+        ds_dc_inC = (K_s + 1f-10) / (K_s + c_in_C + 1f-10)^2
+        dexponent_dc_inC = -lambda_C * 0.001f0 * ds_dc_inC
+        
+        # Derivatives of rates w.r.t. c_in_C
+        drateI_dc_inC = PmaxA * (-P_I * exp(exponent * P_I)) * dexponent_dc_inC
+        drateC_dc_inC = PmaxA * (-P_C * exp(exponent * P_C)) * dexponent_dc_inC
+        
+        # Initialize Jacobian to zero
+        J .= 0.0f0
+        
+        # Row 1: ∂du1/∂u_j
+        J[1, 1] = -(rateI / V_s)
+        J[1, 2] = (rateI / V_s)
+        J[1, 3] = -(drateI_dc_inC / V_s) * diffI
+        J[1, 4] = 0.0f0
+        
+        # Row 2: ∂du2/∂u_j
+        J[2, 1] = (rateI / V_free)
+        J[2, 2] = -(rateI / V_free)
+        J[2, 3] = (drateI_dc_inC / V_free) * diffI
+        J[2, 4] = 0.0f0
+        
+        # Row 3: ∂du3/∂u_j
+        J[3, 1] = 0.0f0
+        J[3, 2] = 0.0f0
+        J[3, 3] = -(rateC / V_ps) - (drateC_dc_inC / V_ps) * diffC
+        J[3, 4] = 0.0f0
+        
+        # Helper functions for sigmoid derivatives
+        sigmoid_below(x, thresh) = 1.0f0 / (1.0f0 + exp(10.0f0 * (x - thresh)))
+        sigmoid_above(x, thresh) = 1.0f0 / (1.0f0 + exp(-10.0f0 * (x - thresh)))
+        
+        sigmoid_deriv_below(x, thresh) = begin
+            f = sigmoid_below(x, thresh)
+            return -10.0f0 * f * (1.0f0 - f)
+        end
+        
+        sigmoid_deriv_above(x, thresh) = begin
+            f = sigmoid_above(x, thresh)
+            return 10.0f0 * f * (1.0f0 - f)
+        end
+        
+        # Row 4: ∂du4/∂u_j (germination logic with smooth thresholds)
+        germ_not_full = Float32(germ < 1.0f0)
+        
+        if thresh_mode == 0.0f0
+            # Inducer-dependent germination triggering: c_in_I < gamma * c0
+            J[4, 1] = sigmoid_deriv_below(c_in_I, gamma * c0) * germ_not_full
+            J[4, 2] = 0.0f0
+            J[4, 3] = 0.0f0
+            J[4, 4] = 0.0f0
+            
+        elseif thresh_mode == 2.0f0
+            # 2-factor germination: (c_in_I < gamma * c0) && (s > omega)
+            germ_I = sigmoid_below(c_in_I, gamma * c0)
+            germ_s = sigmoid_above(s, omega)
+            
+            dgerm_I = sigmoid_deriv_below(c_in_I, gamma * c0)
+            dgerm_s = sigmoid_deriv_above(s, omega)
+            
+            J[4, 1] = dgerm_I * germ_s * germ_not_full
+            J[4, 2] = 0.0f0
+            J[4, 3] = germ_I * dgerm_s * ds_dc_inC * germ_not_full
+            J[4, 4] = 0.0f0
+            
+        elseif thresh_mode == 3.0f0
+            # Shifted inhibitor-dependent: c_in_I < (gamma + k_gamma * s) * c0
+            thresh_3 = (gamma + k_gamma * s) * c0
+            dthresh_3_dc_inC = k_gamma * c0 * ds_dc_inC
+            
+            dgerm_dc_inI = sigmoid_deriv_below(c_in_I, thresh_3)
+            dgerm_dc_inC = sigmoid_deriv_below(c_in_I, thresh_3) * (-dthresh_3_dc_inC)
+            
+            J[4, 1] = dgerm_dc_inI * germ_not_full
+            J[4, 2] = 0.0f0
+            J[4, 3] = dgerm_dc_inC * germ_not_full
+            J[4, 4] = 0.0f0
+            
+        elseif thresh_mode == 4.0f0
+            # Shifted inducer-dependent: s > omega + k_omega * b
+            b = c_in_I / (K_b + c_in_I + 1f-10)
+            b = min(max(b, 0.0f0), 1.0f0)
+            
+            db_dc_inI = (K_b + 1f-10) / (K_b + c_in_I + 1f-10)^2
+            thresh_4 = omega + k_omega * b
+            dthresh_4_dc_inI = k_omega * db_dc_inI
+            
+            dgerm_dc_inI = sigmoid_deriv_above(s, thresh_4) * (-dthresh_4_dc_inI)
+            
+            J[4, 1] = dgerm_dc_inI * germ_not_full
+            J[4, 2] = 0.0f0
+            J[4, 3] = 0.0f0
+            J[4, 4] = 0.0f0
+            
+        elseif thresh_mode == 5.0f0
+            # 2-factor with shifted gamma: (c_in_I < (gamma + k_gamma * s) * c0) && (s > omega)
+            thresh_5 = (gamma + k_gamma * s) * c0
+            dthresh_5_dc_inC = k_gamma * c0 * ds_dc_inC
+            
+            germ_I = sigmoid_below(c_in_I, thresh_5)
+            germ_s = sigmoid_above(s, omega)
+            
+            dgerm_I = sigmoid_deriv_below(c_in_I, thresh_5)
+            dgerm_s = sigmoid_deriv_above(s, omega)
+            
+            J[4, 1] = dgerm_I * germ_s * germ_not_full
+            J[4, 2] = 0.0f0
+            J[4, 3] = germ_I * dgerm_s * ds_dc_inC * germ_not_full + dgerm_I * (-dthresh_5_dc_inC) * germ_s * germ_not_full
+            J[4, 4] = 0.0f0
+            
+        else
+            # Default: 2-factor with shifted omega: (c_in_I < gamma * c0) && (s > omega + k_omega * b)
+            b = c_in_I / (K_b + c_in_I + 1f-10)
+            b = min(max(b, 0.0f0), 1.0f0)
+            
+            db_dc_inI = (K_b + 1f-10) / (K_b + c_in_I + 1f-10)^2
+            thresh_6 = omega + k_omega * b
+            dthresh_6_dc_inI = k_omega * db_dc_inI
+            
+            germ_I = sigmoid_below(c_in_I, gamma * c0)
+            germ_s = sigmoid_above(s, thresh_6)
+            
+            dgerm_I = sigmoid_deriv_below(c_in_I, gamma * c0)
+            dgerm_s = sigmoid_deriv_above(s, thresh_6)
+            
+            J[4, 1] = dgerm_I * germ_s * germ_not_full + germ_I * dgerm_s * (-dthresh_6_dc_inI) * germ_not_full
+            J[4, 2] = 0.0f0
+            J[4, 3] = germ_I * dgerm_s * ds_dc_inC * germ_not_full
+            J[4, 4] = 0.0f0
+        end
+        
+        return nothing
     end
 
     """
@@ -800,7 +976,8 @@ __precompile__(false)
             1.0f0, 1.0f0, 1.0f0
         ]
         
-        prob = ODEProblem{false}(ode_system, u0_dummy, times[end], p_dummy)
+        prob = ODEProblem{false}(ode_system, u0_dummy, times[end], p_dummy;
+                                jac=ode_system_A_jacobian!)
         monteprob = EnsembleProblem(prob, prob_func=prob_func, safetycopy=false)
 
         dt = Float32(min(maximum(diff(times)), 10.0))
@@ -819,8 +996,8 @@ __precompile__(false)
         # )
         sols = solve(
             monteprob, 
-            Tsit5(),
-            # Rosenbrock23(),
+            # Tsit5(),
+            Rosenbrock23(),
             # DiffEqGPU.EnsembleGPUKernel(CUDA.CUDABackend()),
             trajectories=n_samples_flat,
             adaptive=false,
