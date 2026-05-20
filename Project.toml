@@ -4,6 +4,7 @@ authors = ["Boyan Mihaylov <mih.boyan@gmail.com> and contributors"]
 version = "1.0.0-DEV"
 
 [deps]
+Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
 ArgCheck = "dce04be8-c92d-5529-be00-80e4d2c0e197"
 BlackBoxOptim = "a134a8b2-14d6-55f6-9291-3336d3ab0209"
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
@@ -11,6 +12,7 @@ CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 Cubature = "667455a9-e2ce-5579-9412-b964f529a492"
 CurveFit = "5a033b19-8c74-5913-a970-47c3779ef25c"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+DiffEqBase = "2b5f629d-d688-5b77-993f-72d75c75574e"
 DiffEqGPU = "071ae1c0-96b5-11e9-1965-c90190d839ea"
 DifferentialEquations = "0c46a032-eb83-5123-abaf-570d42b7fbaa"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"

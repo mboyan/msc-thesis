@@ -9,6 +9,7 @@ __precompile__(false)
     using DifferentialEquations
     using OrdinaryDiffEq
     using DiffEqGPU
+    using Adapt
     using Distributions
     using StaticArrays
     using QuasiMonteCarlo
@@ -397,63 +398,69 @@ __precompile__(false)
     end
 
     """
-    Smooth threshold function.
+    Threshold function.
     """
-    # @inline function threshold_smooth(x, thresh)
-    #     return 1.0f0 / (1.0f0 + exp(-10.0f0 * (x - thresh)))
-    # end
-    @inline function sigmoid_above(x, threshold)
-        return 1.0f0 / (1.0f0 + exp(-10.0f0 * (x - threshold)))
-    end
+    function make_threshold_condition(thresh_mode)
 
-    @inline function sigmoid_below(x, threshold)
-        return 1.0f0 / (1.0f0 + exp(10.0f0 * (x - threshold)))
-    end
-
-    function threshold_event(u, t, integrator)
-        c_in_I, c_out_I, c_in_C, germ = u
-    
-        # Unpack parameters for this specific spore
-        thresh_mode, P_I, P_C, c_ex, K_s, K_b, K_I, n, lambda_I, lambda_C, k_gamma, k_omega,
-        A_s, V_s, V_free, V_ps, gamma, omega, c0 = integrator.p
-
-        # GPU-friendly germination logic (no control flow)
+        # Germination logic
         if thresh_mode == 0.0f0
-            # Inducer-dependent germination triggering
-            # thresholds_met = Float32(c_in_I < gamma * c0)
-            thresholds_met = sigmoid_below(c_in_I, gamma * c0)
+            return function(u, t, integrator)
+                # Inducer-dependent germination triggering
+                c_in_I, _, _, germ = u
+                germ > 0.0f0 && return false
+                _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, gamma, _, c0 = integrator.p
+                return c_in_I < gamma * c0
+            end
         elseif thresh_mode == 2.0f0
             # 2-factor germination triggering
-            # thresholds_met = Float32((c_in_I < gamma * c0) && (s > omega))
-            thresholds_met = sigmoid_below(c_in_I, gamma * c0) * sigmoid_above(s, omega)
+            return function(u, t, integrator)
+                c_in_I, _, c_in_C, germ = u
+                germ > 0.0f0 && return false
+                _, _, _, K_s, _, _, _, _, _, _, _, _, _, _, _, gamma, omega, c0 = integrator.p
+                s = c_in_C / (K_s + c_in_C)
+                return (c_in_I < gamma * c0) && (s > omega)
+            end
         elseif thresh_mode == 3.0f0
             # Shifted inhibitor-dependent germination triggering
-            # thresholds_met = Float32(c_in_I < (gamma + k_gamma * s) * c0)
-            thresholds_met = sigmoid_below(c_in_I, (gamma + k_gamma * s) * c0)
+            return function(u, t, integrator)
+                c_in_I, _, c_in_C, germ = u
+                germ > 0.0f0 && return false
+                _, _, _, K_s, _, _, _, _, _, k_gamma, _, _, _, _, _, gamma, _, c0 = integrator.p
+                s = c_in_C / (K_s + c_in_C)
+                return c_in_I < (gamma + k_gamma * s) * c0
+            end
         elseif thresh_mode == 4.0f0
-            b = c_in_I / (K_b + c_in_I + 1f-10)
-            b = min(max(b, 0.0f0), 1.0f0)
             # Shifted inducer-dependent germination triggering
-            # thresholds_met = Float32(s > omega + k_omega * b)
-            thresholds_met = sigmoid_above(s, omega + k_omega * b)
+            return function(u, t, integrator)
+                c_in_I, _, c_in_C, germ = u
+                germ > 0.0f0 && return false
+                _, _, _, K_s, K_b, _, _, _, _, _, k_omega, _, _, _, _, _, omega, _ = integrator.p
+                s = c_in_C / (K_s + c_in_C)
+                b = c_in_I / (K_b + c_in_I)
+                return s > omega + k_omega * b
+            end
         elseif thresh_mode == 5.0f0
             # 2-factor germination triggering with shifted gamma
-            # thresholds_met = Float32((c_in_I < (gamma + k_gamma * s) * c0) && (s > omega))
-            thresholds_met = sigmoid_below(c_in_I, (gamma + k_gamma * s) * c0) * sigmoid_above(s, omega)
+            return function(u, t, integrator)
+                c_in_I, _, c_in_C, germ = u
+                germ > 0.0f0 && return false
+                _, _, _, K_s, _, _, _, _, _, k_gamma, _, _, _, _, _, gamma, omega, c0 = integrator.p
+                s = c_in_C / (K_s + c_in_C)
+                return (c_in_I < (gamma + k_gamma * s) * c0) && (s > omega)
+            end
         else
-            b = c_in_I / (K_b + c_in_I + 1f-10)
-            b = min(max(b, 0.0f0), 1.0f0)
             # 2-factor germination triggering with shifted omega
-            # thresholds_met = Float32((c_in_I < gamma * c0) && (s > omega + k_omega * b))
-            thresholds_met = sigmoid_below(c_in_I, gamma * c0) * sigmoid_above(s, omega + k_omega * b)
+            return function(u, t, integrator)
+                c_in_I, _, c_in_C, germ = u
+                germ > 0.0f0 && return false
+                _, _, _, K_s, K_b, _, _, _, _, _, k_omega, _, _, _, _, gamma, omega, c0 = integrator.p
+                s = c_in_C / (K_s + c_in_C)
+                b = c_in_I / (K_b + c_in_I)
+                return (c_in_I < gamma * c0) && (s > omega + k_omega * b)
+            end
         end
-        
-        return thresholds_met - 0.5f0
-    end
 
-    # function threshold_affect!(integrator)
-    #     integrator.u[4] = 1.0f0
-    # end
+    end
 
     """
     System of coupled ODEs for the feedback model
@@ -463,7 +470,7 @@ __precompile__(false)
         c_in_I, c_out_I, c_in_C, germ = u
     
         # Unpack parameters for this specific spore
-        thresh_mode, P_I, P_C, c_ex, K_s, K_b, K_I, n, lambda_I, lambda_C, k_gamma, k_omega,
+        P_I, P_C, c_ex, K_s, K_b, K_I, n, lambda_I, lambda_C, k_gamma, k_omega,
         A_s, V_s, V_free, V_ps, gamma, omega, c0 = p
 
         # Compute inducing signal s from c_in_C
@@ -501,65 +508,13 @@ __precompile__(false)
         du2 = (rateI / V_free) * diffI
         du3 = -(rateC / V_ps) * diffC
 
-        # GPU-friendly germination logic (no control flow)
-        # if thresh_mode == 0.0f0
-        #     # Inducer-dependent germination triggering
-        #     thresholds_met = Float32(c_in_I < gamma * c0)
-        #     # thresholds_met = sigmoid_below(c_in_I, gamma * c0)
-        # elseif thresh_mode == 2.0f0
-        #     # 2-factor germination triggering
-        #     thresholds_met = Float32((c_in_I < gamma * c0) && (s > omega))
-        #     # thresholds_met = sigmoid_below(c_in_I, gamma * c0) * sigmoid_above(s, omega)
-        # elseif thresh_mode == 3.0f0
-        #     # Shifted inhibitor-dependent germination triggering
-        #     thresholds_met = Float32(c_in_I < (gamma + k_gamma * s) * c0)
-        #     # thresholds_met = sigmoid_below(c_in_I, (gamma + k_gamma * s) * c0)
-        # elseif thresh_mode == 4.0f0
-        #     b = c_in_I / (K_b + c_in_I + 1f-10)
-        #     b = min(max(b, 0.0f0), 1.0f0)
-        #     # Shifted inducer-dependent germination triggering
-        #     thresholds_met = Float32(s > omega + k_omega * b)
-        #     # thresholds_met = sigmoid_above(s, omega + k_omega * b)
-        # elseif thresh_mode == 5.0f0
-        #     # 2-factor germination triggering with shifted gamma
-        #     thresholds_met = Float32((c_in_I < (gamma + k_gamma * s) * c0) && (s > omega))
-        #     # thresholds_met = sigmoid_below(c_in_I, (gamma + k_gamma * s) * c0) * sigmoid_above(s, omega)
-        # else
-        #     b = c_in_I / (K_b + c_in_I + 1f-10)
-        #     b = min(max(b, 0.0f0), 1.0f0)
-        #     # 2-factor germination triggering with shifted omega
-        #     thresholds_met = Float32((c_in_I < gamma * c0) && (s > omega + k_omega * b))
-        #     # thresholds_met = sigmoid_below(c_in_I, gamma * c0) * sigmoid_above(s, omega + k_omega * b)
-        # end
-        # germ_not_full = Float32(germ < 1.0f0)
-        # # germ_not_full = sigmoid_below(germ, 1.0f0)
-        # du4 = thresholds_met * germ_not_full
-
         du4 = 0.0f0
-
-        # if t > 7200
-        #     println("")
-        #     if du1 > 0 || du2 < 0
-        #         println("Instability detected.")
-        #     end
-        #     # @show exponent
-        #     # @show n
-        #     # @show gamma
-        #     @show rateI
-        #     @show rateC
-        #     @show c_in_I
-        #     @show c_out_I
-        #     @show c_in_C
-        #     @show s
-        #     @show [du1, du2, du3, du4]
-        #     @show [A_s, V_s, V_free, V_ps]
-        # end
 
         return SVector{4}(du1, du2, du3, du4)
     end
 
     """
-    !!!!!!!!!!!!!!WIP!!!!!!!!!!!!!!!!
+    Jacobian for ODE system A.
     """
     function ode_system_A_jacobian(u, p, t)
         c_in_I, c_out_I, c_in_C, germ = u
@@ -601,81 +556,6 @@ __precompile__(false)
         
         # Row 3
         J[3, 3] = -(rateC / V_ps) - (drateC_dc_inC / V_ps) * diffC
-        
-        # Helper functions
-        # sigmoid_above(x, threshold) = 1.0f0 / (1.0f0 + exp(-10.0f0 * (x - threshold)))
-        # sigmoid_below(x, threshold) = 1.0f0 / (1.0f0 + exp(10.0f0 * (x - threshold)))
-        
-        # function sigmoid_deriv(x, threshold, steepness)
-        #     f = 1.0f0 / (1.0f0 + exp(-steepness * (x - threshold)))
-        #     return steepness * f * (1.0f0 - f)
-        # end
-        
-        # # Row 4: germination
-        # germ_not_full = Float32(germ < 1.0f0)
-        
-        # if thresh_mode == 0.0f0
-        #     dgerm_dc_inI = sigmoid_deriv(c_in_I, gamma * c0, 10.0f0)
-        #     J[4, 1] = dgerm_dc_inI * germ_not_full
-            
-        # elseif thresh_mode == 2.0f0
-        #     germ_I = sigmoid_below(c_in_I, gamma * c0)
-        #     germ_s = sigmoid_above(s, omega)
-        #     dgerm_I_dc_inI = sigmoid_deriv(c_in_I, gamma * c0, 10.0f0)
-        #     dgerm_s_ds = sigmoid_deriv(s, omega, 10.0f0)
-            
-        #     J[4, 1] = dgerm_I_dc_inI * germ_s * germ_not_full
-        #     J[4, 3] = germ_I * dgerm_s_ds * ds_dc_inC * germ_not_full
-            
-        # elseif thresh_mode == 3.0f0
-        #     threshold_shifted = (gamma + k_gamma * s) * c0
-        #     dgerm_dc_inI = sigmoid_deriv(c_in_I, threshold_shifted, 10.0f0)
-        #     dthreshold_ds = k_gamma * c0
-        #     dgerm_dc_inC = -sigmoid_deriv(c_in_I, threshold_shifted, 10.0f0) * dthreshold_ds * ds_dc_inC
-            
-        #     J[4, 1] = dgerm_dc_inI * germ_not_full
-        #     J[4, 3] = dgerm_dc_inC * germ_not_full
-            
-        # elseif thresh_mode == 4.0f0
-        #     b = c_in_I / (K_b + c_in_I + 1f-10)
-        #     b = min(max(b, 0.0f0), 1.0f0)
-        #     threshold_shifted = omega + k_omega * b
-            
-        #     db_dc_inI = (K_b + 1f-10) / (K_b + c_in_I + 1f-10)^2
-        #     dgerm_ds = sigmoid_deriv(s, threshold_shifted, 10.0f0)
-            
-        #     J[4, 1] = -dgerm_ds * k_omega * db_dc_inI * germ_not_full
-        #     J[4, 3] = dgerm_ds * ds_dc_inC * germ_not_full
-            
-        # elseif thresh_mode == 5.0f0
-        #     threshold_I = (gamma + k_gamma * s) * c0
-        #     germ_I = sigmoid_below(c_in_I, threshold_I)
-        #     germ_s = sigmoid_above(s, omega)
-            
-        #     dgerm_I_dc_inI = sigmoid_deriv(c_in_I, threshold_I, 10.0f0)
-        #     dthreshold_I_ds = k_gamma * c0
-        #     dgerm_s_ds = sigmoid_deriv(s, omega, 10.0f0)
-            
-        #     J[4, 1] = dgerm_I_dc_inI * germ_s * germ_not_full
-        #     J[4, 3] = (-dgerm_I_dc_inI * dthreshold_I_ds * ds_dc_inC * germ_s + 
-        #                 germ_I * dgerm_s_ds * ds_dc_inC) * germ_not_full
-            
-        # else  # thresh_mode == 6.0f0
-        #     b = c_in_I / (K_b + c_in_I + 1f-10)
-        #     b = min(max(b, 0.0f0), 1.0f0)
-            
-        #     germ_I = sigmoid_below(c_in_I, gamma * c0)
-        #     threshold_s = omega + k_omega * b
-        #     germ_s = sigmoid_above(s, threshold_s)
-            
-        #     db_dc_inI = (K_b + 1f-10) / (K_b + c_in_I + 1f-10)^2
-        #     dgerm_I_dc_inI = sigmoid_deriv(c_in_I, gamma * c0, 10.0f0)
-        #     dgerm_s_ds = sigmoid_deriv(s, threshold_s, 10.0f0)
-            
-        #     J[4, 1] = (dgerm_I_dc_inI * germ_s - 
-        #                 germ_I * dgerm_s_ds * k_omega * db_dc_inI) * germ_not_full
-        #     J[4, 3] = germ_I * dgerm_s_ds * ds_dc_inC * germ_not_full
-        # end
         
         return J
     end
@@ -870,7 +750,7 @@ __precompile__(false)
         model_idx (Int) - index of model to use
         n_samples (Int) - ODE ensemble sample size
     """
-    function integrate_ode(params::Array{Float32,2}, times::Array{Float32,1}, model_idx::Int, ode_system; n_samples::Int=64)
+    function integrate_ode(params::Array{Float32,2}, times::Array{Float32,1}, model_idx::Int, ode_system; n_samples::Int=1024)
         P = size(params, 1)
         param_dim = size(params, 2)
         T = length(times)
@@ -928,7 +808,7 @@ __precompile__(false)
         # Construct flat parameter collections and initial conditions
         n_samples_flat = P * n_samples
         u0_vec = Vector{SVector{4, Float32}}()
-        p_vec = Vector{SVector{19, Float32}}()
+        p_vec = Vector{SVector{18, Float32}}()
         @inbounds for i in 1:P
 
             # Transform from standard Normal to LogNormal
@@ -959,7 +839,6 @@ __precompile__(false)
 
                 push!(u0_vec, @SVector [Float32(c0[j]), 0.0f0, 0.0f0, 0.0f0])
                 push!(p_vec, @SVector [
-                    thresh_mode,
                     P_I[i],
                     P_C[i],
                     c_ex[i],
@@ -994,29 +873,38 @@ __precompile__(false)
         # Initial problem (dummy, will be remade by prob_func)
         u0_dummy = @SVector [0.0f0, 1.0f0, 0.0f0, 0.0f0]
         p_dummy = @SVector [
-            0.0f0, 1.0f0, 1.0f0, 1.0f0,
+            1.0f0, 1.0f0, 1.0f0,
             1.0f0, 1.0f0, 1.0f0, 1.0f0, 1.0f0, 1.0f0,
             1.0f0, 1.0f0, 1.0f0, 1.0f0, 1.0f0, 1.0f0,
             1.0f0, 1.0f0, 1.0f0
         ]
         
         prob = ODEProblem{false}(ode_system, u0_dummy, times[end], p_dummy)
-        # prob = ODEProblem(ODEFunction(ode_system; jac=ode_system_A_jacobian),
-        #                     u0_dummy, times[end], p_dummy)
         monteprob = EnsembleProblem(prob, prob_func=prob_func, safetycopy=false)
 
         dt = Float32(min(maximum(diff(times)), 10.0))
 
-        # !!!!!!!!!! IMPLEMENT idx AS PARAMETER !!!!!!!!!!!!
-        germinated = zeros(Bool, T, n_samples_flat)
-        function threshold_affect!(integrator)
-            idx = integrator.p.idx
-            iter = integrator.iter
-            germinated[idx, iter] = true
+        # Callback condition
+        # threshold_condition = make_threshold_condition(thresh_mode)
+
+        # # Callback affect
+        # function threshold_affect!(integrator)
+        #     # integrator.u += @SVector[0.0f0, 0.0f0, 0.0f0, 1.0f0]
+        #     u = integrator.u
+        #     integrator.u = SVector(u[1], u[2], u[3], 1.0f0)
+        # end
+
+        function threshold_condition(u, t, integrator)
+            # Simple comparison, no complex operations
+            return u[1] > 5.0f0
         end
 
-        cb = ContinuousCallback(threshold_event, threshold_affect!, 
-                        rootfind=SciMLBase.RightRootFind)
+        function threshold_affect!(integrator)
+            # Simple state modification only
+            integrator.u = integrator.u .* 0.5f0
+        end
+
+        cb = DiscreteCallback(threshold_condition, threshold_affect!; save_positions = (false, false))
 
         # Solve ensemble on CPU
         # sols = solve(
@@ -1030,37 +918,62 @@ __precompile__(false)
         #     abstol=1e-8,
         #     reltol=1e-6
         # )
-        sols = solve(
-            monteprob, 
-            # Tsit5(),
-            Rosenbrock23(),
-            # DiffEqGPU.EnsembleGPUKernel(CUDA.CUDABackend()),
-            trajectories=n_samples_flat,
-            adaptive=false,
-            dt=dt,
-            saveat=times,
-            callback=cb
-        )
+        # sols = solve(
+        #     monteprob, 
+        #     # Tsit5(),
+        #     Rosenbrock23(),
+        #     # DiffEqGPU.EnsembleGPUKernel(CUDA.CUDABackend()),
+        #     trajectories=n_samples_flat,
+        #     adaptive=false,
+        #     dt=dt,
+        #     saveat=times,
+        #     callback=cb,
+        #     tstops=times
+        # )
         
         # Solve ensemble on GPU
         # sols = solve(
         #     monteprob, 
-        #     GPUTsit5(),
-        #     # GPURosenbrock23(),
+        #     # GPUTsit5(),
+        #     GPURosenbrock23(),
         #     DiffEqGPU.EnsembleGPUKernel(CUDA.CUDABackend()),
         #     trajectories=n_samples_flat,
         #     adaptive=false,
         #     dt=dt,
-        #     saveat = times
+        #     saveat=times,
+        #     # callback=cb,
+        #     # merge_callbacks=true,
+        #     # tstops=times
         # )
 
+        ## Building different problems for different parameters
+        batch = 1:n_samples_flat
+        probs = map(batch) do i
+            DiffEqGPU.make_prob_compatible(remake(prob, u0=u0_vec[i], p=p_vec[i]))
+        end
+        gpu_probs = adapt(CUDA.CUDABackend(), probs)
+
+        sols_gpu = DiffEqGPU.vectorized_solve(
+            gpu_probs,
+            prob,
+            GPURosenbrock23(),
+            dt=dt,
+            saveat=times,
+            # callback=cb,
+            # merge_callbacks=true,
+            # tstops=times
+        )
+        
+        # println(germ_times)
+
         # Extract germination info from solutions
-        # germinated = zeros(Bool, T, n_samples_flat)
-        # test = zeros(Float32, T, n_samples_flat)
-        #Threads.@threads 
-        # for i in 1:n_samples_flat
-        #     println(getindex.(sols[i].u, 4)[1:10])
-        #     germ_vals = getindex.(sols[i].u, 4)  # Extract 4th component for all timepoints
+        germinated = zeros(Bool, T, n_samples_flat)
+        # sols = Array(sols_gpu[2])
+        # Threads.@threads for i in 1:n_samples_flat
+        #     # println(sols[:, i])
+        #     # germ_vals = getindex.(sols[i].u, 4)  # Extract 4th component for all timepoints
+        #     # germinated[:, i] .= germ_vals .> 0.0
+        #     germ_vals = getindex.(sols[:, i], 4)
         #     germinated[:, i] .= germ_vals .> 0.0
         # end
 
