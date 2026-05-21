@@ -94,7 +94,8 @@ __precompile__(false)
         v = coords[base + 2]          # Standard normal for d_ps
         
         # Extract transformation parameters
-        rho_s, mu_R, sigma_R, mu_H, sigma_H, mu_X, sigma_X, mu_Y, sigma_Y, c_ex, P_I, P_C, K_s = unpack_standard_parameters(params, pbase)
+        rho_s, mu_R, sigma_R, mu_H, sigma_H, mu_X, sigma_X, mu_Y, sigma_Y,
+        c_ex, P_I, P_C, K_s = unpack_standard_parameters(params, pbase)
 
         # Time-dependent signals
         beta, s = calc_signals(u, v, t, rho_s, c_ex,
@@ -138,7 +139,8 @@ __precompile__(false)
         v = coords[base + 2]          # Standard normal for d_ps
         
         # Extract transformation parameters
-        rho_s, mu_R, sigma_R, mu_H, sigma_H, mu_X, sigma_X, mu_Y, sigma_Y, c_ex, P_I, P_C, K_s = unpack_standard_parameters(params, pbase)
+        rho_s, mu_R, sigma_R, mu_H, sigma_H, mu_X, sigma_X, mu_Y, sigma_Y,
+        c_ex, P_I, P_C, K_s = unpack_standard_parameters(params, pbase)
         k_gamma = params[pbase + 18]
 
         # Time-dependent signals
@@ -187,7 +189,8 @@ __precompile__(false)
         w = coords[base + 3]          # Standard normal for c_0
         
         # Extract transformation parameters
-        rho_s, mu_R, sigma_R, mu_H, sigma_H, mu_X, sigma_X, mu_Y, sigma_Y, c_ex, P_I, P_C, K_s = unpack_standard_parameters(params, pbase)
+        rho_s, mu_R, sigma_R, mu_H, sigma_H, mu_X, sigma_X, mu_Y, sigma_Y,
+        c_ex, P_I, P_C, K_s = unpack_standard_parameters(params, pbase)
         k_gamma = params[pbase + 18]
         K_I = params[pbase + 20]
         n = params[pbase + 21]
@@ -248,7 +251,8 @@ __precompile__(false)
         w = coords[base + 3]          # Standard normal for c_0
         
         # Extract transformation parameters
-        rho_s, mu_R, sigma_R, mu_H, sigma_H, mu_X, sigma_X, mu_Y, sigma_Y, c_ex, P_I, P_C, K_s = unpack_standard_parameters(params, pbase)
+        rho_s, mu_R, sigma_R, mu_H, sigma_H, mu_X, sigma_X, mu_Y, sigma_Y,
+        c_ex, P_I, P_C, K_s = unpack_standard_parameters(params, pbase)
         k_gamma = params[pbase + 18]
         k_omega = params[pbase + 19]
         K_b = params[pbase + 22]
@@ -460,6 +464,21 @@ __precompile__(false)
             end
         end
 
+    end
+
+    """
+    Kernel for testing threshold crossings.
+    inputs:
+        thresh_mode (Int32) - threshold mode
+        params_d (CuArray{Float32}) - GPU array of the parameter values
+        c_in_I (Float32) - internal inhibitor concentration
+        c_in_C (Float32) - internal inducer concentration
+        P (Int32) - number of parameter samples
+        T (Int32) - number of time steps
+    """
+    function threshold_event_gpu(thresh_mode, params, c_in_I, c_in_C, P, T)
+        tid = (blockIdx().x-1) * blockDim().x + threadIdx().x
+        Ntot = Int32(length(weights_chunk)) * P * T
     end
 
     """
