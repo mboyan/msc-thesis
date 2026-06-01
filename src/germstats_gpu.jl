@@ -290,8 +290,8 @@ __precompile__(false)
     """
     Kernel: write per-(point,param) contribution to outbuf.
     inputs:
-        coords_chunk (Array{Float36}) - coordinates of Gauss-Legendre nodes for the current data chunk
-        weights_chunk (Array{Float36}) - Gauss-Legendre weights for the current data chunk
+        coords_chunk (CuArray{Float32}) - coordinates of Gauss-Legendre nodes for the current data chunk
+        weights_chunk (CuArray{Float32}) - Gauss-Legendre weights for the current data chunk
         d (Int) - dimension of integral
         params_d (CuArray) - GPU array of the parameter values
         param_dim (Int) - number of parameters
@@ -402,83 +402,90 @@ __precompile__(false)
     end
 
     """
-    Threshold function.
-    """
-    function make_threshold_condition(thresh_mode)
-
-        # Germination logic
-        if thresh_mode == 0.0f0
-            return function(u, t, integrator)
-                # Inducer-dependent germination triggering
-                c_in_I, _, _, germ = u
-                germ > 0.0f0 && return false
-                _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, gamma, _, c0 = integrator.p
-                return c_in_I < gamma * c0
-            end
-        elseif thresh_mode == 2.0f0
-            # 2-factor germination triggering
-            return function(u, t, integrator)
-                c_in_I, _, c_in_C, germ = u
-                germ > 0.0f0 && return false
-                _, _, _, K_s, _, _, _, _, _, _, _, _, _, _, _, gamma, omega, c0 = integrator.p
-                s = c_in_C / (K_s + c_in_C)
-                return (c_in_I < gamma * c0) && (s > omega)
-            end
-        elseif thresh_mode == 3.0f0
-            # Shifted inhibitor-dependent germination triggering
-            return function(u, t, integrator)
-                c_in_I, _, c_in_C, germ = u
-                germ > 0.0f0 && return false
-                _, _, _, K_s, _, _, _, _, _, k_gamma, _, _, _, _, _, gamma, _, c0 = integrator.p
-                s = c_in_C / (K_s + c_in_C)
-                return c_in_I < (gamma + k_gamma * s) * c0
-            end
-        elseif thresh_mode == 4.0f0
-            # Shifted inducer-dependent germination triggering
-            return function(u, t, integrator)
-                c_in_I, _, c_in_C, germ = u
-                germ > 0.0f0 && return false
-                _, _, _, K_s, K_b, _, _, _, _, _, k_omega, _, _, _, _, _, omega, _ = integrator.p
-                s = c_in_C / (K_s + c_in_C)
-                b = c_in_I / (K_b + c_in_I)
-                return s > omega + k_omega * b
-            end
-        elseif thresh_mode == 5.0f0
-            # 2-factor germination triggering with shifted gamma
-            return function(u, t, integrator)
-                c_in_I, _, c_in_C, germ = u
-                germ > 0.0f0 && return false
-                _, _, _, K_s, _, _, _, _, _, k_gamma, _, _, _, _, _, gamma, omega, c0 = integrator.p
-                s = c_in_C / (K_s + c_in_C)
-                return (c_in_I < (gamma + k_gamma * s) * c0) && (s > omega)
-            end
-        else
-            # 2-factor germination triggering with shifted omega
-            return function(u, t, integrator)
-                c_in_I, _, c_in_C, germ = u
-                germ > 0.0f0 && return false
-                _, _, _, K_s, K_b, _, _, _, _, _, k_omega, _, _, _, _, gamma, omega, c0 = integrator.p
-                s = c_in_C / (K_s + c_in_C)
-                b = c_in_I / (K_b + c_in_I)
-                return (c_in_I < gamma * c0) && (s > omega + k_omega * b)
-            end
-        end
-
-    end
-
-    """
     Kernel for testing threshold crossings.
     inputs:
+        germinated (CuArray{Bool}) - output array to mark if germination occurred
         thresh_mode (Int32) - threshold mode
         params_d (CuArray{Float32}) - GPU array of the parameter values
-        c_in_I (Float32) - internal inhibitor concentration
-        c_in_C (Float32) - internal inducer concentration
+        sols (CuArray{Float32}) - ODE solutions for all samples and time points
         P (Int32) - number of parameter samples
         T (Int32) - number of time steps
     """
-    function threshold_event_gpu(thresh_mode, params, c_in_I, c_in_C, P, T)
+    function eval_thresholds_gpu(germinated, thresh_mode, params, sols, P, T)
         tid = (blockIdx().x-1) * blockDim().x + threadIdx().x
-        Ntot = Int32(length(weights_chunk)) * P * T
+        Ntot = P * T
+
+        if tid <= Ntot
+            # Decode flat index: tid-1 = time_idx + T*param_idx
+            tmp = tid - 1
+            time_idx = Int32(tmp % T) + 1
+            param_idx = Int32(tmp ÷ T) + 1
+
+            # Unpack concentrations
+            c_in_I = sols[time_idx, param_idx][1]
+            c_in_C = sols[time_idx, param_idx][3]
+
+            #1 P_I[i],
+            #2 P_C[i],
+            #3 c_ex[i],
+            #4 K_s[i],
+            #5 K_b[i],
+            #6 K_I[i],
+            #7 n[i],
+            #8 lambda_I[i],
+            #9 lambda_C[i],
+            #10 k_gamma[i],
+            #11 k_omega[i],
+            #12 A_s,
+            #13 V_s,
+            #14 V_free,
+            #15 V_ps,
+            #16 gamma[j],
+            #17 omega[j],
+            #18 c0[j]
+
+            # Unpack parameters for this sample
+            params_sample = @view params[param_idx, :]
+            K_s = params_sample[4]
+            K_b = params_sample[5]
+            k_gamma = params_sample[10]
+            k_omega = params_sample[11]
+            gamma = params_sample[16]
+            omega = params_sample[17]
+            c0 = params_sample[18]
+
+            # Compute signals
+            s = c_in_C / (K_s + c_in_C)
+            b = c_in_I / (K_b + c_in_I)
+
+            # Germination logic
+            if thresh_mode == 0
+                # Inducer-dependent germination triggering
+                condition = c_in_I < gamma * c0
+            elseif thresh_mode == 2
+                # 2-factor germination triggering
+                condition = (c_in_I < gamma * c0) && (s > omega)
+            elseif thresh_mode == 3
+                # Shifted inhibitor-dependent germination triggering
+                condition = c_in_I < (gamma + k_gamma * s) * c0
+            elseif thresh_mode == 4
+                # Shifted inducer-dependent germination triggering
+                condition = s > omega + k_omega * b
+            elseif thresh_mode == 5
+                # 2-factor germination triggering with shifted gamma
+                condition = (c_in_I < (gamma + k_gamma * s) * c0) && (s > omega)
+            else
+                # 2-factor germination triggering with shifted omega
+                condition = (c_in_I < gamma * c0) && (s > omega + k_omega * b)
+            end
+
+            # Check if germination occurs for this sample at this time point
+            if condition
+                germinated[time_idx, param_idx] = true
+            end
+        end
+
+        return
     end
 
     """
@@ -804,19 +811,19 @@ __precompile__(false)
 
         # Determine threshold mode
         if model_idx in [2, 14, 17]
-            thresh_mode = 0.0f0 # Inhibitor threshold
+            thresh_mode = 0 # Inhibitor threshold
         elseif model_idx in [8, 15, 18, 27]
-            thresh_mode = 1.0f0 # Inducer threshold
+            thresh_mode = 1 # Inducer threshold
         elseif model_idx in [3, 9, 16, 19, 28]
-            thresh_mode = 2.0f0 # Both thresholds
+            thresh_mode = 2 # Both thresholds
         elseif model_idx in [12, 24] # Shifted inhibitor threshold
-            thresh_mode = 3.0f0
+            thresh_mode = 3
         elseif model_idx in [20] # Shifted inducer threshold
-            thresh_mode = 4.0f0
+            thresh_mode = 4
         elseif model_idx in [13, 25] # Both thresholds + shifted inhibitor threshold
-            thresh_mode = 5.0f0
+            thresh_mode = 5
         elseif model_idx in [21] # Both thresholds + shifted inducer threshold
-            thresh_mode = 6.0f0
+            thresh_mode = 6
         end
 
         println(thresh_mode)
@@ -903,16 +910,6 @@ __precompile__(false)
 
         dt = Float32(min(maximum(diff(times)), 10.0))
 
-        # Callback condition
-        # threshold_condition = make_threshold_condition(thresh_mode)
-
-        # # Callback affect
-        # function threshold_affect!(integrator)
-        #     # integrator.u += @SVector[0.0f0, 0.0f0, 0.0f0, 1.0f0]
-        #     u = integrator.u
-        #     integrator.u = SVector(u[1], u[2], u[3], 1.0f0)
-        # end
-
         function threshold_condition(u, t, integrator)
             # Simple comparison, no complex operations
             return u[1] > 5.0f0
@@ -923,49 +920,7 @@ __precompile__(false)
             integrator.u = integrator.u .* 0.5f0
         end
 
-        cb = DiscreteCallback(threshold_condition, threshold_affect!; save_positions = (false, false))
-
-        # Solve ensemble on CPU
-        # sols = solve(
-        #     monteprob, 
-        #     Rosenbrock23(),
-        #     trajectories=n_samples_flat,
-        #     adaptive=true,
-        #     dt=Float32(1.0),  # ← Start small, solver will grow dt
-        #     saveat=times,
-        #     callback=PositiveDomain(),
-        #     abstol=1e-8,
-        #     reltol=1e-6
-        # )
-        # sols = solve(
-        #     monteprob, 
-        #     # Tsit5(),
-        #     Rosenbrock23(),
-        #     # DiffEqGPU.EnsembleGPUKernel(CUDA.CUDABackend()),
-        #     trajectories=n_samples_flat,
-        #     adaptive=false,
-        #     dt=dt,
-        #     saveat=times,
-        #     callback=cb,
-        #     tstops=times
-        # )
-        
-        # Solve ensemble on GPU
-        # sols = solve(
-        #     monteprob, 
-        #     # GPUTsit5(),
-        #     GPURosenbrock23(),
-        #     DiffEqGPU.EnsembleGPUKernel(CUDA.CUDABackend()),
-        #     trajectories=n_samples_flat,
-        #     adaptive=false,
-        #     dt=dt,
-        #     saveat=times,
-        #     # callback=cb,
-        #     # merge_callbacks=true,
-        #     # tstops=times
-        # )
-
-        ## Building different problems for different parameters
+        # Building different problems for different parameters
         batch = 1:n_samples_flat
         probs = map(batch) do i
             DiffEqGPU.make_prob_compatible(remake(prob, u0=u0_vec[i], p=p_vec[i]))
@@ -977,24 +932,20 @@ __precompile__(false)
             prob,
             GPURosenbrock23(),
             dt=dt,
-            saveat=times,
-            # callback=cb,
-            # merge_callbacks=true,
-            # tstops=times
+            saveat=times
         )
-        
-        # println(germ_times)
 
         # Extract germination info from solutions
         germinated = zeros(Bool, T, n_samples_flat)
-        # sols = Array(sols_gpu[2])
-        # Threads.@threads for i in 1:n_samples_flat
-        #     # println(sols[:, i])
-        #     # germ_vals = getindex.(sols[i].u, 4)  # Extract 4th component for all timepoints
-        #     # germinated[:, i] .= germ_vals .> 0.0
-        #     germ_vals = getindex.(sols[:, i], 4)
-        #     germinated[:, i] .= germ_vals .> 0.0
-        # end
+
+        # Concatenate p_vec into a matrix for GPU access
+        params_gpu = CuArray(stack(p_vec)')
+        
+        germinated_gpu = CuArray(germinated)
+        n_threads = 256
+        n_blocks = cld(n_samples_flat * T, n_threads)
+        @cuda threads=n_threads blocks=n_blocks eval_thresholds_gpu(germinated_gpu, thresh_mode, params_gpu, sols_gpu[2], n_samples_flat, T)
+        germinated = Array(germinated_gpu)
 
         germinated = reshape(germinated, (T, n_samples, P))
 
@@ -1173,9 +1124,9 @@ __precompile__(false)
 
         if model_alias == "independent" # 0
             germination = integrate_batched(8, 2, param_arr, times, 1)
-        elseif model_alias == "feedback_inhibitor_inducer_perm" # Ai !!!!!!!!!!!!
+        elseif model_alias == "feedback_inhibitor_inducer_perm" # Ai
             germination = integrate_ode(param_arr, times, 2, ode_system_A)
-        elseif model_alias == "feedback_combined_inducer_perm" # A !!!!!!!!!!!!
+        elseif model_alias == "feedback_combined_inducer_perm" # A
             germination = integrate_ode(param_arr, times, 3, ode_system_A)
         elseif model_alias == "inhibitor_thresh" # Bi
             germination = integrate_batched(8, 2, param_arr, times, 4)
@@ -1193,9 +1144,9 @@ __precompile__(false)
             germination = integrate_batched(8, 3, param_arr, times, 10)
         elseif model_alias == "combined_inducer_thresh" # E
             germination = integrate_batched(8, 3, param_arr, times, 11)
-        elseif model_alias == "feedback_inhibitor_inducer_perm_thresh" # ABi !!!!!!!!!!!!
+        elseif model_alias == "feedback_inhibitor_inducer_perm_thresh" # ABi
             germination = integrate_ode(param_arr, times, 12, ode_system_A) 
-        elseif model_alias == "feedback_combined_inducer_perm_thresh" # AB !!!!!!!!!!!!
+        elseif model_alias == "feedback_combined_inducer_perm_thresh" # AB
             germination = integrate_ode(param_arr, times, 13, ode_system_A)
         elseif model_alias == "feedback_inhibitor_inducer_perm_inhibitor_signal" # ACi
             germination = integrate_ode(param_arr, times, 14, ode_system_AC)
@@ -1209,9 +1160,9 @@ __precompile__(false)
             germination = integrate_ode(param_arr, times, 18, ode_system_AD)
         elseif model_alias == "feedback_combined_inhibitor_inducer_perm" # AD !!!!!!!!!!!!
             germination = integrate_ode(param_arr, times, 19, ode_system_AD)
-        elseif model_alias == "feedback_inducer_inhibitor_thresh_inducer_perm" # AEc !!!!!!!!!!!!
+        elseif model_alias == "feedback_inducer_inhibitor_thresh_inducer_perm" # AEc
             germination = integrate_ode(param_arr, times, 20, ode_system_A)
-        elseif model_alias == "feedback_combined_inhibitor_thresh_inducer_perm" # AE !!!!!!!!!!!!
+        elseif model_alias == "feedback_combined_inhibitor_thresh_inducer_perm" # AE
             germination = integrate_ode(param_arr, times, 21, ode_system_A)
         elseif model_alias == "inhibitor_thresh_inducer_signal" # BCi
             germination = integrate_batched(8, 3, param_arr, times, 22)
