@@ -459,9 +459,13 @@ __precompile__(false)
             b = c_in_I / (K_b + c_in_I)
 
             # Germination logic
+            condition = false
             if thresh_mode == 0
-                # Inducer-dependent germination triggering
+                # Inhibitor-dependent germination triggering
                 condition = c_in_I < gamma * c0
+            elseif thresh_mode == 1
+                # Inducer-dependent germination triggering
+                condition = s > omega
             elseif thresh_mode == 2
                 # 2-factor germination triggering
                 condition = (c_in_I < gamma * c0) && (s > omega)
@@ -474,7 +478,7 @@ __precompile__(false)
             elseif thresh_mode == 5
                 # 2-factor germination triggering with shifted gamma
                 condition = (c_in_I < (gamma + k_gamma * s) * c0) && (s > omega)
-            else
+            elseif thresh_mode == 6
                 # 2-factor germination triggering with shifted omega
                 condition = (c_in_I < gamma * c0) && (s > omega + k_omega * b)
             end
@@ -502,8 +506,6 @@ __precompile__(false)
         # Compute inducing signal s from c_in_C
         s = c_in_C / (K_s + c_in_C + 1f-10)
         s = min(max(s, 0.0f0), 1.0f0)
-
-        # exp_factor = exp(-lambda_C * s)
 
         exponent = -(1 + lambda_C * s) * 0.001f0
 
@@ -540,53 +542,6 @@ __precompile__(false)
     end
 
     """
-    Jacobian for ODE system A.
-    """
-    function ode_system_A_jacobian(u, p, t)
-        c_in_I, c_out_I, c_in_C, germ = u
-        thresh_mode, P_I, P_C, c_ex, K_s, K_b, K_I, n, lambda_I, lambda_C, k_gamma, k_omega, A_s, V_s, V_free, V_ps, gamma, omega, c0 = p
-
-        # Compute s and exponent
-        s = c_in_C / (K_s + c_in_C + 1f-10)
-        s = min(max(s, 0.0f0), 1.0f0)
-        exponent = -(1 + lambda_C * s) * 0.001f0
-        
-        # Pre-compute rates
-        PmaxA = 1000.0f0 * A_s
-        rateI = PmaxA * (-expm1(exponent * P_I))
-        rateC = PmaxA * (-expm1(exponent * P_C))
-        
-        # Concentration differences
-        diffI = c_in_I - c_out_I
-        diffC = c_in_C - c_ex
-        
-        # Derivatives
-        ds_dc_inC = (K_s + 1f-10) / (K_s + c_in_C + 1f-10)^2
-        dexponent_dc_inC = -lambda_C * 0.001f0 * ds_dc_inC
-        
-        drateI_dc_inC = PmaxA * (-P_I * exp(exponent * P_I)) * dexponent_dc_inC
-        drateC_dc_inC = PmaxA * (-P_C * exp(exponent * P_C)) * dexponent_dc_inC
-        
-        # Create Jacobian matrix
-        J = zeros(Float32, 4, 4)
-        
-        # Row 1
-        J[1, 1] = -(rateI / V_s)
-        J[1, 2] = (rateI / V_s)
-        J[1, 3] = -(drateI_dc_inC / V_s) * diffI
-        
-        # Row 2
-        J[2, 1] = (rateI / V_free)
-        J[2, 2] = -(rateI / V_free)
-        J[2, 3] = (drateI_dc_inC / V_free) * diffI
-        
-        # Row 3
-        J[3, 3] = -(rateC / V_ps) - (drateC_dc_inC / V_ps) * diffC
-        
-        return J
-    end
-
-    """
     System of coupled ODEs for the feedback model
     of inhibitor-dependent cell wall permeability.
     """
@@ -594,22 +549,31 @@ __precompile__(false)
         c_in_I, c_out_I, c_in_C, germ = u
     
         # Unpack parameters for this specific spore
-        thresh_mode, P_I, P_C, c_ex, K_s, K_b, K_I, n, lambda_I, lambda_C, k_gamma, k_omega, A_s, V_s, V_free, V_ps, gamma, omega, c0 = p
+        P_I, P_C, c_ex, K_s, K_b, K_I, n, lambda_I, lambda_C, k_gamma, k_omega,
+        A_s, V_s, V_free, V_ps, gamma, omega, c0 = p
 
         # Compute inducing signal s from c_in_C
         s = c_in_C / (K_s + c_in_C + 1f-10)
         s = min(max(s, 0.0f0), 1.0f0)
 
+        # exponent = -(1 + lambda_I * c_in_I) * 0.001f0
         exp_factor = exp(-lambda_I * c_in_I)
         
         # Update permeability constants based on signal
         P_I_pert = P_I * exp_factor
         P_C_pert = P_C * exp_factor
+
+        rateI = P_I_pert * A_s
+        rateC = P_C_pert * A_s
+
+        # Concentration differences
+        diffI = c_in_I - c_out_I
+        diffC = c_in_C - c_ex
         
         # ODE equations
-        du1 = -(P_I_pert * A_s / V_s) * (c_in_I - c_out_I)
-        du2 = (P_I_pert * A_s / V_free) * (c_in_I - c_out_I)
-        du3 = -(P_C_pert * A_s / V_ps) * (c_in_C - c_ex)
+        du1 = -(rateI / V_s) * diffI
+        du2 = (rateI / V_free) * diffI
+        du3 = -(rateC / V_ps) * diffC
 
         # GPU-friendly germination logic (no control flow)
         if thresh_mode == 1.0f0
@@ -910,15 +874,15 @@ __precompile__(false)
 
         dt = Float32(min(maximum(diff(times)), 10.0))
 
-        function threshold_condition(u, t, integrator)
-            # Simple comparison, no complex operations
-            return u[1] > 5.0f0
-        end
+        # function threshold_condition(u, t, integrator)
+        #     # Simple comparison, no complex operations
+        #     return u[1] > 5.0f0
+        # end
 
-        function threshold_affect!(integrator)
-            # Simple state modification only
-            integrator.u = integrator.u .* 0.5f0
-        end
+        # function threshold_affect!(integrator)
+        #     # Simple state modification only
+        #     integrator.u = integrator.u .* 0.5f0
+        # end
 
         # Building different problems for different parameters
         batch = 1:n_samples_flat
