@@ -154,7 +154,7 @@ __precompile__(false)
         
         # CDFs
         cdf_X = cdf(dist_X, beta - k_gamma * s)
-        if thresh_mode == 1
+        if thresh_mode == 5
             cdf_Y = cdf(dist_Y, s)
         else
             cdf_Y = 1f0
@@ -209,14 +209,14 @@ __precompile__(false)
         dist_Y = Normal(mu_Y, sigma_Y)
         
         # CDFs
-        if thresh_mode == 1                         # Normal inhibition threshold
+        if thresh_mode == 9                         # Normal inhibition threshold
             cdf_X = cdf(dist_X, beta)
-        elseif thresh_mode == 2 || thresh_mode == 3 # Shifted inhibition threshold
+        elseif thresh_mode == 10 || thresh_mode == 12 # Shifted inhibition threshold
             cdf_X = cdf(dist_X, beta - k_gamma * s_mod)
         else                                        # No inhibition threshold
             cdf_X = 0f0
         end
-        if thresh_mode ==2 || thresh_mode == 3      # No induction threshold
+        if thresh_mode == 10                        # No induction threshold
             cdf_Y = 1f0
         else                                        # Normal induction threshold
             cdf_Y = cdf(dist_Y, s_mod)
@@ -272,9 +272,9 @@ __precompile__(false)
         dist_Y = Normal(mu_Y, sigma_Y)
         
         # CDFs
-        if thresh_mode == 1                         # Normal inhibition threshold
+        if thresh_mode == 6                         # Normal inhibition threshold
             cdf_X = cdf(dist_X, beta)
-        elseif thresh_mode == 2                     # Shifted inhibition threshold
+        elseif thresh_mode == 7                     # Shifted inhibition threshold
             cdf_X = cdf(dist_X, beta - k_gamma * s)
         else
             cdf_X = 0f0                             # No inhibition threshold
@@ -320,23 +320,23 @@ __precompile__(false)
             if model_idx == 1 # Independent induction/inhibition
                 val = integrand_point_0(coords_chunk, base, d, params_d, pbase, t)
             elseif model_idx == 4
-                val = integrand_point_B(coords_chunk, base, d, params_d, pbase, t, Int32(0))
+                val = integrand_point_B(coords_chunk, base, d, params_d, pbase, t, Int32(3))
             elseif model_idx == 5
-                val = integrand_point_B(coords_chunk, base, d, params_d, pbase, t, Int32(1))
+                val = integrand_point_B(coords_chunk, base, d, params_d, pbase, t, Int32(5))
             elseif model_idx == 6
-                val = integrand_point_C(coords_chunk, base, d, params_d, pbase, t, Int32(0))
+                val = integrand_point_C(coords_chunk, base, d, params_d, pbase, t, Int32(8))
             elseif model_idx == 7
-                val = integrand_point_C(coords_chunk, base, d, params_d, pbase, t, Int32(1))
+                val = integrand_point_C(coords_chunk, base, d, params_d, pbase, t, Int32(9))
             elseif model_idx == 10
-                val = integrand_point_E(coords_chunk, base, d, params_d, pbase, t, Int32(0))
+                val = integrand_point_E(coords_chunk, base, d, params_d, pbase, t, Int32(4))
             elseif model_idx == 11
-                val = integrand_point_E(coords_chunk, base, d, params_d, pbase, t, Int32(1))
+                val = integrand_point_E(coords_chunk, base, d, params_d, pbase, t, Int32(6))
             elseif model_idx == 22
-                val = integrand_point_C(coords_chunk, base, d, params_d, pbase, t, Int32(2))
+                val = integrand_point_C(coords_chunk, base, d, params_d, pbase, t, Int32(10))
             elseif model_idx == 23
-                val = integrand_point_C(coords_chunk, base, d, params_d, pbase, t, Int32(3))
+                val = integrand_point_C(coords_chunk, base, d, params_d, pbase, t, Int32(12))
             elseif model_idx == 26
-                val = integrand_point_E(coords_chunk, base, d, params_d, pbase, t, Int32(2))
+                val = integrand_point_E(coords_chunk, base, d, params_d, pbase, t, Int32(7))
             else
                 val = 0.0f0
             end
@@ -575,22 +575,7 @@ __precompile__(false)
         du2 = (rateI / V_free) * diffI
         du3 = -(rateC / V_ps) * diffC
 
-        # GPU-friendly germination logic (no control flow)
-        if thresh_mode == 1.0f0
-            # Inducer-dependent germination triggering
-            thresholds_met = Float32(s > omega)
-        elseif thresh_mode == 2.0f0
-            # 2-factor germination triggering
-            thresholds_met = Float32((c_in_I < gamma * c0) && (s > omega))
-        elseif thresh_mode == 3.0f0
-            # Shifted inhibitor-dependent germination triggering
-            thresholds_met = Float32(c_in_I < (gamma + k_gamma * s) * c0)
-        else
-            # 2-factor germination triggering with shifted gamma
-            thresholds_met = Float32((c_in_I < (gamma + k_gamma * s) * c0) && (s > omega))
-        end
-        germ_not_full = Float32(germ < 1.0f0)
-        du4 = thresholds_met * germ_not_full
+        du4 = 0.0f0
 
         return SVector{4}(du1, du2, du3, du4)
     end
@@ -776,9 +761,9 @@ __precompile__(false)
         # Determine threshold mode
         if model_idx in [2, 14, 17]
             thresh_mode = 0 # Inhibitor threshold
-        elseif model_idx in [8, 15, 18, 27]
+        elseif model_idx in [8, 18]
             thresh_mode = 1 # Inducer threshold
-        elseif model_idx in [3, 9, 16, 19, 28]
+        elseif model_idx in [3, 9, 19]
             thresh_mode = 2 # Both thresholds
         elseif model_idx in [12, 24] # Shifted inhibitor threshold
             thresh_mode = 3
@@ -788,6 +773,11 @@ __precompile__(false)
             thresh_mode = 5
         elseif model_idx in [21] # Both thresholds + shifted inducer threshold
             thresh_mode = 6
+            # INSERT RULE FOR 7
+        elseif model_idx in [27] # Inhibited inducer threshold
+            thresh_mode = 8
+        elseif model_idx in [28] # Both thresholds + inhibited inducer threshold
+            thresh_mode = 9
         end
 
         println(thresh_mode)
