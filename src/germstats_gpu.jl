@@ -553,11 +553,10 @@ __precompile__(false)
         A_s, V_s, V_free, V_ps, gamma, omega, c0 = p
 
         # Compute inducing signal s from c_in_C
-        s = c_in_C / (K_s + c_in_C + 1f-10)
-        s = min(max(s, 0.0f0), 1.0f0)
+        b = c_in_I / (K_b + c_in_I)
 
         # exponent = -(1 + lambda_I * c_in_I) * 0.001f0
-        exp_factor = exp(-lambda_I * c_in_I)
+        exp_factor = exp(-lambda_I * b)
         
         # Update permeability constants based on signal
         P_I_pert = P_I * exp_factor
@@ -780,7 +779,8 @@ __precompile__(false)
             thresh_mode = 9
         end
 
-        println(thresh_mode)
+        println("Model index: $model_idx")
+        println("Threshold mode: $thresh_mode")
 
         # Generate Sobol sample
         sobol_samples = QuasiMonteCarlo.sample(n_samples, sobol_dim, SobolSample())
