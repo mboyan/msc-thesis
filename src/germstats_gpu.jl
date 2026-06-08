@@ -448,6 +448,8 @@ __precompile__(false)
             params_sample = @view params[param_idx, :]
             K_s = params_sample[4]
             K_b = params_sample[5]
+            K_I = params_sample[6]
+            n = params_sample[7]
             k_gamma = params_sample[10]
             k_omega = params_sample[11]
             gamma = params_sample[16]
@@ -481,6 +483,15 @@ __precompile__(false)
             elseif thresh_mode == 6
                 # 2-factor germination triggering with shifted omega
                 condition = (c_in_I < gamma * c0) && (s > omega + k_omega * b)
+            elseif thresh_mode == 7
+                # 2-factor germination triggering with shifted gamma and omega
+                condition = (c_in_I < (gamma + k_gamma * s) * c0) && (s > omega + k_omega * b)
+            elseif thresh_mode == 8
+                # Inhibited inducer triggering germination
+                condition = s / (1 + (c_in_I / K_I)^n) > omega
+            elseif thresh_mode == 9
+                # 2-factor germination triggering with inhibited inducer
+                condition = s / (1 + (c_in_I / K_I)^n) > omega
             end
 
             # Check if germination occurs for this sample at this time point
@@ -552,10 +563,9 @@ __precompile__(false)
         P_I, P_C, c_ex, K_s, K_b, K_I, n, lambda_I, lambda_C, k_gamma, k_omega,
         A_s, V_s, V_free, V_ps, gamma, omega, c0 = p
 
-        # Compute inducing signal s from c_in_C
+        # Compute inhibitory signal b from c_in_I
         b = c_in_I / (K_b + c_in_I)
 
-        # exponent = -(1 + lambda_I * c_in_I) * 0.001f0
         exp_factor = exp(-lambda_I * b)
         
         # Update permeability constants based on signal
@@ -588,37 +598,30 @@ __precompile__(false)
         c_in_I, c_out_I, c_in_C, germ = u
     
         # Unpack parameters for this specific spore
-        thresh_mode, P_I, P_C, c_ex, K_s, K_b, K_I, n, lambda_I, lambda_C, k_gamma, k_omega, A_s, V_s, V_free, V_ps, gamma, omega, c0 = p
+        P_I, P_C, c_ex, K_s, K_b, K_I, n, lambda_I, lambda_C, k_gamma, k_omega, A_s, V_s, V_free, V_ps, gamma, omega, c0 = p
 
         # Compute inducing signal s from c_in_C
-        s = c_in_C / (K_s + c_in_C + 1f-10)
-        s = min(max(s, 0.0f0), 1.0f0)
+        s = c_in_C / (K_s + c_in_C)
         s = s / (1 + (c_in_I / K_I)^n)
 
-        exp_factor = exp(-lambda_C * s)
-        
-        # Update permeability constants based on signal
-        P_I_pert = 1000.0f0 * (1.0f0 - exp_factor) + P_I * exp_factor
-        P_C_pert = 1000.0f0 * (1.0f0 - exp_factor) + P_C * exp_factor
+        exponent = -(1 + lambda_C * s) * 0.001f0
+
+        # Limit permeability to Pmax = 1000 μm/s
+        PmaxA = 1000.0f0 * A_s
+
+        rateI = PmaxA * (-expm1(exponent * P_I))
+        rateC = PmaxA * (-expm1(exponent * P_C))
+
+        # Concentration differences
+        diffI = c_in_I - c_out_I
+        diffC = c_in_C - c_ex
         
         # ODE equations
-        du1 = -(P_I_pert * A_s / V_s) * (c_in_I - c_out_I)
-        du2 = (P_I_pert * A_s / V_free) * (c_in_I - c_out_I)
-        du3 = -(P_C_pert * A_s / V_ps) * (c_in_C - c_ex)
+        du1 = -(rateI / V_s) * diffI
+        du2 = (rateI / V_free) * diffI
+        du3 = -(rateC / V_ps) * diffC
 
-        # GPU-friendly germination logic (no control flow)
-        if thresh_mode == 0.0f0
-            # Inhibitor-dependent germination triggering
-            thresholds_met = Float32(c_in_I < gamma)
-        elseif thresh_mode == 1.0f0
-            # 2-factor germination triggering
-            thresholds_met = Float32(s > omega)
-        else
-            # 2-factor germination triggering with shifted gamma
-            thresholds_met = Float32((c_in_I < gamma * c0) && (s > omega))
-        end
-        germ_not_full = Float32(germ < 1.0f0)
-        du4 = thresholds_met * germ_not_full
+        du4 = 0.0f0
 
         return SVector{4}(du1, du2, du3, du4)
     end
@@ -631,11 +634,10 @@ __precompile__(false)
         c_in_I, c_out_I, c_in_C, germ = u
     
         # Unpack parameters for this specific spore
-        thresh_mode, P_I, P_C, c_ex, K_s, K_b, K_I, n, lambda_I, lambda_C, k_gamma, k_omega, A_s, V_s, V_free, V_ps, gamma, omega, c0 = p
+        P_I, P_C, c_ex, K_s, K_b, K_I, n, lambda_I, lambda_C, k_gamma, k_omega, A_s, V_s, V_free, V_ps, gamma, omega, c0 = p
 
         # Compute inducing signal s from c_in_C
-        s = c_in_C / (K_s + c_in_C + 1f-10)
-        s = min(max(s, 0.0f0), 1.0f0)
+        s = c_in_C / (K_s + c_in_C)
 
         exp_factor_I = exp(-lambda_I * s)
         exp_factor_C = exp(-lambda_C * c_in_I)
@@ -675,7 +677,7 @@ __precompile__(false)
         c_in_I, c_out_I, c_in_C, germ = u
     
         # Unpack parameters for this specific spore
-        thresh_mode, P_I, P_C, c_ex, K_s, K_b, K_I, n, lambda_I, lambda_C, k_gamma, k_omega, A_s, V_s, V_free, V_ps, gamma, omega, c0 = p
+        P_I, P_C, c_ex, K_s, K_b, K_I, n, lambda_I, lambda_C, k_gamma, k_omega, A_s, V_s, V_free, V_ps, gamma, omega, c0 = p
 
         # Compute inducing signal s from c_in_C
         s = c_in_C / (K_s + c_in_C + 1f-10)
@@ -773,9 +775,9 @@ __precompile__(false)
         elseif model_idx in [21] # Both thresholds + shifted inducer threshold
             thresh_mode = 6
             # INSERT RULE FOR 7
-        elseif model_idx in [27] # Inhibited inducer threshold
+        elseif model_idx in [15, 27] # Inhibited inducer threshold
             thresh_mode = 8
-        elseif model_idx in [28] # Both thresholds + inhibited inducer threshold
+        elseif model_idx in [16, 28] # Both thresholds + inhibited inducer threshold
             thresh_mode = 9
         end
 
@@ -858,6 +860,8 @@ __precompile__(false)
             1.0f0, 1.0f0, 1.0f0, 1.0f0, 1.0f0, 1.0f0,
             1.0f0, 1.0f0, 1.0f0
         ]
+
+        println("Constructing problem...")
         
         prob = ODEProblem{false}(ode_system, u0_dummy, times[end], p_dummy)
         monteprob = EnsembleProblem(prob, prob_func=prob_func, safetycopy=false)
@@ -881,6 +885,8 @@ __precompile__(false)
         end
         gpu_probs = adapt(CUDA.CUDABackend(), probs)
 
+        println("Starting solver...")
+
         sols_gpu = DiffEqGPU.vectorized_solve(
             gpu_probs,
             prob,
@@ -888,6 +894,8 @@ __precompile__(false)
             dt=dt,
             saveat=times
         )
+
+        println("Solutions complete.")
 
         # Extract germination info from solutions
         germinated = zeros(Bool, T, n_samples_flat)
@@ -1104,9 +1112,9 @@ __precompile__(false)
             germination = integrate_ode(param_arr, times, 13, ode_system_A)
         elseif model_alias == "feedback_inhibitor_inducer_perm_inhibitor_signal" # ACi
             germination = integrate_ode(param_arr, times, 14, ode_system_AC)
-        elseif model_alias == "feedback_inducer_inducer_perm_inhibitor_signal" # ACc !!!!!
+        elseif model_alias == "feedback_inducer_inducer_perm_inhibitor_signal" # ACc
             germination = integrate_ode(param_arr, times, 15, ode_system_AC)
-        elseif model_alias == "feedback_combined_inducer_perm_inhibitor_signal" # AC !!!!!
+        elseif model_alias == "feedback_combined_inducer_perm_inhibitor_signal" # AC
             germination = integrate_ode(param_arr, times, 16, ode_system_AC)
         elseif model_alias == "feedback_inhibitor_inhibitor_inducer_perm" # ADi !!!!!!!!!!!!
             germination = integrate_ode(param_arr, times, 17, ode_system_AD)
