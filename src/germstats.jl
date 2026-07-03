@@ -2622,14 +2622,12 @@ __precompile__(false)
         cinI = max(cinI, 0.0)
         
         s = p.f_maxs[1] / (1 + (cinI / p.K_fs[3]) ^ p.n) # f_maxs[1] is s, K_fs[3] is K_I
-        # g = (1 + s * cinC / (p.K_fs[2] + cinC)) * p.A # K_fs[2] is K_cC
         Δg = s * cinC / (p.K_fs[2] + cinC) # K_fs[2] is K_cC
         exponent = -(1 + Δg) * 1e-3
         PmaxA = 1000 * p.A # limit permeability to Pmax = 1000 μm/s
         rateI = PmaxA * (1 - exp(exponent * p.Pₛ_I)) 
         rateC = PmaxA * (1 - exp(exponent * p.Pₛ_C))
-        # if rateI / p.Vₛ > 1e6 || rateC / p.V_ps > 1e6 ||  rateI / p.V_out > 1e6 println("eeeeek!") end
-
+        
         diffI = cinI - coutI
         diffC = cinC - p.c₀_cs
         
