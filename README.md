@@ -11,6 +11,8 @@ The germination rate of _Aspergillus_ conidia is reportedly influenced by the in
 
 Finally, germination probability models incorporating induction and inhibition are proposed, representing heterogeneities in the spores through random variables. Parameter estimation through global and local optimisation highlights a promising model that fits experimental data under biologically sensible parameters. In this model, an inhibitor falls below a critical value, and an inhibitor-dependent inducing signal rises above an inhibitor-dependent threshold to trigger germination. In an attempt to explain data with both endogenously and exogenously driven 1-octen-3-ol inhibition, no appropriate parameter combination is found, leading to the supposition that in vivo inhibition is more complex than merely saturating the medium with the compound.
 
+The full text can be found [here](https://github.com/mboyan/msc-thesis/blob/main/Reports/250620_BoyanMihaylov_CLS_Thesis.pdf).
+
 ## Code
 
 The experiments for this thesis are programmed in Julia and are presented in the Jupyter notebooks in the `Notebooks` folder. The code is structured in designated modules, which can be found in the `src` folder. To make sure you have all dependencies installed, you can run the following code in the Julia REPL:
