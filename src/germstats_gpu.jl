@@ -15,7 +15,152 @@ __precompile__(false)
     using QuasiMonteCarlo
 
     export compute_germination
+    export load_model_collection_ordered
 
+
+    """
+    Loads the entire collection of germination models,
+    including their aliases, combination IDs and textual descriptions.
+    output:
+        aliases - model identifier strings
+        combination_IDs - a string containing the interaction identifiers (A, B, C, D and E)
+        descriptions - textual descriptions of the models
+        param_key_sets - arrays of keys of the parameters used in each model
+    """
+    function load_model_collection_ordered()
+        
+        models = Dict(
+            # "T" => ["test",                                                                     "Toy model for testing\n",
+            #             [:Pₛ, :neg_δ_ω, :μ_ω]],
+            "0" => [1, "independent",                                                              "Independent inducer/inhibitor model\n",
+                        [:K_cC, :Pₛ, :Pₛ_cs, :neg_δ_γ, :neg_δ_ω, :μ_γ, :μ_ω]],
+            "Ai" => [2, "feedback_inhibitor_inducer_perm",                                         "Inhibitor-dependent germination with\ninducer-dependent permeability",
+                        [:K_cC, :Pₛ, :Pₛ_cs, :s, :neg_δ_γ, :neg_δ_ψ, :μ_γ, :μ_ψ]],
+            "A" => [3, "feedback_combined_inducer_perm",                                           "2-factor germination with\ninducer-dependent permeability",
+                        [:K_cC, :Pₛ, :Pₛ_cs, :s, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "Bi" => [4, "inhibitor_thresh",                                                        "Inhibitor-dependent induction threshold\n",
+                        [:K_cC, :Pₛ, :Pₛ_cs, :k_C, :neg_δ_γ, :μ_γ]],
+            "B" => [5, "combined_inhibitor_thresh",                                                "2-factor germination with inducer-dependent\ninhibitor threshold",
+                        [:K_cC, :Pₛ, :Pₛ_cs, :k_C, :neg_δ_γ, :neg_δ_ω, :μ_γ, :μ_ω]],
+            "Cc" => [6, "inducer_signal" ,                                                         "Inhibitor-dependent induction signal\n",
+                        [:K_I, :K_cC, :Pₛ, :Pₛ_cs, :n, :neg_δ_ψ, :neg_δ_ω, :μ_ψ, :μ_ω]],
+            "C" => [7, "combined_inducer_signal" ,                                                 "2-factor germination with inhibitor-dependent\ninduction signal",
+                        [:K_I, :K_cC, :Pₛ, :Pₛ_cs, :n, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "Dc" => [8, "feedback_inducer_inhibitor_perm",                                         "Inducer-dependent germination with\ninhibitor-dependent permeability",
+                        [:K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :neg_δ_ψ, :neg_δ_ω, :μ_ψ, :μ_ω]],
+            "D" => [9, "feedback_combined_inhibitor_perm",                                         "2-factor germination with\ninhibitor-dependent permeability",
+                        [:K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "Ec" => [10, "inducer_thresh",                                                          "Inhibitor-dependent induction threshold\n",
+                        [:K_cC, :K_cI, :Pₛ, :Pₛ_cs, :k_I, :neg_δ_ψ, :neg_δ_ω, :μ_ψ, :μ_ω]],
+            "E" => [11, "combined_inducer_thresh",                                                  "2-factor germination with inhibitor-dependent\ninduction threshold",
+                        [:K_cC, :K_cI, :Pₛ, :Pₛ_cs, :k_I, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "ABi" => [12, "feedback_inhibitor_inducer_perm_thresh",                                 "Inhibitor-dependent germination with\ninducer-dependent permeability/threshold",
+                        [:K_cC, :Pₛ, :Pₛ_cs, :k_C, :s, :neg_δ_γ, :neg_δ_ψ, :μ_γ, :μ_ψ]],
+            "AB" => [13, "feedback_combined_inducer_perm_thresh",                                   "2-factor germination with\ninducer-dependent permeability/threshold",
+                        [:K_cC, :Pₛ, :Pₛ_cs, :k_C, :s, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "ACi" => [14, "feedback_inhibitor_inducer_perm_inhibitor_signal",                       "Inhibitor-dependent germination with\ninducer-dep. permeability / inhibitor-dep. signal",
+                        [:K_I, :K_cC, :Pₛ, :Pₛ_cs, :n, :s, :neg_δ_γ, :neg_δ_ψ, :μ_γ, :μ_ψ]],
+            "ACc" => [15, "feedback_inducer_inducer_perm_inhibitor_signal",                         "Inducer-dependent germination with\ninducer-dep. permeability / inhibitor-dep. signal",
+                        [:K_I, :K_cC, :Pₛ, :Pₛ_cs, :n, :s, :neg_δ_ψ, :neg_δ_ω, :μ_ψ, :μ_ω]],
+            "AC" => [16, "feedback_combined_inducer_perm_inhibitor_signal",                         "2-factor germination with\ninducer-dep. permeability / inhibitor-dep. signal",
+                        [:K_I, :K_cC, :Pₛ, :Pₛ_cs, :n, :s, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "ADi" => [17, "feedback_inhibitor_inhibitor_inducer_perm",                              "Inhibitor-dependent germination with\ninhibitor+inducer-dependent permeability",
+                        [:K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :s, :neg_δ_γ, :neg_δ_ψ, :μ_γ, :μ_ψ]],
+            "ADc" => [18, "feedback_inducer_inhibitor_inducer_perm",                                "Inducer-dependent germination with\ninhibitor+inducer-dependent permeability",
+                        [:K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :s, :neg_δ_ψ, :neg_δ_ω, :μ_ψ, :μ_ω]],
+            "AD" => [19, "feedback_combined_inhibitor_inducer_perm",                                "2-factor germination with\ninhibitor+inducer-dependent permeability",
+                        [:K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :s, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "AEc" => [20, "feedback_inducer_inhibitor_thresh_inducer_perm",                         "Inducer-dependent germination with\ninhibitor-dep. thresh., inducer-dep. perm.",
+                        [:K_cC, :K_cI, :Pₛ, :Pₛ_cs, :k_I, :s, :neg_δ_ψ, :neg_δ_ω, :μ_ψ, :μ_ω]],
+            "AE" => [21, "feedback_combined_inhibitor_thresh_inducer_perm",                         "2-factor germination with\ninhibitor-dep. thresh., inducer-dep. perm.",
+                        [:K_cC, :K_cI, :Pₛ, :Pₛ_cs, :k_I, :s, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "BCi" => [22, "inhibitor_thresh_inducer_signal",                                        "Inhibitor-dependent germination with\ninhibitor-dep. signal, inducer-dep. thresh",
+                        [:K_I, :K_cC, :Pₛ, :Pₛ_cs, :k_C, :n, :neg_δ_γ, :neg_δ_ψ, :μ_γ, :μ_ψ]],
+            "BC" => [23, "combined_inhibitor_thresh_inducer_signal",                                "2-factor germination with\ninhibitor-dep. signal, inducer-dep. thresh",
+                        [:K_I, :K_cC, :Pₛ, :Pₛ_cs, :k_C, :n, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "BDi" => [24, "feedback_inhibitor_inducer_thresh_inhibitor_perm",                       "Inhibitor-dependent germination with\ninducer-dep. thresh, inhibitor-dep. perm.",
+                        [:K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :k_C, :neg_δ_γ, :neg_δ_ψ, :μ_γ, :μ_ψ]],
+            "BD" => [25, "feedback_combined_inducer_thresh_inhibitor_perm",                         "2-factor germination with\ninducer-dep. thresh., inhibitor-dep. perm.",
+                        [:K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :k_C, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "BE" => [26, "combined_inhibitor_thresh_inducer_thresh",                                "2-factor germination with\ninducer-dep. thresh., inhibitor-dep. thresh.",
+                        [:K_cC, :K_cI, :Pₛ, :Pₛ_cs, :k_C, :k_I, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "CDc" => [27, "feedback_inducer_inhibitor_perm_signal",                                 "Inducer-dependent germination with\ninhibitor-dependent perm. and induction signal",
+                        [:K_I, :K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :neg_δ_ψ, :neg_δ_ω, :μ_ψ, :μ_ω, :n]],
+            "CD" => [28, "feedback_combined_inhibitor_perm_signal",                                 "2-factor germination with\ninhibitor-dependent perm. and induction signal",
+                        [:K_I, :K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω, :n]],
+            "CEc" => [29, "inducer",                                                                "Inhibitor-dependent induction threshold and signal\n",
+                        [:K_I, :K_cC, :K_cI, :Pₛ, :Pₛ_cs, :k_I, :n, :neg_δ_ψ, :neg_δ_ω, :μ_ψ, :μ_ω]],
+            "CE" => [30, "combined_inducer",                                                        "Combined model with inhibitor-dependent\ninduction threshold and signal",
+                        [:K_I, :K_cC, :K_cI, :Pₛ, :Pₛ_cs, :k_I, :n, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "DEc" => [31, "feedback_inducer_inhibitor_perm_thresh",                                 "Inducer-dependent germination with\ninhibitor-dependent perm. and induction thresh.",
+                        [:K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :k_I, :neg_δ_ψ, :neg_δ_ω, :μ_ψ, :μ_ω]],
+            "DE" => [32, "feedback_combined_inhibitor_perm_thresh",                                 "2-factor germination with\ninhibitor-dependent perm. and induction thresh.",
+                        [:K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :k_I, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "ABCi" => [33, "feedback_inhibitor_inducer_perm_thresh_inhibitor_signal",               "Inhibitor-dependent germination with\ninducer-dep. perm./thresh., inhibitor-dep. signal",
+                        [:K_I, :K_cC, :Pₛ, :Pₛ_cs, :k_C, :n, :s, :neg_δ_γ, :neg_δ_ψ, :μ_γ, :μ_ψ]],
+            "ABC" => [34, "feedback_combined_inducer_perm_thresh_inhibitor_signal",                 "2-factor germination with\ninducer-dep. perm./thresh., inhibitor-dep. signal",
+                        [:K_I, :K_cC, :Pₛ, :Pₛ_cs, :k_C, :n, :s, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "ABDi" => [35, "feedback_inhibitor_inducer_perm_thresh_inhibitor_perm",                 "Inhibitor-dependent germination with\ninducer-dep. perm./thresh., inhibitor-dep. perm.",
+                        [:K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :k_C, :s, :neg_δ_γ, :neg_δ_ψ, :μ_γ, :μ_ψ]],
+            "ABD" => [36, "feedback_combined_inducer_perm_thresh_inhibitor_perm",                   "2-factor germination with\ninducer-dep. perm./thresh., inhibitor-dep. perm.",
+                        [:K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :k_C, :s, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "ABE" => [37, "feedback_combined_inducer_perm_thresh_inhibitor_thresh",                 "2-factor germination with\ninducer-dep. pern./thresh., inhibitor-dep. thresh.",
+                        [:K_cC, :K_cI, :Pₛ, :Pₛ_cs, :k_C, :k_I, :s, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "ACDi" => [38, "feedback_inhibitor_inhibitor_inducer_perm_inhibitor_signal",            "Inhibitor-dependent germination with\ninhibitor/inducer-dep. perm, inhibitor-dep. signal",
+                        [:K_I, :K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :n, :s, :neg_δ_γ, :neg_δ_ψ, :μ_γ, :μ_ψ]],
+            "ACDc" => [39, "feedback_inducer_inhibitor_inducer_perm_inhibitor_signal",              "Inducer-dependent germination with\ninhibitor/inducer-dep. perm, inhibitor-dep. signal",
+                        [:K_I, :K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :n, :s, :neg_δ_ψ, :neg_δ_ω, :μ_ψ, :μ_ω]],
+            "ACD" => [40, "feedback_combined_inhibitor_inducer_perm_inhibitor_signal",              "2-factor germination with\ninhibitor/inducer-dep. perm, inhibitor-dep. signal",
+                        [:K_I, :K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :n, :s, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "ACEc" => [41, "feedback_inducer_inducer_perm_inhibitor_thresh_signal",                 "Inducer-dependent germination with\ninducer-dep. perm., inhbitor-dep. thresh./signal",
+                        [:K_I, :K_cC, :K_cI, :Pₛ, :Pₛ_cs, :k_I, :n, :s, :neg_δ_ψ, :neg_δ_ω, :μ_ψ, :μ_ω]],
+            "ACE" => [42, "feedback_combined_inducer_perm_inhibitor_thresh_signal",                 "2-factor germination with\ninducer-dep. perm., inhbitor-dep. thresh./signal",
+                        [:K_I, :K_cC, :K_cI, :Pₛ, :Pₛ_cs, :k_I, :n, :s, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "ADEc" => [43, "feedback_inducer_inhibitor_inducer_perm_inhibitor_thresh",              "Inhibitor-dependent germination with\ninhibitor/inducer-dep. perm, inhibitor-dep thresh.",
+                        [:K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :k_I, :s, :neg_δ_γ, :neg_δ_ψ, :μ_γ, :μ_ψ]],
+            "ADE" => [44, "feedback_combined_inhibitor_inducer_perm_inhibitor_thresh",              "2-factor germination with\ninhibitor/inducer-dep. perm, inhibitor-dep thresh.",
+                        [:K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :k_I, :s, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "BCDi" => [45, "feedback_inhibitor_inducer_thresh_inhibitor_perm_signal",               "Inhibitor-dependent germination with\ninducer-dep. thresh., inhibitor-dep. perm./signal",
+                        [:K_I, :K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :k_C, :n, :neg_δ_γ, :neg_δ_ψ, :μ_γ, :μ_ψ]],
+            "BCD" => [46, "feedback_combined_inducer_thresh_inhibitor_perm_signal",                 "2-factor germination with\ninducer-dep. thresh., inhibitor-dep. perm./signal",
+                        [:K_I, :K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :k_C, :n, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "BCE" => [47, "combined_inhibitor_thresh_signal_inducer_thresh",                        "2-factor germination with\ninhibitor-dep. thresh./signal, inducer-dep. thresh",
+                        [:K_I, :K_cC, :K_cI, :Pₛ, :Pₛ_cs, :k_C, :k_I, :n, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "BDE" => [48, "feedback_combined_inhibitor_perm_thresh_inducer_thresh",                 "2-factor germination with\ninhibitor-dep. perm./thresh., inducer-dep. thresh.",
+                        [:K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :k_C, :k_I, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "CDEc" => [49, "feedback_inducer_inhibitor_perm_thresh_signal",                         "Inducer-dependent germination with\ninhibitor-dep. perm./thresh./signal",
+                        [:K_I, :K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :k_I, :n, :neg_δ_ψ, :neg_δ_ω, :μ_ψ, :μ_ω]],
+            "CDE" => [50, "feedback_combined_inhibitor_perm_thresh_signal",                         "2-factor germination with\ninhibitor-dep. perm./thresh./signal",
+                        [:K_I, :K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :k_I, :n, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "ABCDi" => [51, "feedback_inhibitor_inducer_perm_thresh_inhibitor_perm_signal",         "Inhibitor-dependent germination with\ninducer-dep. perm./thresh., inhibitor-dep. perm./signal",
+                        [:K_I, :K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :k_C, :n, :s, :neg_δ_γ, :neg_δ_ψ, :μ_γ, :μ_ψ]],
+            "ABCD" => [52, "feedback_combined_inducer_perm_thresh_inhibitor_perm_signal",           "2-factor germination with\ninducer-dep. perm./thresh., inhibitor-dep. perm./signal",
+                        [:K_I, :K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :k_C, :n, :s, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "ABCE" => [53, "feedback_combined_inhibitor_thresh_signal_inducer_perm_thresh",         "2-factor germination with inhibitor-dep.\nthresh./signal, inducer-dep. perm./thresh.",
+                        [:K_I, :K_cC, :K_cI, :Pₛ, :Pₛ_cs, :k_C, :k_I, :n, :s, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "ABDE" => [54,"feedback_combined_inhibitor_perm_thresh_inducer_perm_thresh",           "2-factor germination with inhibitor/inducer-dep. perm,\ninhibitor/inducer-dep. thresholds",
+                        [:K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :k_C, :k_I, :s, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "ACDEc" => [55, "feedback_inducer_inhibitor_perm_thresh_signal_inducer_perm",           "Inducer-dependent germination with inhibitor/inducer-dep.\nperm., inhibitor-dep. thresh./signal",
+                        [:K_I, :K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :k_I, :n, :s, :neg_δ_ψ, :neg_δ_ω, :μ_ψ, :μ_ω]],
+            "ACDE" => [56, "feedback_combined_inhibitor_perm_thresh_signal_inducer_perm",            "2-factor germination with inhibitor/inducer-dep. perm.,\ninhibitor-dep. thresh./signal",
+                        [:K_I, :K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :k_I, :n, :s, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "BCDE" => [57, "feedback_combined_inhibitor_perm_thresh_signal_inducer_thresh",         "2-factor germination with inhibitor/inducer-dep. thresh.,\ninhibitor-dep. perm./signal",
+                        [:K_I, :K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :k_C, :k_I, :n, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]],
+            "ABCDE" => [58, "feedback_combined_inhibitor_perm_thresh_signal_inducer_perm_thresh",   "2-factor germination with inhibitor/inducer-dep.\nperm./thresh., inhibitor-dep. signal",
+                        [:K_I, :K_cC, :K_cI, :Pₛ, :Pₛ_cs, :b, :k_C, :k_I, :n, :s, :neg_δ_γ, :neg_δ_ψ, :neg_δ_ω, :μ_γ, :μ_ψ, :μ_ω]] 
+        )
+
+        combination_IDs = collect(keys(models))
+        indices = [models[id][1] for id in combination_IDs]
+        indices_sorted = sortperm(indices)
+        combination_IDs = combination_IDs[indices_sorted]
+
+        aliases = [models[id][2] for id in combination_IDs]
+        descriptions = [models[id][3] for id in combination_IDs]
+        param_key_sets = [models[id][4] for id in combination_IDs]
+
+        return aliases, combination_IDs, descriptions, param_key_sets
+    end
 
     """
     Build tensor-product coords & weights
@@ -80,6 +225,8 @@ __precompile__(false)
         dist_X = Normal(mu_X, sigma_X)
         dist_Y = Normal(mu_Y, sigma_Y)
 
+        cdf_X = 1.0f0
+        cdf_Y = 0.0f0
         if thresh_mode == 0
             # Inhibitor-dependent germination triggering
             cdf_X = cdf(dist_X, beta)
@@ -108,7 +255,7 @@ __precompile__(false)
             # 2-factor germination triggering with shifted omega
             cdf_X = cdf(dist_X, beta)
             cdf_Y = cdf(dist_Y, s - k_omega * b)
-        else#if thresh_mode == 7
+        elseif thresh_mode == 7 || thresh_mode == 14 # s_mod supplied if thresh_mode == 14
             # 2-factor germination triggering with shifted gamma and omega
             cdf_X = cdf(dist_X, beta - k_gamma * s)
             cdf_Y = cdf(dist_Y, s - k_omega * b)
@@ -278,7 +425,7 @@ __precompile__(false)
         c_in_I = beta * c_0
         b = c_in_I / (K_b + c_in_I)
 
-        if thresh_mode == 11 || thresh_mode == 13
+        if thresh_mode == 11 || thresh_mode == 13 || thresh_mode == 14
             s_mod = s / (1 + (beta * c_0 / K_I)^n)
             val = eval_threshold_integrand(thresh_mode, beta, s_mod, 0.0f0, mu_X, sigma_X, mu_Y, sigma_Y, k_gamma, k_omega)
         else
@@ -342,6 +489,8 @@ __precompile__(false)
                 val = integrand_point_E(coords_chunk, base, d, params_d, pbase, t, Int32(11))
             elseif model_idx == 30 # 2-factor germination with shifted induction threshold and inhibited inducer
                 val = integrand_point_E(coords_chunk, base, d, params_d, pbase, t, Int32(13))
+            elseif model_idx == 47 # 2-factor germination with shifted thresholds and inhibited inducer
+                val = integrand_point_E(coords_chunk, base, d, params_d, pbase, t, Int32(14))
             else
                 val = 0.0f0
             end
@@ -497,6 +646,21 @@ __precompile__(false)
             elseif thresh_mode == 9
                 # 2-factor germination triggering with inhibited inducer
                 condition = (c_in_I < gamma * c0) && (s / (1 + (c_in_I / K_I)^n) > omega)
+            elseif thresh_mode == 10
+                # Shifted inhibitor-dependent germination triggering with inhibited inducer
+                condition = c_in_I < (gamma + k_gamma * (s / (1 + (c_in_I / K_I)^n))) * c0
+            elseif thresh_mode == 11
+                # Shifted inducer-dependent germination triggering with inhibited inducer
+                condition = s / (1 + (c_in_I / K_I)^n) > omega + k_omega * b
+            elseif thresh_mode == 12
+                # 2-factor germination triggering with shifted inhibitor-dependent induction threshold and inhibited inducer
+                condition = (c_in_I < (gamma + k_gamma * (s / (1 + (c_in_I / K_I)^n))) * c0) && (s / (1 + (c_in_I / K_I)^n) > omega)
+            elseif thresh_mode == 13
+                # 2-factor germination triggering with shifted inducer-dependent induction threshold and inhibited inducer
+                condition = (c_in_I < gamma * c0) && (s / (1 + (c_in_I / K_I)^n) > omega + k_omega * b)
+            elseif thresh_mode == 14
+                # 2-factor germination triggering with both shifted thresholds and inhibited inducer
+                condition = (c_in_I < (gamma + k_gamma * (s / (1 + (c_in_I / K_I)^n))) * c0) && (s / (1 + (c_in_I / K_I)^n) > omega + k_omega * b)
             end
 
             # Check if germination occurs for this sample at this time point
@@ -626,6 +790,33 @@ __precompile__(false)
         return calc_diffs(c_in_I, c_in_C, c_out_I, c_ex, rateI, rateC, V_s, V_free, V_ps)
     end
 
+    """
+    System of coupled ODEs for the feedback model
+    of inducer and inhibitor-dependent cell wall permeability
+    and inhibitor-suppressed inducing signal.
+    """
+    function ode_system_ACD(u, p, t)
+        c_in_I, c_out_I, c_in_C = u
+    
+        # Unpack parameters for this specific spore
+        P_I, P_C, c_ex, K_s, K_b, K_I, n, lambda_I, lambda_C, k_gamma, k_omega, A_s, V_s, V_free, V_ps, gamma, omega, c0 = p
+
+        # Compute inducing signal s from c_in_C and inhibitory signal b from c_in_I
+        s = c_in_C / (K_s + c_in_C)
+        s = s / (1 + (c_in_I / K_I)^n)
+        b = c_in_I / (K_b + c_in_I)
+
+        exponent = -(1 + lambda_C * s) * 0.001f0
+        exp_factor = exp(-lambda_I * b)
+
+        # Limit permeability to Pmax = 1000 μm/s
+        PmaxA = 1000.0f0 * A_s
+        rateI = PmaxA * (-expm1(exponent * P_I)) * exp_factor
+        rateC = PmaxA * (-expm1(exponent * P_C)) * exp_factor
+
+        return calc_diffs(c_in_I, c_in_C, c_out_I, c_ex, rateI, rateC, V_s, V_free, V_ps)
+    end
+
     # """
     # System of coupled ODEs for the feedback model
     # of inhibitor-dependent cell wall permeability
@@ -699,25 +890,38 @@ __precompile__(false)
         K_b = params[:, 22]
 
         # Determine threshold mode
-        if model_idx in [2, 14, 17]
+        if model_idx in [2, 14, 17, 38]
             thresh_mode = 0 # Inhibitor threshold
         elseif model_idx in [8, 18]
             thresh_mode = 1 # Inducer threshold
         elseif model_idx in [3, 9, 19]
             thresh_mode = 2 # Both thresholds
-        elseif model_idx in [12, 24] # Shifted inhibitor threshold
-            thresh_mode = 3
-        elseif model_idx in [20, 31] # Shifted inducer threshold
-            thresh_mode = 4
-        elseif model_idx in [13, 25] # Both thresholds + shifted inhibitor threshold
-            thresh_mode = 5
-        elseif model_idx in [21, 32] # Both thresholds + shifted inducer threshold
-            thresh_mode = 6
-            # INSERT RULE FOR 7
-        elseif model_idx in [15, 27] # Inhibited inducer threshold
-            thresh_mode = 8
-        elseif model_idx in [16, 28] # Both thresholds + inhibited inducer threshold
-            thresh_mode = 9
+        elseif model_idx in [12, 24, 35]
+            thresh_mode = 3 # Shifted inhibitor threshold
+        elseif model_idx in [20, 31, 43]
+            thresh_mode = 4 # Shifted inducer threshold
+        elseif model_idx in [13, 25, 36]
+            thresh_mode = 5 # Both thresholds + shifted inhibitor threshold
+        elseif model_idx in [21, 32, 44]
+            thresh_mode = 6 # Both thresholds + shifted inducer threshold
+        elseif model_idx in [37, 48, 54]
+            thresh_mode = 7 # Both shifted thresholds
+        elseif model_idx in [15, 27, 39]
+            thresh_mode = 8 # Inhibited inducer threshold
+        elseif model_idx in [16, 28, 40]
+            thresh_mode = 9 # Both thresholds + inhibited inducer threshold
+        elseif model_idx in [33, 45, 51]
+            thresh_mode = 10 # Shifted inhibitor threshold with inhibited inducer
+        elseif model_idx in [41, 49, 55]
+            thresh_mode = 11 # Shifted inducer threshold with inhibited inducer
+        elseif model_idx in [34, 42, 46, 52]
+            thresh_mode = 12 # Both thresholds + shifted inhibitor threshold with inhibited inducer
+        elseif model_idx in [50, 56]
+            thresh_mode = 13 # Both thresholds + shifted inducer threshold with inhibited inducer
+        elseif model_idx in [53, 57, 58]
+            thresh_mode = 14 # Both shifted thresholds with inhibited inducer
+        else
+            error("Unknown model index: $model_idx")
         end
 
         println("Model index: $model_idx")
@@ -1087,6 +1291,60 @@ __precompile__(false)
             germination = integrate_ode(param_arr, times, 31, ode_system_D)
         elseif model_alias == "feedback_combined_inhibitor_perm_thresh" # DE
             germination = integrate_ode(param_arr, times, 32, ode_system_D)
+        elseif model_alias == "feedback_inhibitor_inducer_perm_thresh_inhibitor_signal" # ABCi
+            germination = integrate_ode(param_arr, times, 33, ode_system_AC)
+        elseif model_alias == "feedback_combined_inducer_perm_thresh_inhibitor_signal" # ABC
+            germination = integrate_ode(param_arr, times, 34, ode_system_AC)
+        elseif model_alias == "feedback_inhibitor_inducer_perm_thresh_inhibitor_perm" # ABDi
+            germination = integrate_ode(param_arr, times, 35, ode_system_AD)
+        elseif model_alias == "feedback_combined_inducer_perm_thresh_inhibitor_perm" # ABD
+            germination = integrate_ode(param_arr, times, 36, ode_system_AD)
+        elseif model_alias == "feedback_combined_inducer_perm_thresh_inhibitor_thresh" # ABE
+            germination = integrate_ode(param_arr, times, 37, ode_system_A)
+        elseif model_alias == "feedback_inhibitor_inhibitor_inducer_perm_inhibitor_signal" # ACDi
+            germination = integrate_ode(param_arr, times, 38, ode_system_ACD)
+        elseif model_alias == "feedback_inducer_inhibitor_inducer_perm_inhibitor_signal" # ACDc
+            germination = integrate_ode(param_arr, times, 39, ode_system_ACD)
+        elseif model_alias == "feedback_combined_inhibitor_inducer_perm_inhibitor_signal" # ACD
+            germination = integrate_ode(param_arr, times, 40, ode_system_ACD)
+        elseif model_alias == "feedback_inducer_inducer_perm_inhibitor_thresh_signal" # ACEc
+            germination = integrate_ode(param_arr, times, 41, ode_system_AC)
+        elseif model_alias == "feedback_combined_inducer_perm_inhibitor_thresh_signal" # ACE
+            germination = integrate_ode(param_arr, times, 42, ode_system_AC)
+        elseif model_alias == "feedback_inducer_inhibitor_inducer_perm_inhibitor_thresh" # ADEc
+            germination = integrate_ode(param_arr, times, 43, ode_system_AD)
+        elseif model_alias == "feedback_combined_inhibitor_inducer_perm_inhibitor_thresh" # ADE
+            germination = integrate_ode(param_arr, times, 44, ode_system_AD)
+        elseif model_alias == "feedback_inhibitor_inducer_thresh_inhibitor_perm_signal" # BCDi
+            germination = integrate_ode(param_arr, times, 45, ode_system_D)
+        elseif model_alias == "feedback_combined_inducer_thresh_inhibitor_perm_signal" # BCD
+            germination = integrate_ode(param_arr, times, 46, ode_system_D)
+        elseif model_alias == "combined_inhibitor_thresh_signal_inducer_thresh" # BCE
+            germination = integrate_batched(8, 3, param_arr, times, 47)
+        elseif model_alias == "feedback_combined_inhibitor_perm_thresh_inducer_thresh" # BDE
+            germination = integrate_ode(param_arr, times, 48, ode_system_D)
+        elseif model_alias == "feedback_inducer_inhibitor_perm_thresh_signal" # CDEc
+            germination = integrate_ode(param_arr, times, 49, ode_system_D)
+        elseif model_alias == "feedback_combined_inhibitor_perm_thresh_signal" # CDE
+            germination = integrate_ode(param_arr, times, 50, ode_system_D)
+        elseif model_alias == "feedback_inhibitor_inducer_perm_thresh_inhibitor_perm_signal" # ABCDi
+            germination = integrate_ode(param_arr, times, 51, ode_system_ACD)
+        elseif model_alias == "feedback_combined_inducer_perm_thresh_inhibitor_perm_signal" # ABCD
+            germination = integrate_ode(param_arr, times, 52, ode_system_ACD)
+        elseif model_alias == "feedback_combined_inhibitor_thresh_signal_inducer_perm_thresh" # ABCE
+            germination = integrate_ode(param_arr, times, 53, ode_system_AC)
+        elseif model_alias == "feedback_combined_inhibitor_perm_thresh_inducer_perm_thresh" # ABDE
+            germination = integrate_ode(param_arr, times, 54, ode_system_AD)
+        elseif model_alias == "feedback_inducer_inhibitor_perm_thresh_signal_inducer_perm" # ACDEc
+            germination = integrate_ode(param_arr, times, 55, ode_system_ACD)
+        elseif model_alias == "feedback_combined_inhibitor_perm_thresh_signal_inducer_perm" # ACDE
+            germination = integrate_ode(param_arr, times, 56, ode_system_ACD)
+        elseif model_alias == "feedback_combined_inhibitor_perm_thresh_signal_inducer_thresh" # BCDE
+            germination = integrate_ode(param_arr, times, 57, ode_system_D)
+        elseif model_alias == "feedback_combined_inhibitor_perm_thresh_signal_inducer_perm_thresh" # ABCDE
+            germination = integrate_ode(param_arr, times, 58, ode_system_ACD)
+        else
+            error("Unknown model alias: $model_alias")
         end
     end
 

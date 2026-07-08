@@ -133,8 +133,8 @@ __precompile__(false)
     function load_model_collection()
         
         models = Dict(
-            "T" => ["test",                                                                     "Toy model for testing\n",
-                        [:Pₛ, :neg_δ_ω, :μ_ω]],
+            # "T" => ["test",                                                                     "Toy model for testing\n",
+            #             [:Pₛ, :neg_δ_ω, :μ_ω]],
             "0" => ["independent",                                                              "Independent inducer/inhibitor model\n",
                         [:K_cC, :Pₛ, :Pₛ_cs, :neg_δ_γ, :neg_δ_ω, :μ_γ, :μ_ω]],
             "Ai" => ["feedback_inhibitor_inducer_perm",                                         "Inhibitor-dependent germination with\ninducer-dependent permeability",
@@ -734,8 +734,8 @@ __precompile__(false)
             thresh_crit = thresh_criterion_inducer_shift
             @note_param f_maxs = [prms[:b], prms[:s]]
             @note_param K_fs = [prms[:K_cI], prms[:K_cC]]
-            @note_param thresh_means = [prms[:μ_γ]]
-            @note_param thresh_sds = [prms[:σ_γ]]
+            @note_param thresh_means = [prms[:μ_ω]]
+            @note_param thresh_sds = [prms[:σ_ω]]
             @note_param germ_response = gresp_feedback(ode_func, thresh_crit, sobol_pts, times, geom_samples, prms[:c₀_cs], f_maxs, prms[:Pₛ], prms[:Pₛ_cs], K_fs, prms[:μ_ψ], prms[:σ_ψ], thresh_means, thresh_sds; ks=[prms[:k_I]])
             
         elseif model_type == "feedback_combined_inhibitor_inducer_perm_inhibitor_thresh" # ADE
