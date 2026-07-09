@@ -1992,7 +1992,7 @@ __precompile__(false)
         p0[2] = log(p0[2])
         p0[3] = log(p0[3])
 
-        try
+        # try
             fit = curve_fit(dantigny_wrapper, times, germ_response, p0)
             params = coef(fit)
             rmse = sqrt(mean(residuals(fit) .^ 2))
@@ -2007,6 +2007,8 @@ __precompile__(false)
                 end
             end
 
+            # println(estimate_covar(fit))
+
             # if rmse > 0.03 # average deviation > 3 percentage points in germination
             #     println("High RMSE: $rmse")
             # end
@@ -2018,10 +2020,10 @@ __precompile__(false)
 
             return params, rmse, param_uncertainties
 
-        catch
-            # Handle sharp immediate steps
-            return [germ_response[end], NaN, NaN], NaN, [NaN, NaN, NaN]
-        end
+        # catch
+        #     # Handle sharp immediate steps
+        #     return [germ_response[end], NaN, NaN], NaN, [NaN, NaN, NaN]
+        # end
     end
 
 
@@ -3949,616 +3951,629 @@ __precompile__(false)
     # ===============
     # ===== BMA =====
     # ===============
-    """
-    Parameter configuration for a single model.
-    Holds names, anchor values, and prior bounds.
-    """
-    struct ModelConfig
-        name        :: String
-        param_names :: Vector{Symbol}
-        anchor      :: Vector{Float64}      # example_params — known plausible point
-        lower       :: Vector{Float64}      # prior lower bounds (log scale for LogNormal params)
-        upper       :: Vector{Float64}      # prior upper bounds (log scale for LogNormal params)
-        log_scaled  :: Vector{Bool}         # true if parameter is LogNormal (sweep in log space)
-        target_pairs:: Vector{Tuple{Int,Int}} # pairs to test for interactions (from algebraic analysis)
-    end
-
-    """
-    Generate a 1D sweep for parameter j.
-    All other parameters held at anchor.
-    Returns (sweep_values, parameter_vectors).
-    """
-    function make_1d_sweep(config::ModelConfig, j::Int, n_points::Int=100)
-        d = length(config.anchor)
-        sweep_vals = range(config.lower[j], config.upper[j], length=n_points)
-
-        # Each column is a full parameter vector
-        param_matrix = repeat(config.anchor, 1, n_points)  # d × n_points
-        param_matrix[j, :] .= sweep_vals
-
-        return collect(sweep_vals), param_matrix
-    end
-
-    """
-    Generate a 2D grid for parameters j and k.
-    All other parameters held at anchor.
-    Returns (sweep_j, sweep_k, parameter_matrix) where
-    parameter_matrix is d × (n_j * n_k).
-    """
-    function make_2d_sweep(config::ModelConfig, j::Int, k::Int,
-                        n_j::Int=50, n_k::Int=50)
-        d = length(config.anchor)
-        sweep_j = range(config.lower[j], config.upper[j], length=n_j)
-        sweep_k = range(config.lower[k], config.upper[k], length=n_k)
-
-        n_total = n_j * n_k
-        param_matrix = repeat(config.anchor, 1, n_total)
-
-        idx = 1
-        for vj in sweep_j, vk in sweep_k
-            param_matrix[j, idx] = vj
-            param_matrix[k, idx] = vk
-            idx += 1
-        end
-
-        return collect(sweep_j), collect(sweep_k), param_matrix
-    end
-
-    """
-    Experimental setting for a model (density, measurement times)
-    """
-    struct ExperimentSetting
-        times       ::Vector{Float64}
-        density     ::Float64
-        def_params  ::Dict
-    end
-
-    """
-    Convert parameter vector from sweep space to model input space.
-    Log-scaled parameters are exponentiated before passing to model.
-    """
-    function to_model_params(config::ModelConfig, param_vec::Vector{Float64},)
-        d = length(param_vec)
-        model_params = Dict{Symbol, Float64}()
-        for i in 1:d
-            val = config.log_scaled[i] ? exp(param_vec[i]) : param_vec[i]
-            model_params[config.param_names[i]] = val
-        end
-        return model_params
-    end
-
-    """
-    Compute weight penalising half-saturation times
-    beyond a plausible experimental time.
-    """
-    function experimental_relevance_weight(τ_g::Float64, T_max::Float64; margin::Float64=3.0)
-        excess_logs = max(0.0, log(τ_g / T_max) / log(margin))
-        return exp(-excess_logs^2)
-    end
-
-    """
-    Thin wrapper: given a parameter matrix (d × N), run the mechanistic
-    model on each column and return an output matrix (n_outputs × N).
-    """
-    function run_model_batch(config::ModelConfig, param_matrix::Matrix{Float64}, exp_setting::ExperimentSetting) # REMEMBER TO SCALE DENSITY AND TIMES!!!!!!!!!!!!!!!!!!!!!!!
-        n_cols = size(param_matrix, 2)
-        outputs = Vector{Vector{Float64}}(undef, n_cols)
-        stderr  = Vector{Vector{Float64}}(undef, n_cols)
-
-        model_alias = config.name
-        density = exp_setting.density
-        times = exp_setting.times
-        times_sec = times .* 3600
-        p_out = Vector{Float64}(undef, length(times))
-
-        Threads.@threads for n in 1:n_cols
-            params = to_model_params(config, param_matrix[:, n])
-            p_out .= compute_gresp_xform_params(model_alias, times_sec, density, params, exp_setting.def_params)
-            d, rmse, se = fit_dantigny_to_germination_curve(p_out, times)
-            # if any(d[2:3] .> 1e6) && any(se[2:3] .< 100)
-            #     # d = [d[1], NaN, NaN]
-            #     println("Large d=$d with (weirdly) SE $se")
-            # end
-            outputs[n] = d
-            stderr[n]  = se
-        end
-
-        # Stack into n_outputs × N matrix; replace failed runs with NaN
-        n_out = length(outputs[1])
-        result = fill(NaN, n_out, n_cols)
-        se_mat = fill(NaN, n_out, n_cols)
-        for n in 1:n_cols
-            if !any(isnan.(outputs[n])) && !any(isinf.(outputs[n]))
-                result[:, n] .= outputs[n]
-                se_mat[:, n] .= stderr[n]
-            end
-        end
-        return result, se_mat
-    end
-
-    """
-    Compute the anchor output y0 (scalar per output dimension).
-    """
-    function compute_anchor_output(config::ModelConfig, exp_setting::ExperimentSetting)
-        anchor_params = to_model_params(config, config.anchor)
-        # println("anchor_params: $anchor_params")
-        p_out = compute_gresp_xform_params(config.name, exp_setting.times .* 3600, exp_setting.density, anchor_params, exp_setting.def_params)
-        d_vals, rmse, uncert = fit_dantigny_to_germination_curve(p_out, exp_setting.times)
-        return d_vals  # [p_max, tau_g, nu]
-    end
-
-    """
-    Estimate first-order HDMR term for parameter j:
-        f_j(θ_j) = y(θ_j; θ*_rest) - y0
-
-    Returns:
-        sweep_vals  : the values of θ_j swept
-        f_j_vals    : n_outputs × n_points matrix of f_j values
-        y_vals      : n_outputs × n_points raw outputs (for score computation)
-    """
-    function compute_first_order_term(config::ModelConfig, j::Int,
-                                    y0::Vector{Float64},
-                                    exp_setting::ExperimentSetting;
-                                    n_points::Int=100)
-        sweep_vals, param_matrix = make_1d_sweep(config, j, n_points)
-        y_vals, se_mat = run_model_batch(config, param_matrix, exp_setting)
-
-        # f_j = y - y0, broadcast over columns
-        f_j_vals = y_vals .- y0
-
-        return sweep_vals, f_j_vals, y_vals, se_mat
-    end
-
-    """
-    Estimate pairwise interaction term for parameters j and k:
-        f_jk(θ_j, θ_k) = y(θ_j, θ_k; θ*_rest) - f_j(θ_j) - f_k(θ_k) - y0
-
-    This requires first-order terms to already be computed.
-    Returns interaction term as n_outputs × (n_j*n_k) matrix.
-    """
-    function compute_pairwise_term(config::ModelConfig, j::Int, k::Int,
-                                    y0::Vector{Float64},
-                                    f_j_interp::Function,   # interpolated f_j
-                                    f_k_interp::Function,   # interpolated f_k
-                                    w_j_interp, w_k_interp,
-                                    exp_setting::ExperimentSetting;
-                                    n_j::Int=50, n_k::Int=50)
-
-        sweep_j, sweep_k, param_matrix = make_2d_sweep(config, j, k, n_j, n_k)
-        y_vals, se_mat = run_model_batch(config, param_matrix, exp_setting)
-
-        n_total = n_j * n_k
-        f_jk_vals = similar(y_vals)
-        w_jk_from_1d = zeros(n_total)   # ← track 1D weight contribution
-
-        idx = 1
-        for vj in sweep_j, vk in sweep_k
-            f_j = f_j_interp(vj)   # interpolated first-order term at vj
-            f_k = f_k_interp(vk)   # interpolated first-order term at vk
-            f_jk_vals[:, idx] .= y_vals[:, idx] .- f_j .- f_k .- y0
-            # Weight from 1D reliability: a pairwise point is only as reliable
-            # as the first-order terms subtracted from it
-            w_jk_from_1d[idx] = min(w_j_interp(vj), w_k_interp(vk))
-            idx += 1
-        end
-
-        return sweep_j, sweep_k, f_jk_vals, y_vals, se_mat, w_jk_from_1d
-    end
-
-    """
-    Simple linear interpolation of a first-order term for use in pairwise computation.
-    f_j_vals is n_outputs × n_points; sweep_vals is length n_points.
-    Returns a function: sweep_value → Vector{Float64} of length n_outputs.
-    """
-    function make_interpolator(sweep_vals::Vector{Float64}, f_j_vals::Matrix{Float64})
-        return function(x::Float64)
-            # Find bracketing indices
-            idx = searchsortedfirst(sweep_vals, x)
-            idx = clamp(idx, 2, length(sweep_vals))
-            lo, hi = idx-1, idx
-            # If either bracket is non-finite, return NaN (filtered downstream)
-            if !all(isfinite, f_j_vals[:, lo]) || !all(isfinite, f_j_vals[:, hi])
-                return fill(NaN, size(f_j_vals, 1))
-            end
-            t = (x - sweep_vals[lo]) / (sweep_vals[hi] - sweep_vals[lo])
-            return (1-t) .* f_j_vals[:, lo] .+ t .* f_j_vals[:, hi]
-        end
-    end
-
-    function make_scalar_interpolator(sweep_vals::Vector{Float64}, w::Vector{Float64})
-        return function(x::Float64)
-            idx = searchsortedfirst(sweep_vals, x)
-            idx = clamp(idx, 2, length(sweep_vals))
-            lo, hi = idx-1, idx
-            t = (x - sweep_vals[lo]) / (sweep_vals[hi] - sweep_vals[lo])
-            return (1-t) * w[lo] + t * w[hi]
-        end
-    end
-
-    """
-    Compute variance-based sensitivity indices from HDMR terms.
-
-    Returns:
-        S_first  : d × n_outputs  — first-order Sobol indices
-        S_pair   : n_pairs × n_outputs — pairwise interaction indices
-        S_total  : d × n_outputs  — total-order indices (first + all interactions)
-        V_total  : n_outputs — total output variance (from all terms)
-    """
-    function compute_sensitivity_indices(
-            f_first::Vector{Matrix{Float64}},   # length d, each n_outputs × n_points
-            f_pairs::Vector{Matrix{Float64}},   # length n_pairs, each n_outputs × n_j*n_k
-            target_pairs::Vector{Tuple{Int,Int}},
-            d::Int, n_outputs::Int)
-
-        # Variances of first-order terms
-        V_first = zeros(d, n_outputs)
-        for j in 1:d
-            for o in 1:n_outputs
-                valid = .!isnan.(f_first[j][o, :])
-                V_first[j, o] = var(f_first[j][o, valid])
-            end
-        end
-
-        # Variances of pairwise terms
-        V_pair = zeros(length(target_pairs), n_outputs)
-        for (p, (j, k)) in enumerate(target_pairs)
-            for o in 1:n_outputs
-                valid = .!isnan.(f_pairs[p][o, :])
-                V_pair[p, o] = var(f_pairs[p][o, valid])
-            end
-        end
-
-        # Total variance (sum of all terms — HDMR is an exact decomposition)
-        V_total = vec(sum(V_first, dims=1)) .+ vec(sum(V_pair, dims=1))
-        V_total .= max.(V_total, 1e-12)  # avoid division by zero
-
-        # Normalised indices
-        S_first = V_first ./ V_total'
-        S_pair  = V_pair  ./ V_total'
-
-        # Total-order: first-order + all interactions involving that parameter
-        S_total = copy(S_first)
-        for (p, (j, k)) in enumerate(target_pairs)
-            S_total[j, :] .+= S_pair[p, :]
-            S_total[k, :] .+= S_pair[p, :]
-        end
-
-        return S_first, S_pair, S_total, V_total
-    end
-
-    function weighted_var(x::Vector{Float64}, w::Vector{Float64})
-        # Remove NaN entries
-        valid = .!isnan.(x) .& .!isinf.(x) .& .!isnan.(w) .& (w .> 0)
-        x_v, w_v = x[valid], w[valid]
-        w_norm = w_v ./ sum(w_v)
-        mean_w = dot(w_norm, x_v)
-        return dot(w_norm, (x_v .- mean_w).^2)
-    end
-
-    function compute_sensitivity_indices_weighted(
-            f_first::Vector{Matrix{Float64}}, f_pairs::Vector{Matrix{Float64}},
-            weights_first::Vector{Vector{Float64}}, weights_pairs::Vector{Vector{Float64}},
-            target_pairs::Vector{Tuple{Int,Int}}, d::Int, n_outputs::Int)
-
-        V_first = zeros(d, n_outputs)
-        for j in 1:d
-            for o in 1:n_outputs
-                V_first[j, o] = weighted_var(f_first[j][o, :], weights_first[j])
-            end
-        end
-
-        V_pair = zeros(length(target_pairs), n_outputs)
-        for (p, _) in enumerate(target_pairs)
-            for o in 1:n_outputs
-                V_pair[p, o] = weighted_var(f_pairs[p][o, :], weights_pairs[p])
-            end
-        end
-
-        V_total = vec(sum(V_first, dims=1)) .+ vec(sum(V_pair, dims=1))
-        V_total .= max.(V_total, 1e-12)
-
-        S_first = V_first ./ V_total'
-        S_pair  = V_pair  ./ V_total'
-
-        S_total = copy(S_first)
-        for (p, (j, k)) in enumerate(target_pairs)
-            S_total[j, :] .+= S_pair[p, :]
-            S_total[k, :] .+= S_pair[p, :]
-        end
-
-        return S_first, S_pair, S_total, V_total
-    end
-
-    """
-    Effective dimensionality: number of parameters with S_total > threshold.
-    """
-    function effective_dimensionality(S_total::Matrix{Float64};
-                                    threshold::Float64=0.05)
-        # Average over outputs, then count
-        S_mean = vec(mean(S_total, dims=2))
-        return sum(S_mean .> threshold), S_mean
-    end
-
-    """
-    Compute Mahalanobis-style z-score against lab data for each sweep sample.
-    lab_means: n_outputs vector
-    lab_covs:  n_outputs × n_outputs covariance matrix of lab uncertainty
-
-    Returns z_scores: length N vector (NaN for failed model runs).
-    """
-    function compute_predictive_scores(y_vals::Matrix{Float64},
-                                    lab_means::Vector{Float64},
-                                    lab_cov::Matrix{Float64})
-        n_outputs, N = size(y_vals)
-        Σ_inv = inv(lab_cov)
-        z_scores = fill(NaN, N)
-
-        for n in 1:N
-            if !any(isnan.(y_vals[:, n]))
-                diff = y_vals[:, n] .- lab_means
-                z_scores[n] = dot(diff, Σ_inv * diff)
-            end
-        end
-        return z_scores
-    end
-
-    """
-    Approximate log marginal likelihood from sweep samples via importance sampling.
-    Prior density cancels since sweeps are uniform on [lower, upper].
-    """
-    function approx_log_marginal_likelihood(z_scores::Vector{Float64})
-        valid = .!isnan.(z_scores)
-        if sum(valid) == 0
-            return -Inf
-        end
-        log_likelihoods = -0.5 .* z_scores[valid]
-        # Log-sum-exp for numerical stability
-        lmax = maximum(log_likelihoods)
-        return lmax + log(mean(exp.(log_likelihoods .- lmax)))
-    end
-
-    """
-    Compute weights based on standard error from Dantigny fitting
-    """
-    function compute_weights(se_mat::Matrix{Float64}; λ::Float64=1.0)
-        # Use maximum SE across outputs as the plausibility signal
-        max_se = vec(maximum(se_mat, dims=1))
-        return 1.0 ./ (1.0 .+ λ .* max_se)
-    end
-
-    struct HDMRResult
-        config          :: ModelConfig
-        S_first         :: Matrix{Float64}   # d × n_outputs
-        S_pair          :: Matrix{Float64}   # n_pairs × n_outputs
-        S_total         :: Matrix{Float64}   # d × n_outputs
-        S_mean          :: Vector{Float64}   # d — averaged over outputs
-        d_eff           :: Int
-        log_ml          :: Float64           # approximate log marginal likelihood
-        z_scores_all    :: Vector{Float64}   # from all sweep samples combined
-    end
-
-    """
-    Perform High-Dimensional Model Representation (HDMR) on a specific model.
-    Workflow:
-        1. Define anchor point and parameter ranges
-        2. Compute first-order terms (single-parameter sweeps)
-        3. Compute pairwise interaction terms (targeted 2D grids)
-        4. Compute Sobol-style variance-based sensitivity indices
-        5. Rank models by effective dimensionality and predictive score
-    inputs:
-        config (ModelConfig) - model configuration
-        exp_setting (ExperimentSetting) - experimental setting (time frames and density)
-        lab_means (Vector{Float64}) - mean Dantigny values across the experimental settings
-        lab_cov (Matrix{Float64}) - covariance matrix of lab Dantigny values
-        n_first (Int) - number of points for the first-order sweeps 
-        n_pair (Int) - number of points for the first-order sweeps 
-    """
-    function run_hdmr(config::ModelConfig,
-                    exp_setting::ExperimentSetting,
-                    lab_means::Vector{Float64},
-                    lab_cov::Matrix{Float64};
-                    n_first::Int=100,
-                    n_pair::Int=50)
-
-        d = length(config.anchor)
-        n_outputs = length(lab_means)
-
-        println("\n=== Running HDMR: $(config.name) ===")
-
-        # --- Anchor ---
-        println("Computing anchor output...")
-        y0 = compute_anchor_output(config, exp_setting)
-        println("  y0 = $y0")
-
-        # --- First-order sweeps ---
-        println("First-order sweeps ($d parameters × $n_first points)...")
-        f_first   = Vector{Matrix{Float64}}(undef, d)
-        w_first   = Vector{Vector{Float64}}(undef, d)
-        interps   = Vector{Function}(undef, d)
-        w_interps = Vector{Function}(undef, d)
-        all_y_vals = Matrix{Float64}[]
-
-        for j in 1:d
-            print("  θ_$(config.param_names[j])... ")
-            sweep_vals, f_j_vals, y_vals, se_mat = compute_first_order_term(
-                config, j, y0, exp_setting; n_points=n_first)
-            f_first[j] = f_j_vals
-
-            λ = 1.0 / median(filter(!isnan, se_mat))
-            # println(typeof(compute_weights(se_mat; λ)))
-            w_first[j] = min.(compute_weights(se_mat; λ), experimental_relevance_weight.(y_vals[2, :], 168.0)) # T_max = 168 hours
-            w_first[j][isnan.(w_first[j])] .= 0.0 # Zero NaN weights
-            # println("1st order weights: $(w_first[j])")
-
-            # Nullify f_j_vals at points with zero weight — prevents large finite
-            # values from propagating through the interpolator into f_jk
-            f_first[j][:, w_first[j] .== 0.0] .= NaN
-
-            w_interps[j] = make_scalar_interpolator(sweep_vals, w_first[j])
-
-            # large_vals = any(y_vals .> 1e6; dims=1) |> vec
-            # println("Weights for large vals $(y_vals[:, large_vals]):\n$(w_first[j][large_vals]))")
-
-            interps[j] = make_interpolator(sweep_vals, f_j_vals)
-            push!(all_y_vals, y_vals)
-            println("done")
-        end
-
-        # --- Pairwise sweeps ---
-        n_pairs = length(config.target_pairs)
-        f_pairs = Vector{Matrix{Float64}}(undef, n_pairs)
-        w_pairs = Vector{Vector{Float64}}(undef, n_pairs)
-        println("Pairwise sweeps ($n_pairs targeted pairs × $(n_pair^2) points each)...")
-
-        for (p, (j, k)) in enumerate(config.target_pairs)
-            print("  ($(config.param_names[j]), $(config.param_names[k]))... ")
-            _, _, f_jk_vals, y_vals, se_mat, w_from_1d = compute_pairwise_term(
-                config, j, k, y0, interps[j], interps[k], w_interps[j], w_interps[k], exp_setting;
-                n_j=n_pair, n_k=n_pair)
-            f_pairs[p] = f_jk_vals
-
-            λ = 1.0 / median(filter(!isnan, se_mat))
-            w_se    = compute_weights(se_mat; λ)
-            w_range = experimental_relevance_weight.(y_vals[2, :], 168.0)
-
-            # All three must agree: pairwise run reliable, output in range, 1D terms reliable
-            w_pairs[p] = min.(w_se, w_range, w_from_1d)
-            w_pairs[p][isnan.(w_pairs[p])] .= 0.0
-            # println("2nd order weights: $(w_pairs[p])")
-
-            f_pairs[p][:, w_pairs[p] .== 0.0] .= NaN
-
-            # large_vals = any(y_vals .> 1e6; dims=1) |> vec
-            # println("Weights for large vals $(y_vals[:, large_vals]):\n$(w_pairs[p][large_vals]))")
-
-            push!(all_y_vals, y_vals)
-            println("done")
-        end
-
-        # --- Sensitivity indices ---
-        println("Computing sensitivity indices...")
-        S_first, S_pair, S_total, V_total = compute_sensitivity_indices_weighted(
-            f_first, f_pairs, w_first, w_pairs, config.target_pairs, d, n_outputs)
-        println("S_first = $S_first")
-        println("S_pair = $S_pair")
-        println("S_total = $S_total")
-        println("V_total = $V_total")
-        d_eff, S_mean = effective_dimensionality(S_total)
-
-        # --- Predictive scores across all sweep samples ---
-        println("Computing predictive scores...")
-        all_y = hcat(all_y_vals...)
-        z_scores = compute_predictive_scores(all_y, lab_means, lab_cov)
-        log_ml = approx_log_marginal_likelihood(z_scores)
-
-        println("  Effective dimensionality: $d_eff / $d")
-        println("  Approx. log marginal likelihood: $(round(log_ml, digits=2))")
-
-        return HDMRResult(config, S_first, S_pair, S_total, S_mean,
-                        d_eff, log_ml, z_scores)
-    end
-
-    """
-    Perform sensitivity analysis by:
-    1. Analysing parameter coupling via HDMR
-    2. Running Bayesian Model Averaging
-    """
-    function sensitivity_analysis(def_params, bounds_abs, bounds_rel, anchor_dict)
-
-        # Load data
-        aliases, combination_IDs, descriptions, param_key_sets = load_model_collection()
-        times, sources, densities, lab_means, CIs, CI_widths, uncert_lab = unpack_ijadpanahsaravi_data()
-
-        n_src = length(sources)
-        n_dens = length(densities)
+    # """
+    # Parameter configuration for a single model.
+    # Holds names, anchor values, and prior bounds.
+    # """
+    # struct ModelConfig
+    #     name        :: String
+    #     param_names :: Vector{Symbol}
+    #     anchor      :: Vector{Float64}      # example_params — known plausible point
+    #     lower       :: Vector{Float64}      # prior lower bounds (log scale for LogNormal params)
+    #     upper       :: Vector{Float64}      # prior upper bounds (log scale for LogNormal params)
+    #     log_scaled  :: Vector{Bool}         # true if parameter is LogNormal (sweep in log space)
+    #     target_pairs:: Vector{Tuple{Int,Int}} # pairs to test for interactions (from algebraic analysis)
+    # end
+
+    # """
+    # Generate a 1D sweep for parameter j.
+    # All other parameters held at anchor.
+    # Returns (sweep_values, parameter_vectors).
+    # """
+    # function make_1d_sweep(config::ModelConfig, j::Int, n_points::Int=100)
+    #     d = length(config.anchor)
+    #     sweep_vals = range(config.lower[j], config.upper[j], length=n_points)
+
+    #     # Each column is a full parameter vector
+    #     param_matrix = repeat(config.anchor, 1, n_points)  # d × n_points
+    #     param_matrix[j, :] .= sweep_vals
+
+    #     return collect(sweep_vals), param_matrix
+    # end
+
+    # """
+    # Generate a 2D grid for parameters j and k.
+    # All other parameters held at anchor.
+    # Returns (sweep_j, sweep_k, parameter_matrix) where
+    # parameter_matrix is d × (n_j * n_k).
+    # """
+    # function make_2d_sweep(config::ModelConfig, j::Int, k::Int,
+    #                     n_j::Int=50, n_k::Int=50)
+    #     d = length(config.anchor)
+    #     sweep_j = range(config.lower[j], config.upper[j], length=n_j)
+    #     sweep_k = range(config.lower[k], config.upper[k], length=n_k)
+
+    #     n_total = n_j * n_k
+    #     param_matrix = repeat(config.anchor, 1, n_total)
+
+    #     idx = 1
+    #     for vj in sweep_j, vk in sweep_k
+    #         param_matrix[j, idx] = vj
+    #         param_matrix[k, idx] = vk
+    #         idx += 1
+    #     end
+
+    #     return collect(sweep_j), collect(sweep_k), param_matrix
+    # end
+
+    # """
+    # Experimental setting for a model (density, measurement times)
+    # """
+    # struct ExperimentSetting
+    #     times       ::Vector{Float64}
+    #     density     ::Float64
+    #     def_params  ::Dict
+    # end
+
+    # """
+    # Convert parameter vector from sweep space to model input space.
+    # Log-scaled parameters are exponentiated before passing to model.
+    # """
+    # function to_model_params(config::ModelConfig, param_vec::Vector{Float64},)
+    #     d = length(param_vec)
+    #     model_params = Dict{Symbol, Float64}()
+    #     for i in 1:d
+    #         val = config.log_scaled[i] ? exp(param_vec[i]) : param_vec[i]
+    #         model_params[config.param_names[i]] = val
+    #     end
+    #     return model_params
+    # end
+
+    # """
+    # Compute weight penalising half-saturation times
+    # beyond a plausible experimental time.
+    # """
+    # function experimental_relevance_weight(τ_g::Float64, T_max::Float64; margin::Float64=3.0)
+    #     excess_logs = max(0.0, log(τ_g / T_max) / log(margin))
+    #     return exp(-excess_logs^2)
+    # end
+
+    # """
+    # Thin wrapper: given a parameter matrix (d × N), run the mechanistic
+    # model on each column and return an output matrix (n_outputs × N).
+    # """
+    # function run_model_batch(config::ModelConfig, param_matrix::Matrix{Float64}, exp_setting::ExperimentSetting) # REMEMBER TO SCALE DENSITY AND TIMES!!!!!!!!!!!!!!!!!!!!!!!
+    #     n_cols = size(param_matrix, 2)
+    #     outputs = Vector{Vector{Float64}}(undef, n_cols)
+    #     stderr  = Vector{Vector{Float64}}(undef, n_cols)
+
+    #     model_alias = config.name
+    #     density = exp_setting.density
+    #     times = exp_setting.times
+    #     times_sec = times .* 3600
+    #     p_out = Vector{Float64}(undef, length(times))
+
+    #     Threads.@threads for n in 1:n_cols
+    #         params = to_model_params(config, param_matrix[:, n])
+    #         p_out .= compute_gresp_xform_params(model_alias, times_sec, density, params, exp_setting.def_params)
+    #         d, rmse, se = fit_dantigny_to_germination_curve(p_out, times)
+    #         # if any(d[2:3] .> 1e6) && any(se[2:3] .< 100)
+    #         #     # d = [d[1], NaN, NaN]
+    #         #     println("Large d=$d with (weirdly) SE $se")
+    #         # end
+    #         outputs[n] = d
+    #         stderr[n]  = se
+    #     end
+
+    #     # Stack into n_outputs × N matrix; replace failed runs with NaN
+    #     n_out = length(outputs[1])
+    #     result = fill(NaN, n_out, n_cols)
+    #     se_mat = fill(NaN, n_out, n_cols)
+    #     for n in 1:n_cols
+    #         if !any(isnan.(outputs[n])) && !any(isinf.(outputs[n]))
+    #             result[:, n] .= outputs[n]
+    #             se_mat[:, n] .= stderr[n]
+    #         end
+    #     end
+    #     return result, se_mat
+    # end
+
+    # """
+    # Compute the anchor output y0 (scalar per output dimension).
+    # """
+    # function compute_anchor_output(config::ModelConfig, exp_setting::ExperimentSetting)
+    #     anchor_params = to_model_params(config, config.anchor)
+    #     # println("anchor_params: $anchor_params")
+    #     p_out = compute_gresp_xform_params(config.name, exp_setting.times .* 3600, exp_setting.density, anchor_params, exp_setting.def_params)
+    #     d_vals, rmse, uncert = fit_dantigny_to_germination_curve(p_out, exp_setting.times)
+    #     return d_vals  # [p_max, tau_g, nu]
+    # end
+
+    # """
+    # Estimate first-order HDMR term for parameter j:
+    #     f_j(θ_j) = y(θ_j; θ*_rest) - y0
+
+    # Returns:
+    #     sweep_vals  : the values of θ_j swept
+    #     f_j_vals    : n_outputs × n_points matrix of f_j values
+    #     y_vals      : n_outputs × n_points raw outputs (for score computation)
+    # """
+    # function compute_first_order_term(config::ModelConfig, j::Int,
+    #                                 y0::Vector{Float64},
+    #                                 exp_setting::ExperimentSetting;
+    #                                 n_points::Int=100)
+    #     sweep_vals, param_matrix = make_1d_sweep(config, j, n_points)
+    #     y_vals, se_mat = run_model_batch(config, param_matrix, exp_setting)
+
+    #     # f_j = y - y0, broadcast over columns
+    #     f_j_vals = y_vals .- y0
+
+    #     return sweep_vals, f_j_vals, y_vals, se_mat
+    # end
+
+    # """
+    # Estimate pairwise interaction term for parameters j and k:
+    #     f_jk(θ_j, θ_k) = y(θ_j, θ_k; θ*_rest) - f_j(θ_j) - f_k(θ_k) - y0
+
+    # This requires first-order terms to already be computed.
+    # Returns interaction term as n_outputs × (n_j*n_k) matrix.
+    # """
+    # function compute_pairwise_term(config::ModelConfig, j::Int, k::Int,
+    #                                 y0::Vector{Float64},
+    #                                 f_j_interp::Function,   # interpolated f_j
+    #                                 f_k_interp::Function,   # interpolated f_k
+    #                                 w_j_interp, w_k_interp,
+    #                                 exp_setting::ExperimentSetting;
+    #                                 n_j::Int=50, n_k::Int=50)
+
+    #     sweep_j, sweep_k, param_matrix = make_2d_sweep(config, j, k, n_j, n_k)
+    #     y_vals, se_mat = run_model_batch(config, param_matrix, exp_setting)
+
+    #     n_total = n_j * n_k
+    #     f_jk_vals = similar(y_vals)
+    #     w_jk_from_1d = zeros(n_total)   # ← track 1D weight contribution
+
+    #     idx = 1
+    #     for vj in sweep_j, vk in sweep_k
+    #         f_j = f_j_interp(vj)   # interpolated first-order term at vj
+    #         f_k = f_k_interp(vk)   # interpolated first-order term at vk
+    #         f_jk_vals[:, idx] .= y_vals[:, idx] .- f_j .- f_k .- y0
+    #         # Weight from 1D reliability: a pairwise point is only as reliable
+    #         # as the first-order terms subtracted from it
+    #         w_jk_from_1d[idx] = min(w_j_interp(vj), w_k_interp(vk))
+    #         idx += 1
+    #     end
+
+    #     return sweep_j, sweep_k, f_jk_vals, y_vals, se_mat, w_jk_from_1d
+    # end
+
+    # """
+    # Simple linear interpolation of a first-order term for use in pairwise computation.
+    # f_j_vals is n_outputs × n_points; sweep_vals is length n_points.
+    # Returns a function: sweep_value → Vector{Float64} of length n_outputs.
+    # """
+    # function make_interpolator(sweep_vals::Vector{Float64}, f_j_vals::Matrix{Float64})
+    #     return function(x::Float64)
+    #         # Find bracketing indices
+    #         idx = searchsortedfirst(sweep_vals, x)
+    #         idx = clamp(idx, 2, length(sweep_vals))
+    #         lo, hi = idx-1, idx
+    #         # If either bracket is non-finite, return NaN (filtered downstream)
+    #         if !all(isfinite, f_j_vals[:, lo]) || !all(isfinite, f_j_vals[:, hi])
+    #             return fill(NaN, size(f_j_vals, 1))
+    #         end
+    #         t = (x - sweep_vals[lo]) / (sweep_vals[hi] - sweep_vals[lo])
+    #         return (1-t) .* f_j_vals[:, lo] .+ t .* f_j_vals[:, hi]
+    #     end
+    # end
+
+    # function make_scalar_interpolator(sweep_vals::Vector{Float64}, w::Vector{Float64})
+    #     return function(x::Float64)
+    #         idx = searchsortedfirst(sweep_vals, x)
+    #         idx = clamp(idx, 2, length(sweep_vals))
+    #         lo, hi = idx-1, idx
+    #         t = (x - sweep_vals[lo]) / (sweep_vals[hi] - sweep_vals[lo])
+    #         return (1-t) * w[lo] + t * w[hi]
+    #     end
+    # end
+
+    # """
+    # Compute variance-based sensitivity indices from HDMR terms.
+
+    # Returns:
+    #     S_first  : d × n_outputs  — first-order Sobol indices
+    #     S_pair   : n_pairs × n_outputs — pairwise interaction indices
+    #     S_total  : d × n_outputs  — total-order indices (first + all interactions)
+    #     V_total  : n_outputs — total output variance (from all terms)
+    # """
+    # function compute_sensitivity_indices(
+    #         f_first::Vector{Matrix{Float64}},   # length d, each n_outputs × n_points
+    #         f_pairs::Vector{Matrix{Float64}},   # length n_pairs, each n_outputs × n_j*n_k
+    #         target_pairs::Vector{Tuple{Int,Int}},
+    #         d::Int, n_outputs::Int)
+
+    #     # Variances of first-order terms
+    #     V_first = zeros(d, n_outputs)
+    #     for j in 1:d
+    #         for o in 1:n_outputs
+    #             valid = .!isnan.(f_first[j][o, :])
+    #             V_first[j, o] = var(f_first[j][o, valid])
+    #         end
+    #     end
+
+    #     # Variances of pairwise terms
+    #     V_pair = zeros(length(target_pairs), n_outputs)
+    #     for (p, (j, k)) in enumerate(target_pairs)
+    #         for o in 1:n_outputs
+    #             valid = .!isnan.(f_pairs[p][o, :])
+    #             V_pair[p, o] = var(f_pairs[p][o, valid])
+    #         end
+    #     end
+
+    #     # Total variance (sum of all terms — HDMR is an exact decomposition)
+    #     V_total = vec(sum(V_first, dims=1)) .+ vec(sum(V_pair, dims=1))
+    #     V_total .= max.(V_total, 1e-12)  # avoid division by zero
+
+    #     # Normalised indices
+    #     S_first = V_first ./ V_total'
+    #     S_pair  = V_pair  ./ V_total'
+
+    #     # Total-order: first-order + all interactions involving that parameter
+    #     S_total = copy(S_first)
+    #     for (p, (j, k)) in enumerate(target_pairs)
+    #         S_total[j, :] .+= S_pair[p, :]
+    #         S_total[k, :] .+= S_pair[p, :]
+    #     end
+
+    #     return S_first, S_pair, S_total, V_total
+    # end
+
+    # function weighted_var(x::Vector{Float64}, w::Vector{Float64})
+    #     # Remove NaN entries
+    #     valid = .!isnan.(x) .& .!isinf.(x) .& .!isnan.(w) .& (w .> 0)
+    #     x_v, w_v = x[valid], w[valid]
+    #     w_norm = w_v ./ sum(w_v)
+    #     mean_w = dot(w_norm, x_v)
+    #     return dot(w_norm, (x_v .- mean_w).^2)
+    # end
+
+    # function compute_sensitivity_indices_weighted(
+    #         f_first::Vector{Matrix{Float64}}, f_pairs::Vector{Matrix{Float64}},
+    #         weights_first::Vector{Vector{Float64}}, weights_pairs::Vector{Vector{Float64}},
+    #         target_pairs::Vector{Tuple{Int,Int}}, d::Int, n_outputs::Int)
+
+    #     V_first = zeros(d, n_outputs)
+    #     for j in 1:d
+    #         for o in 1:n_outputs
+    #             V_first[j, o] = weighted_var(f_first[j][o, :], weights_first[j])
+    #         end
+    #     end
+
+    #     V_pair = zeros(length(target_pairs), n_outputs)
+    #     for (p, _) in enumerate(target_pairs)
+    #         for o in 1:n_outputs
+    #             V_pair[p, o] = weighted_var(f_pairs[p][o, :], weights_pairs[p])
+    #         end
+    #     end
+
+    #     V_total = vec(sum(V_first, dims=1)) .+ vec(sum(V_pair, dims=1))
+    #     V_total .= max.(V_total, 1e-12)
+
+    #     S_first = V_first ./ V_total'
+    #     S_pair  = V_pair  ./ V_total'
+
+    #     S_total = copy(S_first)
+    #     for (p, (j, k)) in enumerate(target_pairs)
+    #         S_total[j, :] .+= S_pair[p, :]
+    #         S_total[k, :] .+= S_pair[p, :]
+    #     end
+
+    #     return S_first, S_pair, S_total, V_total
+    # end
+
+    # """
+    # Effective dimensionality: number of parameters with S_total > threshold.
+    # """
+    # function effective_dimensionality(S_total::Matrix{Float64};
+    #                                 threshold::Float64=0.05)
+    #     # Average over outputs, then count
+    #     S_mean = vec(mean(S_total, dims=2))
+    #     return sum(S_mean .> threshold), S_mean
+    # end
+
+    # """
+    # Compute Mahalanobis-style z-score against lab data for each sweep sample.
+    # lab_means: n_outputs vector
+    # lab_covs:  n_outputs × n_outputs covariance matrix of lab uncertainty
+
+    # Returns z_scores: length N vector (NaN for failed model runs).
+    # """
+    # function compute_predictive_scores(y_vals::Matrix{Float64},
+    #                                 lab_means::Vector{Float64},
+    #                                 lab_cov::Matrix{Float64})
+    #     n_outputs, N = size(y_vals)
+    #     Σ_inv = inv(lab_cov)
+    #     z_scores = fill(NaN, N)
+
+    #     for n in 1:N
+    #         if !any(isnan.(y_vals[:, n]))
+    #             diff = y_vals[:, n] .- lab_means
+    #             z_scores[n] = dot(diff, Σ_inv * diff)
+    #         end
+    #     end
+    #     return z_scores
+    # end
+
+    # """
+    # Approximate log marginal likelihood from sweep samples via importance sampling.
+    # Prior density cancels since sweeps are uniform on [lower, upper].
+    # """
+    # function approx_log_marginal_likelihood(z_scores::Vector{Float64})
+    #     valid = .!isnan.(z_scores)
+    #     if sum(valid) == 0
+    #         return -Inf
+    #     end
+    #     log_likelihoods = -0.5 .* z_scores[valid]
+    #     # Log-sum-exp for numerical stability
+    #     lmax = maximum(log_likelihoods)
+    #     return lmax + log(mean(exp.(log_likelihoods .- lmax)))
+    # end
+
+    # """
+    # Compute weights based on standard error from Dantigny fitting
+    # """
+    # function compute_weights(se_mat::Matrix{Float64}; λ::Float64=1.0)
+    #     # Use maximum SE across outputs as the plausibility signal
+    #     max_se = vec(maximum(se_mat, dims=1))
+    #     return 1.0 ./ (1.0 .+ λ .* max_se)
+    # end
+
+    # struct HDMRResult
+    #     config          :: ModelConfig
+    #     S_first         :: Matrix{Float64}   # d × n_outputs
+    #     S_pair          :: Matrix{Float64}   # n_pairs × n_outputs
+    #     S_total         :: Matrix{Float64}   # d × n_outputs
+    #     S_mean          :: Vector{Float64}   # d — averaged over outputs
+    #     d_eff           :: Int
+    #     log_ml          :: Float64           # approximate log marginal likelihood
+    #     z_scores_all    :: Vector{Float64}   # from all sweep samples combined
+    # end
+
+    # """
+    # Perform High-Dimensional Model Representation (HDMR) on a specific model.
+    # Workflow:
+    #     1. Define anchor point and parameter ranges
+    #     2. Compute first-order terms (single-parameter sweeps)
+    #     3. Compute pairwise interaction terms (targeted 2D grids)
+    #     4. Compute Sobol-style variance-based sensitivity indices
+    #     5. Rank models by effective dimensionality and predictive score
+    # inputs:
+    #     config (ModelConfig) - model configuration
+    #     exp_setting (ExperimentSetting) - experimental setting (time frames and density)
+    #     lab_means (Vector{Float64}) - mean Dantigny values across the experimental settings
+    #     lab_cov (Matrix{Float64}) - covariance matrix of lab Dantigny values
+    #     n_first (Int) - number of points for the first-order sweeps 
+    #     n_pair (Int) - number of points for the first-order sweeps 
+    # """
+    # function run_hdmr(config::ModelConfig,
+    #                 exp_setting::ExperimentSetting,
+    #                 lab_means::Vector{Float64},
+    #                 lab_cov::Matrix{Float64};
+    #                 n_first::Int=100,
+    #                 n_pair::Int=50)
+
+    #     d = length(config.anchor)
+    #     n_outputs = length(lab_means)
+
+    #     println("\n=== Running HDMR: $(config.name) ===")
+
+    #     # --- Anchor ---
+    #     println("Computing anchor output...")
+    #     y0 = compute_anchor_output(config, exp_setting)
+    #     println("  y0 = $y0")
+
+    #     # --- First-order sweeps ---
+    #     println("First-order sweeps ($d parameters × $n_first points)...")
+    #     f_first   = Vector{Matrix{Float64}}(undef, d)
+    #     w_first   = Vector{Vector{Float64}}(undef, d)
+    #     interps   = Vector{Function}(undef, d)
+    #     w_interps = Vector{Function}(undef, d)
+    #     all_y_vals = Matrix{Float64}[]
+
+    #     for j in 1:d
+    #         print("  θ_$(config.param_names[j])... ")
+    #         sweep_vals, f_j_vals, y_vals, se_mat = compute_first_order_term(
+    #             config, j, y0, exp_setting; n_points=n_first)
+    #         f_first[j] = f_j_vals
+
+    #         λ = 1.0 / median(filter(!isnan, se_mat))
+    #         # println(typeof(compute_weights(se_mat; λ)))
+    #         w_first[j] = min.(compute_weights(se_mat; λ), experimental_relevance_weight.(y_vals[2, :], 168.0)) # T_max = 168 hours
+    #         w_first[j][isnan.(w_first[j])] .= 0.0 # Zero NaN weights
+    #         # println("1st order weights: $(w_first[j])")
+
+    #         # Nullify f_j_vals at points with zero weight — prevents large finite
+    #         # values from propagating through the interpolator into f_jk
+    #         f_first[j][:, w_first[j] .== 0.0] .= NaN
+
+    #         w_interps[j] = make_scalar_interpolator(sweep_vals, w_first[j])
+
+    #         # large_vals = any(y_vals .> 1e6; dims=1) |> vec
+    #         # println("Weights for large vals $(y_vals[:, large_vals]):\n$(w_first[j][large_vals]))")
+
+    #         interps[j] = make_interpolator(sweep_vals, f_j_vals)
+    #         push!(all_y_vals, y_vals)
+    #         println("done")
+    #     end
+
+    #     # --- Pairwise sweeps ---
+    #     n_pairs = length(config.target_pairs)
+    #     f_pairs = Vector{Matrix{Float64}}(undef, n_pairs)
+    #     w_pairs = Vector{Vector{Float64}}(undef, n_pairs)
+    #     println("Pairwise sweeps ($n_pairs targeted pairs × $(n_pair^2) points each)...")
+
+    #     for (p, (j, k)) in enumerate(config.target_pairs)
+    #         print("  ($(config.param_names[j]), $(config.param_names[k]))... ")
+    #         _, _, f_jk_vals, y_vals, se_mat, w_from_1d = compute_pairwise_term(
+    #             config, j, k, y0, interps[j], interps[k], w_interps[j], w_interps[k], exp_setting;
+    #             n_j=n_pair, n_k=n_pair)
+    #         f_pairs[p] = f_jk_vals
+
+    #         λ = 1.0 / median(filter(!isnan, se_mat))
+    #         w_se    = compute_weights(se_mat; λ)
+    #         w_range = experimental_relevance_weight.(y_vals[2, :], 168.0)
+
+    #         # All three must agree: pairwise run reliable, output in range, 1D terms reliable
+    #         w_pairs[p] = min.(w_se, w_range, w_from_1d)
+    #         w_pairs[p][isnan.(w_pairs[p])] .= 0.0
+    #         # println("2nd order weights: $(w_pairs[p])")
+
+    #         f_pairs[p][:, w_pairs[p] .== 0.0] .= NaN
+
+    #         # large_vals = any(y_vals .> 1e6; dims=1) |> vec
+    #         # println("Weights for large vals $(y_vals[:, large_vals]):\n$(w_pairs[p][large_vals]))")
+
+    #         push!(all_y_vals, y_vals)
+    #         println("done")
+    #     end
+
+    #     # --- Sensitivity indices ---
+    #     println("Computing sensitivity indices...")
+    #     S_first, S_pair, S_total, V_total = compute_sensitivity_indices_weighted(
+    #         f_first, f_pairs, w_first, w_pairs, config.target_pairs, d, n_outputs)
+    #     println("S_first = $S_first")
+    #     println("S_pair = $S_pair")
+    #     println("S_total = $S_total")
+    #     println("V_total = $V_total")
+    #     d_eff, S_mean = effective_dimensionality(S_total)
+
+    #     # --- Predictive scores across all sweep samples ---
+    #     println("Computing predictive scores...")
+    #     all_y = hcat(all_y_vals...)
+    #     z_scores = compute_predictive_scores(all_y, lab_means, lab_cov)
+    #     log_ml = approx_log_marginal_likelihood(z_scores)
+
+    #     println("  Effective dimensionality: $d_eff / $d")
+    #     println("  Approx. log marginal likelihood: $(round(log_ml, digits=2))")
+
+    #     return HDMRResult(config, S_first, S_pair, S_total, S_mean,
+    #                     d_eff, log_ml, z_scores)
+    # end
+
+    # """
+    # Perform sensitivity analysis by:
+    # 1. Analysing parameter coupling via HDMR
+    # 2. Running Bayesian Model Averaging
+    # """
+    # function sensitivity_analysis(def_params, bounds_abs, bounds_rel, anchor_dict)
+
+    #     # Load data
+    #     aliases, combination_IDs, descriptions, param_key_sets = load_model_collection()
+    #     times, sources, densities, lab_means, CIs, CI_widths, uncert_lab = unpack_ijadpanahsaravi_data()
+
+    #     n_src = length(sources)
+    #     n_dens = length(densities)
         
-        lab_means_global = mean(lab_means; dims=(1, 2)) |> vec # Take average lab means across exp.settings as reference for HDMR
-        lab_covs = zeros(Float64, n_dens, n_src, 3, 3)
-        for i in 1:n_dens
-            for j in 1:n_src
-                lab_covs[i, j, :, :] .= diagm(uncert_lab[i, j, :].^2)
-            end
-        end
-        lab_cov_global = dropdims(mean(lab_covs; dims=(1, 2)); dims=(1, 2)) # Take average covariance matrix across exp.settings as reference for HDMR
-        densities_scaled = inverse_mL_to_cubic_um.(densities)
-        mean_density = mean(densities_scaled) # Take average density as reference for HDMR
+    #     lab_means_global = mean(lab_means; dims=(1, 2)) |> vec # Take average lab means across exp.settings as reference for HDMR
+    #     lab_covs = zeros(Float64, n_dens, n_src, 3, 3)
+    #     for i in 1:n_dens
+    #         for j in 1:n_src
+    #             lab_covs[i, j, :, :] .= diagm(uncert_lab[i, j, :].^2)
+    #         end
+    #     end
+    #     lab_cov_global = dropdims(mean(lab_covs; dims=(1, 2)); dims=(1, 2)) # Take average covariance matrix across exp.settings as reference for HDMR
+    #     densities_scaled = inverse_mL_to_cubic_um.(densities)
+    #     mean_density = mean(densities_scaled) # Take average density as reference for HDMR
 
-        # Experimental setting for HDMR
-        exp_setting = ExperimentSetting(times, mean_density, def_params)
+    #     # Experimental setting for HDMR
+    #     exp_setting = ExperimentSetting(times, mean_density, def_params)
 
-        # Determine relative vs absolute threshold models
-        ids_rel = ["0", "B", "Bi"]
+    #     # Determine relative vs absolute threshold models
+    #     ids_rel = ["0", "B", "Bi"]
 
-        # Determine global vs inducer-specific parameters
-        params_glob_keys = [:b, :Pₛ, :μ_γ, :neg_δ_γ, :μ_ψ, :neg_δ_ψ]
+    #     # Determine global vs inducer-specific parameters
+    #     params_glob_keys = [:b, :Pₛ, :μ_γ, :neg_δ_γ, :μ_ψ, :neg_δ_ψ]
 
-        # Group parameters for couplings
-        inducer_params = [:Pₛ_cs, :K_cC, :μ_ω, :neg_δ_ω]
-        inhibitor_params = [:Pₛ, :μ_γ, :neg_δ_γ]
-        coupling_types = Dict(
-            "pure_thresholds" => [(i,j) for group in [inducer_params, inhibitor_params] for i in group for j in group if i < j]
-        )
+    #     # Group parameters for couplings
+    #     inducer_params = [:Pₛ_cs, :K_cC, :μ_ω, :neg_δ_ω]
+    #     inhibitor_params = [:Pₛ, :μ_γ, :neg_δ_γ]
+    #     coupling_types = Dict(
+    #         "pure_thresholds" => [(i,j) for group in [inducer_params, inhibitor_params] for i in group for j in group if i < j]
+    #     )
 
-        # Iterate over models
-        for m in 1:1#59:59#eachindex(aliases)
+    #     # Iterate over models
+    #     for m in 1:1#59:59#eachindex(aliases)
 
-            println("Running $(aliases[m])")
+    #         println("Running $(aliases[m])")
 
-            param_keys = param_key_sets[m]
+    #         param_keys = param_key_sets[m]
 
-            n_dims = length(param_keys)
+    #         n_dims = length(param_keys)
 
-            # Determine bounds
-            if combination_IDs[m] in ids_rel
-                bounds = bounds_rel
-            else
-                bounds = bounds_abs
-            end
+    #         # Determine bounds
+    #         if combination_IDs[m] in ids_rel
+    #             bounds = bounds_rel
+    #         else
+    #             bounds = bounds_abs
+    #         end
 
-            # ----- PERFORM HDMR -----
+    #         # ----- PERFORM HDMR -----
 
-            # Construct model configuration
-            lower = zeros(Float64, n_dims)
-            upper = similar(lower)
-            log_scaled = zeros(Bool, n_dims)
-            anchor = similar(lower)
-            for (k, key) in enumerate(param_keys)
-                if startswith(string(key), "neg_δ")
-                    log_scaled[k] = false
-                    # lower[k] = max(anchor_dict[key] * exp(-2), bounds[key][1])
-                    lower[k] = bounds[key][1]
-                    # upper[k] = min(anchor_dict[key] * exp(2), bounds[key][2])
-                    upper[k] = bounds[key][2]
-                    anchor[k] = anchor_dict[key]
-                    println("$key: lower = $(bounds[key][1]) / lower (sweep) = $(lower[k]) / anchor = $(anchor[k]) / upper (sweep) = $(upper[k]) / upper = $(bounds[key][2])")
-                else
-                    log_scaled[k] = true
-                    lower[k] = log(bounds[key][1])
-                    # lower[k] = log(max(bounds[key][1], anchor_dict[key] * exp(-2)))
-                    upper[k] = log(bounds[key][2])
-                    # upper[k] = log(min(bounds[key][2], anchor_dict[key] * exp(2)))
-                    anchor[k] = log(anchor_dict[key])
-                    println("$key: lower = $(log(bounds[key][1])) / lower (sweep) = $(lower[k]) / anchor = $(anchor[k]) / upper (sweep) = $(upper[k]) / upper = $(log(bounds[key][2]))")
-                end
+    #         # Construct model configuration
+    #         lower = zeros(Float64, n_dims)
+    #         upper = similar(lower)
+    #         log_scaled = zeros(Bool, n_dims)
+    #         anchor = similar(lower)
+    #         for (k, key) in enumerate(param_keys)
+    #             if startswith(string(key), "neg_δ")
+    #                 log_scaled[k] = false
+    #                 # lower[k] = max(anchor_dict[key] * exp(-2), bounds[key][1])
+    #                 lower[k] = bounds[key][1]
+    #                 # upper[k] = min(anchor_dict[key] * exp(2), bounds[key][2])
+    #                 upper[k] = bounds[key][2]
+    #                 anchor[k] = anchor_dict[key]
+    #                 println("$key: lower = $(bounds[key][1]) / lower (sweep) = $(lower[k]) / anchor = $(anchor[k]) / upper (sweep) = $(upper[k]) / upper = $(bounds[key][2])")
+    #             else
+    #                 log_scaled[k] = true
+    #                 lower[k] = log(bounds[key][1])
+    #                 # lower[k] = log(max(bounds[key][1], anchor_dict[key] * exp(-2)))
+    #                 upper[k] = log(bounds[key][2])
+    #                 # upper[k] = log(min(bounds[key][2], anchor_dict[key] * exp(2)))
+    #                 anchor[k] = log(anchor_dict[key])
+    #                 println("$key: lower = $(log(bounds[key][1])) / lower (sweep) = $(lower[k]) / anchor = $(anchor[k]) / upper (sweep) = $(upper[k]) / upper = $(log(bounds[key][2]))")
+    #             end
                 
-            end
-            coupling_indices = [(findfirst(==(k1), param_keys), findfirst(==(k2), param_keys)) for (k1, k2) in coupling_types["pure_thresholds"]]
+    #         end
+    #         coupling_indices = [(findfirst(==(k1), param_keys), findfirst(==(k2), param_keys)) for (k1, k2) in coupling_types["pure_thresholds"]]
 
-            config = ModelConfig(
-                aliases[m],
-                param_key_sets[m],
-                anchor,
-                lower,
-                upper,
-                log_scaled,
-                coupling_indices
-            )
+    #         config = ModelConfig(
+    #             aliases[m],
+    #             param_key_sets[m],
+    #             anchor,
+    #             lower,
+    #             upper,
+    #             log_scaled,
+    #             coupling_indices
+    #         )
 
-            output = run_hdmr(config, exp_setting, lab_means_global, lab_cov_global)
+    #         output = run_hdmr(config, exp_setting, lab_means_global, lab_cov_global)
             
-            println(output)
+    #         println(output)
 
-        end
+    #     end
+    # end
+
+    """
+    Perform Sequential Monte Carlo (SMC) for a specific model
+    to obtain Bayesian Model Averaging weights.
+    inputs:
+        p0          : initial parameter vector (anchor)
+        priors      : prior distributions for each parameter
+        n_samples   : number of particles
+        n_steps     : number of SMC steps
+    """
+    function sequential_monte_carlo(p0, priors, n_samples, n_steps)
+        return nothing
     end
 
 end
