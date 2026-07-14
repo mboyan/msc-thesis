@@ -27,8 +27,10 @@ __precompile__(false)
     
     include("./conversions.jl")
     include("./germstats.jl")
+    include("./germstats_gpu.jl")
     using .Conversions
     using .GermStats
+    using .GermStatsGPU
 
     export calibrate_marginals
     export calibrate_copula
@@ -46,6 +48,7 @@ __precompile__(false)
     export get_params_for_idx
     export fit_model_to_data_equilibrium
     export sensitivity_analysis
+    export sequential_monte_carlo
 
     CUDA.allowscalar(false)  # Prevent slow scalar operations
 
@@ -4567,13 +4570,65 @@ __precompile__(false)
     Perform Sequential Monte Carlo (SMC) for a specific model
     to obtain Bayesian Model Averaging weights.
     inputs:
-        p0          : initial parameter vector (anchor)
-        priors      : prior distributions for each parameter
-        n_samples   : number of particles
-        n_steps     : number of SMC steps
+        alias (String)  : model alias
+        p0 (Dict)       : initial parameter vector (anchor) for the specific model
+        priors (Vector) : prior distributions for each parameter
+        n_samples (Int) : number of particles
+        n_steps (Int)   : number of SMC steps
     """
-    function sequential_monte_carlo(p0, priors, n_samples, n_steps)
-        return nothing
+    function sequential_monte_carlo(alias, p0, priors, n_samples, n_steps, rho_s, t_max)
+
+        times = collect(LinRange(0.0f0, t_max, 1000))
+
+        # --- TEST ---
+        # Run a sample from priors and fit Dantigny to the model output
+        # to check if the model is working as expected
+        # ------------
+        n_dims = length(p0)
+        sobol_pts = QuasiMonteCarlo.sample(n_samples, n_dims, SobolSample())
+
+        param_dict = Dict{Symbol, Vector{Float64}}()
+
+        # Sample priors
+        for (i, key) in enumerate(keys(priors))
+            if haskey(p0, key)
+                sobol_idx = findfirst(==(key), collect(keys(p0)))
+                param_dict[key] = sobol_pts[sobol_idx, :]
+            else
+                param_dict[key] = zeros(n_samples)  # or some default value
+            end
+        end
+
+        # Duplicate default anchors
+        for (key, value) in p0
+            if !haskey(param_dict, key)
+                param_dict[key] = fill(value, n_samples)
+            end
+        end
+
+        # Process exponents
+        for (key, prior) in priors
+            if startswith(string(key), "neg_delta")
+                suffix = string(key)[11]  # Extract the suffix after "neg_δ"
+                param_dict[Symbol("sigma_" * suffix)] = param_dict[Symbol("mu_" * suffix)] .* exp.(param_dict[key])
+            end
+        end
+
+        germination = compute_germination(alias, rho_s, times, param_dict)
+
+        # Fit Dantigny to the model outputs
+        dantigny_params = zeros(Float64, 3, n_samples) # 3 parameters (p_max, tau_g, nu) X n_samples
+        rmse_vals = Vector{Float64}(undef, n_samples)
+        for i in 1:n_samples
+            p_opt, rmse = fit_dantigny_to_germination_curve(germination[i, :], times)
+            dantigny_params[:, i] = p_opt
+            rmse_vals[i] = rmse
+        end
+
+        # Tempering sequence for SMC
+        temp_seq = collect(LinRange(0.0, 1.0, n_steps))
+
+        return dantigny_params, rmse_vals
     end
 
 end
