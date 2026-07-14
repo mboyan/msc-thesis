@@ -4578,14 +4578,24 @@ __precompile__(false)
     """
     function sequential_monte_carlo(alias, p0, priors, n_samples, n_steps, rho_s, t_max)
 
-        times = collect(LinRange(0.0f0, t_max, 1000))
+        # df_germination_rebuilt = parse_ijadpanahsaravi_data()
+        # df_germination_rebuilt = filter(row -> row[1] != "Arg", df_germination_rebuilt) # Remove "Arg" from the dataset
+        # dantigny_data, times, sources, densities, _, p_maxs, taus, nus = generate_dantigny_dataset(df_germination_rebuilt, t_max)
+        times, sources, densities, lab_means, CIs, CI_widths, uncert_lab = unpack_ijadpanahsaravi_data()
+        
+        # Convert times and densities
+        times = Float32.(times) # Convert to Float32 for model input
+        densities = inverse_mL_to_cubic_um.(densities) # Convert to cubic micrometers for model input
 
         # --- TEST ---
         # Run a sample from priors and fit Dantigny to the model output
         # to check if the model is working as expected
         # ------------
         n_dims = length(p0)
+
+        # Sobol sample
         sobol_pts = QuasiMonteCarlo.sample(n_samples, n_dims, SobolSample())
+        sobol_pts = 0.025 .+ 0.95 .* sobol_pts # Shrink samples to 95%
 
         param_dict = Dict{Symbol, Vector{Float64}}()
 
@@ -4593,7 +4603,7 @@ __precompile__(false)
         for (i, key) in enumerate(keys(priors))
             if haskey(p0, key)
                 sobol_idx = findfirst(==(key), collect(keys(p0)))
-                param_dict[key] = sobol_pts[sobol_idx, :]
+                param_dict[key] = quantile.(priors[key], sobol_pts[sobol_idx, :])
             else
                 param_dict[key] = zeros(n_samples)  # or some default value
             end

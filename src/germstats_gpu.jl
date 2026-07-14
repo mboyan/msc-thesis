@@ -508,12 +508,12 @@ __precompile__(false)
     inputs:
         n (Int) - number of Gauss-Legendre nodes
         d (Int) - dimension of integral
-        params (Array{Float32}) - parameters
+        params (Union{Matrix{Float32}, Array{Float32,2}}) - parameters
         times (Array{Float32}) - time points for evaluation
         model_idx (Int) - index of model to use
         chunk_size (Int) - chunk size for parallel execution
     """
-    function integrate_batched(n::Int, d::Int, params::Array{Float32,2}, times::Array{Float32,1}, model_idx::Int; chunk_size::Int=4096)
+    function integrate_batched(n::Int, d::Int, params::Union{Matrix{Float32}, Array{Float32,2}}, times::Array{Float32,1}, model_idx::Int; chunk_size::Int=4096)
         coords_cpu, weights_cpu, N = build_hermite_tensor_grid(n, d)
         P = size(params, 1)
         param_dim = size(params, 2)
@@ -856,7 +856,7 @@ __precompile__(false)
         model_idx (Int) - index of model to use
         n_samples (Int) - ODE ensemble sample size
     """
-    function integrate_ode(params::Array{Float32,2}, times::Array{Float32,1}, model_idx::Int, ode_system; n_samples::Int=1024)
+    function integrate_ode(params::Union{Matrix{Float32}, Array{Float32,2}}, times::Array{Float32,1}, model_idx::Int, ode_system; n_samples::Int=1024)
         P = size(params, 1)
         param_dim = size(params, 2)
         T = length(times)
