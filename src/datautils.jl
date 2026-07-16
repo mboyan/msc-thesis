@@ -22,6 +22,7 @@ __precompile__(false)
     using Flux
     using Flux: gradient
     using Statistics
+    using StatsBase
     using ProgressMeter
     # using LogExpFunctions
     
@@ -4576,7 +4577,7 @@ __precompile__(false)
         n_samples (Int) : number of particles
         n_steps (Int)   : number of SMC steps
     """
-    function sequential_monte_carlo(alias, p0, priors, n_samples, n_steps, t_max)
+    function sequential_monte_carlo(alias, p0, priors, n_samples, n_smc_steps, n_mc_steps, t_max)
 
         # df_germination_rebuilt = parse_ijadpanahsaravi_data()
         # df_germination_rebuilt = filter(row -> row[1] != "Arg", df_germination_rebuilt) # Remove "Arg" from the dataset
@@ -4597,13 +4598,8 @@ __precompile__(false)
             end
         end
 
-        # --- TEST ---
-        # Run a sample from priors and fit Dantigny to the model output
-        # to check if the model is working as expected
-        # ------------
-        n_dims = length(p0)
-
         # Sobol sample
+        n_dims = length(p0)
         sobol_pts = QuasiMonteCarlo.sample(n_samples, n_dims, SobolSample())
         sobol_pts = 0.025 .+ 0.95 .* sobol_pts # Shrink samples to 95%
 
@@ -4634,9 +4630,6 @@ __precompile__(false)
             end
         end
 
-        # # Tempering sequence for SMC
-        # temp_seq = collect(LinRange(0.0, 1.0, n_steps))
-
         # Initialise weights
         weights = fill(1.0 / n_samples, n_samples)
 
@@ -4646,8 +4639,8 @@ __precompile__(false)
         temp_increment = 0.01
 
         # SMC
-        for n in 1:n_steps
-            println("SMC step $n / $n_steps")
+        for n in 1:n_smc_steps
+            println("SMC step $n / $n_smc_steps")
 
             l_scores = zeros(Float64, n_samples) # Log-likelihood scores for each sample
 
@@ -4698,7 +4691,7 @@ __precompile__(false)
             l_scores .= -0.5 .* l_scores # Convert to log-likelihoods
 
             # Update temperature with largest increase that
-            # keeps ESS above threshold (e.g., 0.5 * n_samples)
+            # keeps ESS around threshold (e.g., 0.5 * n_samples)
             temp_low = temp
             temp_high = 1.0
             weights_candidate = weights
@@ -4714,14 +4707,22 @@ __precompile__(false)
                 # println("    Candidate temperature: $temp_mid, ESS: $(round(ess_candidate, digits=2))")
 
                 if ess_candidate > ess_threshold
-                    temp_low = temp_mid
+                    temp = temp_mid
+                    break
                 else
                     temp_high = temp_mid
                 end
             end
-            temp = temp_low
             weights = weights_candidate
             println("    Updated temperature: $temp, ESS: $(round(1.0 / sum(weights .^ 2), digits=2))")
+
+            # Resample particles
+            resample_indices = wsample(collect(1:n_samples), weights, n_samples)
+            for (i, key) in enumerate(keys(param_dict))
+                param_dict[key] .= param_dict[key][resample_indices]
+            end
+
+            # Mutate
         end
 
         # return dantigny_summaries, rmse_vals
