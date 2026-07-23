@@ -42,6 +42,7 @@ __precompile__(false)
     export dantigny
     export infer_dantigny_parameters
     export generate_dantigny_dataset
+    export time_point_distributions_from_dantigny
     export train_multioutput_nn_mixed_precision
     export predict_with_uncertainty_mixed_precision
     export fit_dantigny_to_germination_curve
@@ -709,6 +710,64 @@ __precompile__(false)
         end
 
         return dantigny_data * 0.01, times, sources, densities, errs, p_maxs, taus, nus
+    end
+
+
+    """
+    Generates a large sample of Dantigny curves from
+    lab means and CIs, then retrieves distributions of
+    germination incidence per time point for each
+    experimental condition.
+    inputs:
+        lab_means (Array{Float64}) - (n_dens x n_src x 3) array of mean values for (p_max, τ_g, ν)
+        CIs (Array{Float64}) - (n_dens x n_src x 3 x 2) array of lower and upper CI bounds for (p_max, τ_g, ν)
+        t_max (Float64) - time span of Dantigny curves
+        n_times (Int) - number of time points
+        n_samples (Int) - number of Dantigny curves
+    outputs:
+        mu_g (Array{Float64}) - (n_dens x n_src x n_times) array of germination means per time step and experimental condition
+        sigma_g (Array{Float64}) - (n_dens x n_src x n_times) array of germination sd's per time step and experimental condition
+    """
+    function time_point_distributions_from_dantigny(lab_means, CIs, t_max, n_times; n_samples=2048)
+        
+        # Convert CIs to standard deviations
+        n_dens, n_src, _ = size(lab_means)
+        lab_sigmas = zeros(Float64, n_dens, n_src, 3)
+        lab_sigmas .= (CIs[:, :, :, 2] .- CIs[:, :, :, 1]) ./ 3.92
+        # for i in eachindex(n_dens)
+        #     for j in eachindex(n_src)
+        #         for k in 1:3
+        #             lab_sigmas[i, j, k] = (CIs[i, j, k, 2] - CIs[i, j, k, 1]) / 3.92
+        #         end
+        #     end
+        # end
+
+        # Construct Gaussian distributions
+        pmax_dist = Normal.(lab_means[:, :, 1], lab_sigmas[:, :, 1])
+        tau_dist = Normal.(lab_means[:, :, 2], lab_sigmas[:, :, 2])
+        nu_dist = Normal.(lab_means[:, :, 3], lab_sigmas[:, :, 3])
+
+        # Generate Sobol sample
+        sobol_pts = QuasiMonteCarlo.sample(n_samples, 3, SobolSample())
+        sobol_pts = 0.025 .+ 0.95 .* sobol_pts
+
+        # Sample Dantigny curves and extract per-timepoint stats
+        times = collect(LinRange(0, t_max, n_times))
+        mu_g = zeros(Float64, n_dens, n_src, n_times)
+        sigma_g = zeros(Float64, n_dens, n_src, n_times)
+        for (i, t) in enumerate(times)
+            germ_t = zeros(Float64, n_dens, n_src, n_samples)
+            for n in 1:n_samples
+                pmax = quantile.(pmax_dist, sobol_pts[1, n])
+                tau = quantile.(tau_dist, sobol_pts[2, n])
+                nu = quantile.(nu_dist, sobol_pts[3, n])
+                germ_t[:, :, n] = dantigny.(t, pmax, tau, nu)
+            end
+            mu_g[:, :, i] = mean(germ_t, dims=3)
+            sigma_g[:, :, i] = std(germ_t, dims=3)
+        end
+
+        return mu_g, sigma_g
     end
 
     # =============================
