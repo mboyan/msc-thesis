@@ -4568,20 +4568,84 @@ __precompile__(false)
     # end
 
     """
+    Compute likelihoods based on Dantigny summary
+    Mahalanobis distances.
+    inputs:
+        alias (String)              : model alias
+        times (Vector)              : vector of time points (in hours)
+        densities (Vector)          : unique spore densities used in the data
+        sources (Vector)            : unique string identifiers of carbon sources
+        param_dict (Dict)           : dictionary of parameter samples
+        n_samples (Int)             : number of parameter samples
+        lab_means (Matrix{Float64}) : mean Dantigny values across the experimental settings
+        lab_covs (Matrix{Float64})  : covariance matrices of lab Dantigny values across the experimental settings
+    """
+    function likelihood_scores(alias, times, densities, sources, param_dict, n_samples, lab_means, lab_covs)
+
+        l_scores = zeros(Float64, n_samples) # Log-likelihood scores for each sample
+
+        # Run model for each density
+        for (i, rho_s) in enumerate(densities)
+            println("  Density: $rho_s")
+
+            germination = compute_germination(alias, rho_s, times, param_dict)
+
+            # Fit Dantigny to the model outputs
+            dantigny_summaries = zeros(Float64, 3, n_samples) # 3 parameters (p_max, tau_g, nu) X n_samples
+            rmse_vals = Vector{Float64}(undef, n_samples)
+            for k in 1:n_samples
+                p_opt, rmse = fit_dantigny_to_germination_curve(germination[k, :], times)
+                dantigny_summaries[:, k] = p_opt
+                rmse_vals[k] = rmse
+            end
+
+            if any(rmse_vals .> 0.05)
+                println("Warning: Some RMSE values are very large (>5%), indicating poor fits.")
+            end
+
+            # println("    Dantigny summaries (p_max, tau_g, nu):")
+            # for k in 1:n_samples
+            #     println("    Sample $k: $(round.(dantigny_summaries[:, k], digits=4))")
+            # end
+
+            # Compare model output against lab data for each source
+            for (j, src) in enumerate(sources)
+                println("    Source: $src")
+
+                lab_mean = lab_means[i, j, :]
+                lab_cov = lab_covs[i, j, :, :]
+
+                # Compute Mahalanobis distance for each sample
+                z_scores = Vector{Float64}(undef, n_samples)
+                for k in 1:n_samples
+                    diff = dantigny_summaries[:, k] .- lab_mean
+                    z_scores[k] = min(dot(diff, lab_cov \ diff), 1e8)
+                end
+
+                # println("    z-scores vary between $(minimum(z_scores)) and $(maximum(z_scores))")
+                l_scores .+= z_scores
+            end
+        end
+
+        l_scores .= -0.5 .* l_scores # Convert to log-likelihoods
+
+        return l_scores
+    end
+
+    """
     Perform Sequential Monte Carlo (SMC) for a specific model
     to obtain Bayesian Model Averaging weights.
     inputs:
-        alias (String)  : model alias
-        p0 (Dict)       : initial parameter vector (anchor) for the specific model
-        priors (Vector) : prior distributions for each parameter
-        n_samples (Int) : number of particles
-        n_steps (Int)   : number of SMC steps
+        alias (String)      : model alias
+        p0 (Dict)           : initial parameter vector (anchor) for the specific model
+        priors (Vector)     : prior distributions for each parameter
+        n_samples (Int)     : number of particles
+        n_smc_steps (Int)   : number of SMC steps
+        n_mc_steps (Int)    : number of MCMC steps (mutation)
+        t_max (Float64)     : maximum time span for germination
     """
     function sequential_monte_carlo(alias, p0, priors, n_samples, n_smc_steps, n_mc_steps, t_max)
 
-        # df_germination_rebuilt = parse_ijadpanahsaravi_data()
-        # df_germination_rebuilt = filter(row -> row[1] != "Arg", df_germination_rebuilt) # Remove "Arg" from the dataset
-        # dantigny_data, times, sources, densities, _, p_maxs, taus, nus = generate_dantigny_dataset(df_germination_rebuilt, t_max)
         times, sources, densities, lab_means, CIs, CI_widths, uncert_lab = unpack_ijadpanahsaravi_data()
         
         # Convert times and densities
@@ -4606,10 +4670,20 @@ __precompile__(false)
         param_dict = Dict{Symbol, Vector{Float64}}()
 
         # Sample priors
+        relevant_param_keys = Symbol[]
+        min_srch_sigma = eps(Float64)
+        param_srch_sigma = Dict()
+        sigma_fraction = 1e-3
         for (i, key) in enumerate(keys(priors))
-            if haskey(p0, key)
+            if haskey(p0, key) # Parameters relevant for this specific model
+
                 sobol_idx = findfirst(==(key), collect(keys(p0)))
                 param_dict[key] = quantile.(priors[key], sobol_pts[sobol_idx, :])
+                push!(relevant_param_keys, key)
+
+                # Determine Gaussian search widths for each parameter
+                # based on fraction of prior standard deviation
+                param_srch_sigma[key] = max(sigma_fraction * priors[key].σ, min_srch_sigma)
             else
                 param_dict[key] = zeros(n_samples)  # or some default value
             end
@@ -4642,54 +4716,10 @@ __precompile__(false)
         for n in 1:n_smc_steps
             println("SMC step $n / $n_smc_steps")
 
-            l_scores = zeros(Float64, n_samples) # Log-likelihood scores for each sample
+            # --- LIKELIHOODS FOR TEMPERATURE UPDATE ---
+            l_scores = likelihood_scores(alias, times, densities, sources, param_dict, n_samples, lab_means, lab_covs)
 
-            # Run model for each density
-            for (i, rho_s) in enumerate(densities)
-                println("  Density: $rho_s")
-
-                germination = compute_germination(alias, rho_s, times, param_dict)
-
-                # Fit Dantigny to the model outputs
-                dantigny_summaries = zeros(Float64, 3, n_samples) # 3 parameters (p_max, tau_g, nu) X n_samples
-                rmse_vals = Vector{Float64}(undef, n_samples)
-                for k in 1:n_samples
-                    p_opt, rmse = fit_dantigny_to_germination_curve(germination[k, :], times)
-                    dantigny_summaries[:, k] = p_opt
-                    rmse_vals[k] = rmse
-                end
-
-                if any(rmse_vals .> 0.05)
-                    println("Warning: Some RMSE values are very large (>5%), indicating poor fits.")
-                end
-
-                # println("    Dantigny summaries (p_max, tau_g, nu):")
-                # for k in 1:n_samples
-                #     println("    Sample $k: $(round.(dantigny_summaries[:, k], digits=4))")
-                # end
-
-                # Compare model output against lab data for each source
-                for (j, src) in enumerate(sources)
-                    println("    Source: $src")
-
-                    lab_mean = lab_means[i, j, :]
-                    lab_cov = lab_covs[i, j, :, :]
-
-                    # Compute Mahalanobis distance for each sample
-                    z_scores = Vector{Float64}(undef, n_samples)
-                    # Σ_inv = inv(lab_cov)
-                    for k in 1:n_samples
-                        diff = dantigny_summaries[:, k] .- lab_mean
-                        z_scores[k] = min(dot(diff, lab_cov \ diff), 1e8)
-                    end
-
-                    # println("    z-scores vary between $(minimum(z_scores)) and $(maximum(z_scores))")
-                    l_scores .+= z_scores
-                end
-            end
-
-            l_scores .= -0.5 .* l_scores # Convert to log-likelihoods
-
+            # --- TEMPERATURE UPDATE ---
             # Update temperature with largest increase that
             # keeps ESS around threshold (e.g., 0.5 * n_samples)
             temp_low = temp
@@ -4718,11 +4748,38 @@ __precompile__(false)
 
             # Resample particles
             resample_indices = wsample(collect(1:n_samples), weights, n_samples)
-            for (i, key) in enumerate(keys(param_dict))
+            for (i, key) in enumerate(relevant_param_keys)
                 param_dict[key] .= param_dict[key][resample_indices]
             end
 
-            # Mutate
+            # --- MUTATION ---
+            converged_flags = fill(false, n_samples)
+            for m in 1:n_mc_steps
+
+                println("        Running mutation step $m / $n_mc_steps")
+                
+                accept_flags = fill(false, n_samples)
+                perturb_flags = .!(converged_flags .|| accept_flags) # perturb only non-converged and non-accepted
+                n_perturb = sum(perturb_flags)
+
+                for (i, key) in enumerate(relevant_param_keys)
+
+                    srch_sample = rand(Float64, n_perturb)
+                    if typeof(priors[key]) == Normal{Float64}
+                        param_dict[key][perturb_flags] .= quantile.(Normal.(param_dict[key], param_srch_sigma[key]), srch_sample)
+                    elseif typeof(priors[key]) == LogNormal{Float64}
+                        param_dict[key][perturb_flags] .= quantile.(LogNormal.(log.(param_dict[key]), param_srch_sigma[key]), srch_sample)
+                    else
+                        error("Unsupported prior distribution type")
+                    end
+
+                    # Exponentiate sigmas
+                    if startswith(string(key), "neg_delta")
+                        suffix = string(key)[11]  # Extract the suffix after "neg_delta"
+                        param_dict[Symbol("sigma_" * suffix)] = param_dict[Symbol("mu_" * suffix)] .* exp.(param_dict[key])
+                    end
+                end
+            end
         end
 
         # return dantigny_summaries, rmse_vals
