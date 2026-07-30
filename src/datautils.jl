@@ -4669,10 +4669,13 @@ __precompile__(false)
 
         param_dict = Dict{Symbol, Vector{Float64}}()
 
-        # Sample priors
+        # Sample priors and fill parameter-related collections
         relevant_param_keys = Symbol[]
+        p_theta = Distribution[]
+        theta = Vector{Float64}[]
+        theta_srch_sigma = Float64[]
         min_srch_sigma = eps(Float64)
-        param_srch_sigma = Dict()
+        # param_srch_sigma = Dict()
         sigma_fraction = 1e-3
         for (i, key) in enumerate(keys(priors))
             if haskey(p0, key) # Parameters relevant for this specific model
@@ -4680,14 +4683,29 @@ __precompile__(false)
                 sobol_idx = findfirst(==(key), collect(keys(p0)))
                 param_dict[key] = quantile.(priors[key], sobol_pts[sobol_idx, :])
                 push!(relevant_param_keys, key)
+                push!(p_theta, priors[key])
+                push!(theta, param_dict[key])
+                push!(theta_srch_sigma, max(sigma_fraction * priors[key].σ, min_srch_sigma))
 
                 # Determine Gaussian search widths for each parameter
                 # based on fraction of prior standard deviation
-                param_srch_sigma[key] = max(sigma_fraction * priors[key].σ, min_srch_sigma)
+                # param_srch_sigma[key] = max(sigma_fraction * priors[key].σ, min_srch_sigma)
             else
                 param_dict[key] = zeros(n_samples)  # or some default value
             end
         end
+
+        isnormal = typeof.(p_theta) .== Normal{Float64}
+        # println(relevant_param_keys)
+        # println(theta_srch_sigma)
+        # println(isnormal)
+
+        # Convert parameter dictionary to vector
+        theta = reduce(hcat, theta)'
+        n_theta = size(theta, 1)
+        # n_theta = length(relevant_param_keys)
+        # p_theta = [priors[key] for key in relevant_param_keys]
+        # theta = [param_dict[key] for key in relevant_param_keys]
 
         # Duplicate default anchors
         for (key, value) in p0
@@ -4697,10 +4715,21 @@ __precompile__(false)
         end
 
         # Process exponents
+        sigma_mapping = fill(0, n_theta) # for mapping sigma params to mu params
+        p_ct = 1
         for (key, prior) in priors
             if startswith(string(key), "neg_delta")
                 suffix = string(key)[11]  # Extract the suffix after "neg_delta"
                 param_dict[Symbol("sigma_" * suffix)] = param_dict[Symbol("mu_" * suffix)] .* exp.(param_dict[key])
+                
+                # Map sigma index to mu index for variable parameters (for later perturbation)
+                if key in relevant_param_keys
+                    mu_idx = findfirst(==(Symbol("mu_" * suffix)), collect(keys(priors)))
+                    sigma_mapping[mu_idx] = p_ct
+                end
+            end
+            if key in relevant_param_keys
+                p_ct += 1
             end
         end
 
@@ -4748,37 +4777,70 @@ __precompile__(false)
 
             # Resample particles
             resample_indices = wsample(collect(1:n_samples), weights, n_samples)
-            for (i, key) in enumerate(relevant_param_keys)
-                param_dict[key] .= param_dict[key][resample_indices]
-            end
+            theta = theta[:, resample_indices]
+            # for (i, key) in enumerate(relevant_param_keys)
+            #     param_dict[key] .= param_dict[key][resample_indices]
+            # end
+
+            # Evaluate priors
+            l_prior = dropdims(sum(logpdf.(reshape(p_theta, :, 1), theta), dims=1), dims=1)
 
             # --- MUTATION ---
-            converged_flags = fill(false, n_samples)
+            converged_mask = fill(false, n_samples)
             for m in 1:n_mc_steps
 
                 println("        Running mutation step $m / $n_mc_steps")
                 
-                accept_flags = fill(false, n_samples)
-                perturb_flags = .!(converged_flags .|| accept_flags) # perturb only non-converged and non-accepted
-                n_perturb = sum(perturb_flags)
+                perturb_mask = .!converged_mask
+                n_perturb = sum(perturb_mask)
 
+                # Perturb (duplicate) parameter values
+                theta_candidates = copy(theta)
+                srch_sample = rand(Float64, n_theta, n_perturb)
+                perturb_means = ifelse.(isnormal, theta[:, perturb_mask], log.(theta[:, perturb_mask])) # Use log-means for LogNormal
+                theta_candidates[:, perturb_mask] .= quantile.(Normal.(perturb_means, reshape(theta_srch_sigma, :, 1)), srch_sample)
+                theta_candidates[.!isnormal, perturb_mask] .= exp.(theta_candidates[.!isnormal, perturb_mask]) # Convert back to LogNormal
+
+                println(maximum(abs.(theta .- theta_candidates), dims=2))
+
+                # Convert to dictionary for model input
                 for (i, key) in enumerate(relevant_param_keys)
-
-                    srch_sample = rand(Float64, n_perturb)
-                    if typeof(priors[key]) == Normal{Float64}
-                        param_dict[key][perturb_flags] .= quantile.(Normal.(param_dict[key], param_srch_sigma[key]), srch_sample)
-                    elseif typeof(priors[key]) == LogNormal{Float64}
-                        param_dict[key][perturb_flags] .= quantile.(LogNormal.(log.(param_dict[key]), param_srch_sigma[key]), srch_sample)
-                    else
-                        error("Unsupported prior distribution type")
-                    end
-
+                    param_dict[key] .= theta_candidates[i, :]
                     # Exponentiate sigmas
                     if startswith(string(key), "neg_delta")
                         suffix = string(key)[11]  # Extract the suffix after "neg_delta"
-                        param_dict[Symbol("sigma_" * suffix)] = param_dict[Symbol("mu_" * suffix)] .* exp.(param_dict[key])
+                        # param_dict[Symbol("sigma_" * suffix)] = param_dict[Symbol("mu_" * suffix)] .* exp.(param_dict[key])
+                        param_dict[Symbol("sigma_" * suffix)] = theta_candidates[sigma_mapping[i], :] .* exp.(param_dict[key])
                     end
                 end
+
+                # Likelihoods for acceptance probability
+                l_scores_candidates = likelihood_scores(alias, times, densities, sources, param_dict, n_samples, lab_means, lab_covs)
+
+                # Evaluate priors
+                l_prior_candidates = dropdims(sum(logpdf.(reshape(p_theta, :, 1), theta_candidates), dims=1), dims=1)
+
+                println("l_scores_candidates: $(minimum(l_scores_candidates)) : $(maximum(l_scores_candidates))")
+                println("l_prior_candidates: $(minimum(l_prior_candidates)) : $(maximum(l_prior_candidates))")
+                println("l_scores: $(minimum(l_scores)) : $(maximum(l_scores))")
+                println("l_prior: $(minimum(l_prior)) : $(maximum(l_prior))")
+
+                # Acceptance probability
+                # p_posterior_candidates = min.(1e12, exp.(l_scores_prop))
+                # p_prior_candidates = min.(1e12, exp.(l_prior_candidates))
+                # p_posterior = min.(1e12, max.(1e-12, exp.(l_scores)))
+                # p_prior = min.(1e12, max.(1e-12, exp.(l_prior)))
+                # alpha = min.(1.0, p_posterior_candidates .* p_prior_candidates ./ (p_posterior .* p_prior))
+                # println(maximum(exp.(l_scores_prop) .* exp.(l_prior_candidates)))
+                # println(minimum(exp.(l_scores) .* exp.(l_prior)))
+                # alpha = min.(1e12, exp.(l_scores_prop) .* exp.(l_prior_candidates)) ./ 
+                #         min.(1e12, max.(1e-12, exp.(l_scores) .* exp.(l_prior)))
+                log_ratio = temp * l_scores_candidates + l_prior_candidates - temp * l_scores - l_prior
+                alpha = min.(1, exp.(log_ratio))
+                println(maximum(alpha))
+                accept_mask = rand(Float64, n_samples) .< alpha
+                theta[:, accept_mask] .= theta_candidates[:, accept_mask]
+                println("$(sum(accept_mask)) candidates accepted.")
             end
         end
 
