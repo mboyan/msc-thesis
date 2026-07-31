@@ -4633,6 +4633,58 @@ __precompile__(false)
     end
 
     """
+    Calculate Gelman-Rubin PSRF for MCMC convergence.
+    
+    Arguments:
+        chains (Matrix)         : MCMC chains of size (n_mc_steps, n_theta, n_samples)
+        burn_in_frac (Float64)  : Fraction of samples to discard as burn-in
+        threshold (Float54)     : Convergence threshold (default 1.1)
+    
+    Returns:
+        PSRF: Vector of R̂ values for each parameter
+        converged: Boolean indicating overall convergence
+    """
+    function gelman_rubin_PSRF(chains, burn_in_frac=0.5, threshold=1.1)
+        
+        n_steps_total = size(chains, 1)
+        n_params = size(chains, 2)
+        n_chains = size(chains, 3)
+        
+        # Burn-in
+        burn_in = Int(floor(n_steps_total * burn_in_frac))
+        chains_burned = chains[burn_in+1:end, :, :]
+        n_steps = size(chains_burned, 1)
+        
+        # Within-chain variance
+        W = dropdims(mean(var(chains_burned, dims=1), dims=3), dims=(1, 3))
+        # W = zeros(n_params)
+        # for j in 1:n_params
+        #     # W[j] = mean(var(chains_burned[i][:, j]) for i in 1:n_chains)
+        #     W[j] = mean(var(chains_burned[:, j, i]) for i in 1:n_chains)
+        # end
+        
+        # Between-chain variance
+        B = n_steps .* dropdims(var(mean(chains_burned, dims=1), dims=3), dims=(1,3))
+        # B = zeros(n_params)
+        # for j in 1:n_params
+        #     chain_means = [mean(chains_burned[i][:, j]) for i in 1:n_chains]
+        #     B[j] = n * var(chain_means)
+        # end
+        
+        # Pooled variance
+        V_hat = ((n_steps - 1) / n_steps) .* W .+ (1 / n_steps) .* B
+        
+        # PSRF
+        PSRF = sqrt.(V_hat ./ W)
+        
+        # Convergence check
+        converged = all(PSRF .< threshold)
+        
+        return PSRF, converged
+    end
+
+
+    """
     Perform Sequential Monte Carlo (SMC) for a specific model
     to obtain Bayesian Model Averaging weights.
     inputs:
@@ -4676,7 +4728,7 @@ __precompile__(false)
         theta_srch_sigma = Float64[]
         min_srch_sigma = eps(Float64)
         # param_srch_sigma = Dict()
-        sigma_fraction = 1e-3
+        srch_sigma_fraction = 1e-2
         for (i, key) in enumerate(keys(priors))
             if haskey(p0, key) # Parameters relevant for this specific model
 
@@ -4685,7 +4737,7 @@ __precompile__(false)
                 push!(relevant_param_keys, key)
                 push!(p_theta, priors[key])
                 push!(theta, param_dict[key])
-                push!(theta_srch_sigma, max(sigma_fraction * priors[key].σ, min_srch_sigma))
+                push!(theta_srch_sigma, max(srch_sigma_fraction * priors[key].σ, min_srch_sigma))
 
                 # Determine Gaussian search widths for each parameter
                 # based on fraction of prior standard deviation
@@ -4703,9 +4755,6 @@ __precompile__(false)
         # Convert parameter dictionary to vector
         theta = reduce(hcat, theta)'
         n_theta = size(theta, 1)
-        # n_theta = length(relevant_param_keys)
-        # p_theta = [priors[key] for key in relevant_param_keys]
-        # theta = [param_dict[key] for key in relevant_param_keys]
 
         # Duplicate default anchors
         for (key, value) in p0
@@ -4739,14 +4788,13 @@ __precompile__(false)
         # Initialise temperature
         temp = 0.0
         ess_threshold = 0.5 * n_samples
-        temp_increment = 0.01
 
         # SMC
         for n in 1:n_smc_steps
             println("SMC step $n / $n_smc_steps")
 
             # --- LIKELIHOODS FOR TEMPERATURE UPDATE ---
-            l_scores = likelihood_scores(alias, times, densities, sources, param_dict, n_samples, lab_means, lab_covs)
+            @time l_scores = likelihood_scores(alias, times, densities, sources, param_dict, n_samples, lab_means, lab_covs)
 
             # --- TEMPERATURE UPDATE ---
             # Update temperature with largest increase that
@@ -4787,6 +4835,7 @@ __precompile__(false)
 
             # --- MUTATION ---
             converged_mask = fill(false, n_samples)
+            mcmc_chains = zeros(Float64, n_mc_steps, n_theta, n_samples)
             for m in 1:n_mc_steps
 
                 println("        Running mutation step $m / $n_mc_steps")
@@ -4814,34 +4863,30 @@ __precompile__(false)
                     end
                 end
 
+                # println(param_dict)
+
                 # Likelihoods for acceptance probability
-                l_scores_candidates = likelihood_scores(alias, times, densities, sources, param_dict, n_samples, lab_means, lab_covs)
+                @time l_scores_candidates = likelihood_scores(alias, times, densities, sources, param_dict, n_samples, lab_means, lab_covs)
 
                 # Evaluate priors
                 l_prior_candidates = dropdims(sum(logpdf.(reshape(p_theta, :, 1), theta_candidates), dims=1), dims=1)
 
-                println("l_scores_candidates: $(minimum(l_scores_candidates)) : $(maximum(l_scores_candidates))")
-                println("l_prior_candidates: $(minimum(l_prior_candidates)) : $(maximum(l_prior_candidates))")
-                println("l_scores: $(minimum(l_scores)) : $(maximum(l_scores))")
-                println("l_prior: $(minimum(l_prior)) : $(maximum(l_prior))")
-
-                # Acceptance probability
-                # p_posterior_candidates = min.(1e12, exp.(l_scores_prop))
-                # p_prior_candidates = min.(1e12, exp.(l_prior_candidates))
-                # p_posterior = min.(1e12, max.(1e-12, exp.(l_scores)))
-                # p_prior = min.(1e12, max.(1e-12, exp.(l_prior)))
-                # alpha = min.(1.0, p_posterior_candidates .* p_prior_candidates ./ (p_posterior .* p_prior))
-                # println(maximum(exp.(l_scores_prop) .* exp.(l_prior_candidates)))
-                # println(minimum(exp.(l_scores) .* exp.(l_prior)))
-                # alpha = min.(1e12, exp.(l_scores_prop) .* exp.(l_prior_candidates)) ./ 
-                #         min.(1e12, max.(1e-12, exp.(l_scores) .* exp.(l_prior)))
+                # Acceptance checks
                 log_ratio = temp * l_scores_candidates + l_prior_candidates - temp * l_scores - l_prior
                 alpha = min.(1, exp.(log_ratio))
-                println(maximum(alpha))
                 accept_mask = rand(Float64, n_samples) .< alpha
                 theta[:, accept_mask] .= theta_candidates[:, accept_mask]
-                println("$(sum(accept_mask)) candidates accepted.")
+                # println("$(sum(accept_mask)) candidates accepted.")
+
+                # if m > 10 && m % 10 == 0
+                #     PSRF, converged = gelman_rubin_PSRF(mcmc_chains, 0.5, 1.1)
+                #     println("PSRF = $PSRF, converged = $converged")
+                # end
+
+                mcmc_chains[m, :, :] .= theta
             end
+            PSRF, converged = gelman_rubin_PSRF(mcmc_chains, 0.5, 1.1)
+            println("PSRF = $PSRF, converged = $converged")
         end
 
         # return dantigny_summaries, rmse_vals
