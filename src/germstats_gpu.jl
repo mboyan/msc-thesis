@@ -16,6 +16,8 @@ __precompile__(false)
 
     export compute_germination
     export load_model_collection_ordered
+    export param_dict_to_matrix
+    export model_wrapper
 
 
     """
@@ -1188,19 +1190,31 @@ __precompile__(false)
     # ====================== GERMINATION FRACTION CALCULATION =============================
     # =====================================================================================
     """
-    Compute the germination fraction for
-    a set of parameter values and a time series.
+    Convert a parameter dictionary to a matrix
+    for GPU processing.
     inputs:
-        model_alias (String) - alias of the germination model
-        rho_s (Float32) - number density of spore colony (in um^(-1))
-        times (Vector{Float32}) - time points to evaluate
         param_dict (Dict) - parameter dictionary, multiple values possible per key
+    outputs:
+        param_arr (Array{Float32}) - parameter matrix of size P x param_dim
     """
-    function compute_germination(model_alias, rho_s, times, param_dict)
-
-        # n_params = length(keys(param_dict))
+    function param_dict_to_matrix(param_dict, rho_s)
         sample_size = length(param_dict[:mu_R])
         param_keys = keys(param_dict)
+
+        # Process neg_delta parameters to sigma parameters if present
+        # and add to dictionary
+        # keys_original =  keys(param_dict)
+        # for key in keys_original
+        #     if startswith(string(key), "neg_delta")
+        #         suffix = string(key)[11]  # Extract the suffix after "neg_delta"
+
+        #         sigma_key = Symbol("sigma_" * suffix)
+
+        #         if !(sigma_key in keys_original)
+        #             param_dict[sigma_key] = param_dict[Symbol("mu_" * suffix)] .* exp.(param_dict[key])
+        #         end
+        #     end
+        # end
 
         # Unpack parameter dictionary into an Array P x param_dim
         param_arr = Array{Float32}(undef, sample_size, 22)
@@ -1227,6 +1241,20 @@ __precompile__(false)
         :n in param_keys ? param_arr[:, 21] .= Float32.(param_dict[:n]) : nothing
         :K_b in param_keys ? param_arr[:, 22] .= Float32.(param_dict[:K_b]) : nothing
 
+        return param_arr
+    end
+
+    """
+    Compute germination fraction over time
+    for a given model and parameter values.
+    inputs:
+        model_alias (String) - model name
+        param_arr (Array{Float32}) - parameter matrix of size P x param_dim
+        times (Array{Float32}) - time points for evaluation
+    outputs:
+        germination (Array{Float32}) - germination fraction over time for each parameter set
+    """
+    function model_wrapper(model_alias, param_arr, times)
         if model_alias == "independent" # 0
             germination = integrate_batched(8, 2, param_arr, times, 1)
         elseif model_alias == "feedback_inhibitor_inducer_perm" # Ai
@@ -1346,6 +1374,25 @@ __precompile__(false)
         else
             error("Unknown model alias: $model_alias")
         end
+
+        return germination
+    end
+
+    """
+    Compute the germination fraction for
+    a dictionary of parameter values and a time series.
+    inputs:
+        model_alias (String) - alias of the germination model
+        rho_s (Float32) - number density of spore colony (in um^(-1))
+        times (Vector{Float32}) - time points to evaluate
+        param_dict (Dict) - parameter dictionary, multiple values possible per key
+    outputs:
+        germination (Array{Float32}) - germination fraction over time for each parameter set
+    """
+    function compute_germination(model_alias, rho_s, times, param_dict)
+        param_arr = param_dict_to_matrix(param_dict, rho_s)
+        germination = model_wrapper(model_alias, param_arr, times)
+        return germination
     end
 
 end
