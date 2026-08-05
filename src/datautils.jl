@@ -24,6 +24,7 @@ __precompile__(false)
     using Statistics
     using StatsBase
     using ProgressMeter
+    using Base.Threads
     # using LogExpFunctions
     
     include("./conversions.jl")
@@ -40,11 +41,13 @@ __precompile__(false)
     export unpack_ijadpanahsaravi_data
     export calibrate_priors
     export dantigny
+    export dantigny_time_shifted
     export infer_dantigny_parameters
     export generate_dantigny_dataset
     export train_multioutput_nn_mixed_precision
     export predict_with_uncertainty_mixed_precision
     export fit_dantigny_to_germination_curve
+    export fit_dantigny_time_shifted_to_germination_curve
     export fit_model_to_data
     export get_params_for_idx
     export fit_model_to_data_equilibrium
@@ -594,6 +597,23 @@ __precompile__(false)
     """
     function dantigny(t, p_max, τ, ν)
         p = p_max * (1 - 1 / (1 + (t / τ)^ν))
+        return p
+    end
+
+    """
+    Dantigny model for the germination of a fungal culture
+    incorporating a time shift.
+    inputs:
+        t: time (in hours)
+        p_max: maximum germination rate
+        τ: time constant (in hours)
+        ν: design parameter (dimensionless)
+        δ: time shift (in hours)
+    outputs:
+        p: germination rate (dimensionless)
+    """
+    function dantigny_time_shifted(t, p_max, τ, ν, δ)
+        p = p_max * (1 - 1 / (1 + ((t - δ) / τ)^ν))
         return p
     end
 
@@ -1988,7 +2008,7 @@ __precompile__(false)
 
         # Initial guesses
         if isnothing(p0)
-            p0 = [0.5, times[Int(0.5 * length(times))], 2.0]
+            p0 = [0.5, times[round(Int, 0.5 * length(times))], 2.0]
         end
 
         # Transform to strictly positive scales
@@ -1996,39 +2016,128 @@ __precompile__(false)
         p0[2] = log(p0[2])
         p0[3] = log(p0[3])
 
-        # try
-            fit = curve_fit(dantigny_wrapper, times, germ_response, p0)
-            params = coef(fit)
-            rmse = sqrt(mean(residuals(fit) .^ 2))
-            param_uncertainties = try
-                stderror(fit)
-            catch e
-                if isa(e, LinearAlgebra.LAPACKException)
-                    # Matrix is singular - return NaN or zeros
-                    fill(Inf, length(params))
-                else
-                    rethrow(e)
-                end
-            end
-
-            # println(estimate_covar(fit))
-
-            # if rmse > 0.03 # average deviation > 3 percentage points in germination
-            #     println("High RMSE: $rmse")
-            # end
-
-            # Transform parameters
-            params[1] = 1 / (1 + exp(-params[1]))
-            params[2] = exp(params[2])
-            params[3] = exp(params[3])
-
-            return params, rmse, param_uncertainties
-
-        # catch
-        #     # Handle sharp immediate steps
-        #     return [germ_response[end], NaN, NaN], NaN, [NaN, NaN, NaN]
+        fit = LsqFit.curve_fit(dantigny_wrapper, times, germ_response, p0)
+        params = coef(fit)
+        rmse = sqrt(mean(residuals(fit) .^ 2))
+        # param_uncertainties = try
+        #     stderror(fit)
+        # catch e
+        #     if isa(e, LinearAlgebra.LAPACKException)
+        #         # Matrix is singular - return NaN or zeros
+        #         fill(Inf, length(params))
+        #     else
+        #         rethrow(e)
+        #     end
         # end
+
+        # Transform parameters
+        params[1] = 1 / (1 + exp(-params[1]))
+        params[2] = exp(params[2])
+        params[3] = exp(params[3])
+
+        return params, rmse #, param_uncertainties
     end
+
+    function fit_dantigny_time_shifted_to_germination_curve(germ_response, times; p0=nothing)
+
+        dantigny_wrapper(t, p) = dantigny_time_shifted.(t, 1 / (1 + exp(-p[1])), exp(p[2]), exp(p[3]), p[4]) # [p_max, τ, ν, delta] after transformations to become strictly positive
+
+        # Initial guesses
+        if isnothing(p0)
+            p0 = [0.5, times[round(Int, 0.5 * length(times))], 2.0, 0.0]
+        end
+
+        # Transform to strictly positive scales
+        p0[1] = log(p0[1]) - log1p(-p0[1])
+        p0[2] = log(p0[2])
+        p0[3] = log(p0[3])
+        # p0[4] = log(p0[4])
+
+        fit = LsqFit.curve_fit(dantigny_wrapper, times, germ_response, p0)
+        params = coef(fit)
+        rmse = sqrt(mean(residuals(fit) .^ 2))
+        # param_uncertainties = try
+        #     stderror(fit)
+        # catch e
+        #     if isa(e, LinearAlgebra.LAPACKException)
+        #         # Matrix is singular - return NaN or zeros
+        #         fill(Inf, length(params))
+        #     else
+        #         rethrow(e)
+        #     end
+        # end
+
+        # Transform parameters
+        params[1] = 1 / (1 + exp(-params[1]))
+        params[2] = exp(params[2])
+        params[3] = exp(params[3])
+        # params[4] = exp(params[4])
+
+        return params, rmse #, param_uncertainties
+    end
+
+    # function get_smart_initial_guess(germ_response, times)
+    #     p_max_guess = maximum(germ_response) * 0.98
+    #     p_norm = germ_response ./ p_max_guess
+    #     idx_half = searchsortedfirst(p_norm, 0.5)
+        
+    #     τ_guess = if idx_half > 1 && idx_half <= length(times)
+    #         times[idx_half]
+    #     else
+    #         times[Int(0.5 * length(times))]
+    #     end
+        
+    #     ν_guess = if idx_half > 3 && idx_half < length(times) - 3
+    #         Δp = p_norm[idx_half + 3] - p_norm[idx_half - 3]
+    #         Δt = times[idx_half + 3] - times[idx_half - 3]
+    #         max(0.3, min(4.0, Δp / Δt))
+    #     else
+    #         2.0
+    #     end
+        
+    #     return [p_max_guess, τ_guess, ν_guess]
+    # end
+
+    # function fit_dantigny_to_germination_curve(
+    #     germ_response, times; 
+    #     p0=nothing,
+    #     compute_uncertainties=false
+    # )
+        
+    #     dantigny_wrapper(t, p) = @. (1 / (1 + exp(-p[1]))) * (1 - 1 / (1 + (t / exp(p[2]))^exp(p[3])))
+
+    #     # Better initial guess
+    #     if isnothing(p0)
+    #         p_max_phys = maximum(germ_response) * 0.98
+    #         p_norm = germ_response ./ p_max_phys
+    #         idx_half = searchsortedfirst(p_norm, 0.5)
+    #         τ_phys = idx_half > 1 ? times[idx_half] : times[Int(0.5 * length(times))]
+            
+    #         # Transform to optimization space
+    #         p0 = [
+    #             log(p_max_phys) - log1p(-p_max_phys),
+    #             log(τ_phys),
+    #             log(2.0)
+    #         ]
+    #     end
+
+    #     fit = LsqFit.curve_fit(
+    #         dantigny_wrapper, times, germ_response, p0
+    #     )
+        
+    #     params_opt = coef(fit)
+        
+    #     # Transform back to physical space
+    #     params = [
+    #         1 / (1 + exp(-params_opt[1])),
+    #         exp(params_opt[2]),
+    #         exp(params_opt[3])
+    #     ]
+        
+    #     rmse = sqrt(mean(residuals(fit) .^ 2))
+
+    #     return params, rmse
+    # end
 
 
     """
@@ -4588,23 +4697,24 @@ __precompile__(false)
         l_scores = zeros(Float64, n_samples) # Log-likelihood scores for each sample
 
         # Run model for all densities
-        germination = model_wrapper(alias, param_arr, times)
+        @time germination = model_wrapper(alias, param_arr, times)
 
         # Fit Dantigny to the model outputs
         dantigny_summaries = zeros(Float64, 3, n_samples_total) # 3 parameters (p_max, tau_g, nu) X n_samples_total
         rmse_vals = Vector{Float64}(undef, n_samples_total)
-        for k in 1:n_samples_total
-            p_opt, rmse = fit_dantigny_to_germination_curve(germination[k, :], times)
+        @time Threads.@threads for k in 1:n_samples_total
+            p_opt, rmse = fit_dantigny_to_germination_curve(germination[k, 2:end], times[2:end]) # skip 1st time sample
             dantigny_summaries[:, k] = p_opt
             rmse_vals[k] = rmse
         end
 
         if any(rmse_vals .> 0.05)
             println("Warning: Some RMSE values are very large (>5%), indicating poor fits.")
+            # println(rmse_vals)
         end
 
         # Compare model output against lab data for each source and density
-        for (i, rho_s) in enumerate(densities)
+        @time for (i, rho_s) in enumerate(densities)
             println("  Density: $rho_s")
             d_summaries_subset = dantigny_summaries[:, (i - 1) * n_samples + 1 : i * n_samples]
             for (j, src) in enumerate(sources)
@@ -4873,6 +4983,7 @@ __precompile__(false)
 
         # Sort by relevant_key_indices to maintain consistent order
         sorted_indices = sortperm(relevant_key_indices)
+        relevant_key_indices = relevant_key_indices[sorted_indices]
         p_theta = p_theta[sorted_indices]
         theta_srch_sigma = theta_srch_sigma[sorted_indices]
         # n_theta = length(relevant_key_indices)
@@ -4882,6 +4993,10 @@ __precompile__(false)
         # println(theta_srch_sigma)
         # println(isnormal)
 
+        # println("Sorted indices: $sorted_indices")
+        println("Sorted keys: $(param_key_mapping[relevant_key_indices])")
+        println("Normal: $isnormal")
+
         # Convert parameter dictionary to vector
         # theta = reduce(hcat, theta)'
         # n_theta = size(theta, 1)
@@ -4890,11 +5005,11 @@ __precompile__(false)
         theta = quantile.(p_theta, sobol_pts)
 
         # Update input parameter matrix
-        particle_to_input_params!(param_arr, theta, n_dens, sorted_indices, sigma_param_map)
+        particle_to_input_params!(param_arr, theta, n_dens, relevant_key_indices, sigma_param_map)
 
         # Construct input parameter array
         # param_arr = zeros(Float32, n_samples * n_dens, 22)
-        # for (i, idx) in enumerate(sorted_indices)
+        # for (i, idx) in enumerate(relevant_key_indices)
         #     for j in n_dens
         #         param_arr[:, idx + (j-1)*n_samples] .= theta[i, :]
         #         # Exponentiate if sigma parameter
@@ -4954,7 +5069,7 @@ __precompile__(false)
             println("SMC step $n / $n_smc_steps")
 
             # --- LIKELIHOODS FOR TEMPERATURE UPDATE ---
-            @time l_scores = likelihood_scores(alias, times, densities, sources, param_arr, lab_means, lab_covs)
+            l_scores = likelihood_scores(alias, times, densities, sources, param_arr, lab_means, lab_covs)
 
             # --- TEMPERATURE UPDATE ---
             # Update temperature with largest increase that

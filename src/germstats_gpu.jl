@@ -819,34 +819,6 @@ __precompile__(false)
         return calc_diffs(c_in_I, c_in_C, c_out_I, c_ex, rateI, rateC, V_s, V_free, V_ps)
     end
 
-    # """
-    # System of coupled ODEs for the feedback model
-    # of inhibitor-dependent cell wall permeability
-    # and inhibitor-suppressed inducing signal.
-    # """
-    # function ode_system_CD(u, p, t)
-    #     c_in_I, c_out_I, c_in_C = u
-    
-    #     # Unpack parameters for this specific spore
-    #     P_I, P_C, c_ex, K_s, K_b, K_I, n, lambda_I, lambda_C, k_gamma, k_omega, A_s, V_s, V_free, V_ps, gamma, omega, c0 = p
-
-    #     # Compute inducing signal s from c_in_C and inhibitory signal b from c_in_I
-    #     s = c_in_C / (K_s + c_in_C)
-    #     s = s / (1 + (c_in_I / K_I)^n)
-    #     b = c_in_I / (K_b + c_in_I)
-
-    #     exp_factor = exp(-lambda_I * b)
-        
-    #     # Update permeability constants based on signal
-    #     P_I_pert = P_I * exp_factor
-    #     P_C_pert = P_C * exp_factor
-
-    #     rateI = P_I_pert * A_s
-    #     rateC = P_C_pert * A_s
-
-    #     return calc_diffs(c_in_I, c_in_C, c_out_I, c_ex, rateI, rateC, V_s, V_free, V_ps)
-    # end
-
     """
     Host orchestration: compute germination
     probability of a feedback model by running
@@ -1200,21 +1172,6 @@ __precompile__(false)
     function param_dict_to_matrix(param_dict, rho_s)
         sample_size = length(param_dict[:mu_R])
         param_keys = keys(param_dict)
-
-        # Process neg_delta parameters to sigma parameters if present
-        # and add to dictionary
-        # keys_original =  keys(param_dict)
-        # for key in keys_original
-        #     if startswith(string(key), "neg_delta")
-        #         suffix = string(key)[11]  # Extract the suffix after "neg_delta"
-
-        #         sigma_key = Symbol("sigma_" * suffix)
-
-        #         if !(sigma_key in keys_original)
-        #             param_dict[sigma_key] = param_dict[Symbol("mu_" * suffix)] .* exp.(param_dict[key])
-        #         end
-        #     end
-        # end
 
         # Unpack parameter dictionary into an Array P x param_dim
         param_arr = Array{Float32}(undef, sample_size, 22)
