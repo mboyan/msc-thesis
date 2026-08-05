@@ -1,13 +1,5 @@
 # Notes
 
-## Extension of Dantigny model
-Since some initial concentrations may already overlap with threshold distributions, it is possible that the germination curve starts from a nonzero value.
-This implies that the Dantigny equation needs to be extended with a baseline time shift $\delta$, yielding a total of 4 Dantigny summaries:
-
-$$
-p=p_{\textrm{max}}\left(1-\frac{1}{1+\left(\frac{t+\delta}{\tau}\right)^\nu}\right).
-$$
-
 ## Important for BMA
 - Check if experimental _triplets_, sample sizes etc. (see Ijadpanahsaravi et al. 2023) should be considered in BMA process.
 
