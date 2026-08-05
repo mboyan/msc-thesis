@@ -601,23 +601,6 @@ __precompile__(false)
     end
 
     """
-    Dantigny model for the germination of a fungal culture
-    incorporating a time shift.
-    inputs:
-        t: time (in hours)
-        p_max: maximum germination rate
-        τ: time constant (in hours)
-        ν: design parameter (dimensionless)
-        δ: time shift (in hours)
-    outputs:
-        p: germination rate (dimensionless)
-    """
-    function dantigny_time_shifted(t, p_max, τ, ν, δ)
-        p = p_max * (1 - 1 / (1 + ((t - δ) / τ)^ν))
-        return p
-    end
-
-    """
     Infer the effective Dantigny parameters
     p_max, τ_g and ν from a germination time series
     inputs:
@@ -2010,135 +1993,48 @@ __precompile__(false)
         if isnothing(p0)
             p0 = [0.5, times[round(Int, 0.5 * length(times))], 2.0]
         end
-
-        # Transform to strictly positive scales
-        p0[1] = log(p0[1]) - log1p(-p0[1])
-        p0[2] = log(p0[2])
-        p0[3] = log(p0[3])
-
-        fit = LsqFit.curve_fit(dantigny_wrapper, times, germ_response, p0)
-        params = coef(fit)
-        rmse = sqrt(mean(residuals(fit) .^ 2))
-        # param_uncertainties = try
-        #     stderror(fit)
-        # catch e
-        #     if isa(e, LinearAlgebra.LAPACKException)
-        #         # Matrix is singular - return NaN or zeros
-        #         fill(Inf, length(params))
-        #     else
-        #         rethrow(e)
-        #     end
-        # end
-
-        # Transform parameters
-        params[1] = 1 / (1 + exp(-params[1]))
-        params[2] = exp(params[2])
-        params[3] = exp(params[3])
-
-        return params, rmse #, param_uncertainties
-    end
-
-    function fit_dantigny_time_shifted_to_germination_curve(germ_response, times; p0=nothing)
-
-        dantigny_wrapper(t, p) = dantigny_time_shifted.(t, 1 / (1 + exp(-p[1])), exp(p[2]), exp(p[3]), p[4]) # [p_max, τ, ν, delta] after transformations to become strictly positive
-
-        # Initial guesses
-        if isnothing(p0)
-            p0 = [0.5, times[round(Int, 0.5 * length(times))], 2.0, 0.0]
-        end
-
-        # Transform to strictly positive scales
-        p0[1] = log(p0[1]) - log1p(-p0[1])
-        p0[2] = log(p0[2])
-        p0[3] = log(p0[3])
-        # p0[4] = log(p0[4])
-
-        fit = LsqFit.curve_fit(dantigny_wrapper, times, germ_response, p0)
-        params = coef(fit)
-        rmse = sqrt(mean(residuals(fit) .^ 2))
-        # param_uncertainties = try
-        #     stderror(fit)
-        # catch e
-        #     if isa(e, LinearAlgebra.LAPACKException)
-        #         # Matrix is singular - return NaN or zeros
-        #         fill(Inf, length(params))
-        #     else
-        #         rethrow(e)
-        #     end
-        # end
-
-        # Transform parameters
-        params[1] = 1 / (1 + exp(-params[1]))
-        params[2] = exp(params[2])
-        params[3] = exp(params[3])
-        # params[4] = exp(params[4])
-
-        return params, rmse #, param_uncertainties
-    end
-
-    # function get_smart_initial_guess(germ_response, times)
-    #     p_max_guess = maximum(germ_response) * 0.98
-    #     p_norm = germ_response ./ p_max_guess
-    #     idx_half = searchsortedfirst(p_norm, 0.5)
-        
-    #     τ_guess = if idx_half > 1 && idx_half <= length(times)
-    #         times[idx_half]
-    #     else
-    #         times[Int(0.5 * length(times))]
-    #     end
-        
-    #     ν_guess = if idx_half > 3 && idx_half < length(times) - 3
-    #         Δp = p_norm[idx_half + 3] - p_norm[idx_half - 3]
-    #         Δt = times[idx_half + 3] - times[idx_half - 3]
-    #         max(0.3, min(4.0, Δp / Δt))
-    #     else
-    #         2.0
-    #     end
-        
-    #     return [p_max_guess, τ_guess, ν_guess]
-    # end
-
-    # function fit_dantigny_to_germination_curve(
-    #     germ_response, times; 
-    #     p0=nothing,
-    #     compute_uncertainties=false
-    # )
-        
-    #     dantigny_wrapper(t, p) = @. (1 / (1 + exp(-p[1]))) * (1 - 1 / (1 + (t / exp(p[2]))^exp(p[3])))
-
-    #     # Better initial guess
-    #     if isnothing(p0)
-    #         p_max_phys = maximum(germ_response) * 0.98
-    #         p_norm = germ_response ./ p_max_phys
-    #         idx_half = searchsortedfirst(p_norm, 0.5)
-    #         τ_phys = idx_half > 1 ? times[idx_half] : times[Int(0.5 * length(times))]
+        # if isnothing(p0)
+        #     # Get physical parameter guesses first
+        #     p_max_phys = max(maximum(germ_response) * 0.98, 1e-6)
+        #     p_norm = germ_response ./ p_max_phys
+        #     idx_half = min(searchsortedfirst(p_norm, 0.5), length(times))
+        #     τ_phys = idx_half > 1 ? times[idx_half] : times[round(Int, 0.5 * length(times))]
+        #     ν_phys = 2.0
             
-    #         # Transform to optimization space
-    #         p0 = [
-    #             log(p_max_phys) - log1p(-p_max_phys),
-    #             log(τ_phys),
-    #             log(2.0)
-    #         ]
-    #     end
+        #     # Transform to unconstrained space
+        #     p0 = [
+        #         log(p_max_phys) - log1p(-p_max_phys),  # logit transform
+        #         log(τ_phys),
+        #         log(ν_phys)
+        #     ]
+        # end
 
-    #     fit = LsqFit.curve_fit(
-    #         dantigny_wrapper, times, germ_response, p0
-    #     )
-        
-    #     params_opt = coef(fit)
-        
-    #     # Transform back to physical space
-    #     params = [
-    #         1 / (1 + exp(-params_opt[1])),
-    #         exp(params_opt[2]),
-    #         exp(params_opt[3])
-    #     ]
-        
-    #     rmse = sqrt(mean(residuals(fit) .^ 2))
+        # Transform to strictly positive scales
+        p0[1] = log(p0[1]) - log1p(-p0[1])
+        p0[2] = log(p0[2])
+        p0[3] = log(p0[3])
 
-    #     return params, rmse
-    # end
+        fit = LsqFit.curve_fit(dantigny_wrapper, times, germ_response, p0)
+        params = coef(fit)
+        rmse = sqrt(mean(residuals(fit) .^ 2))
+        # param_uncertainties = try
+        #     stderror(fit)
+        # catch e
+        #     if isa(e, LinearAlgebra.LAPACKException)
+        #         # Matrix is singular - return NaN or zeros
+        #         fill(Inf, length(params))
+        #     else
+        #         rethrow(e)
+        #     end
+        # end
 
+        # Transform parameters
+        params[1] = 1 / (1 + exp(-params[1]))
+        params[2] = exp(params[2])
+        params[3] = exp(params[3])
+
+        return params, rmse #, param_uncertainties
+    end
 
     """
     Fit a selected germination model to the data.
@@ -4703,7 +4599,7 @@ __precompile__(false)
         dantigny_summaries = zeros(Float64, 3, n_samples_total) # 3 parameters (p_max, tau_g, nu) X n_samples_total
         rmse_vals = Vector{Float64}(undef, n_samples_total)
         @time Threads.@threads for k in 1:n_samples_total
-            p_opt, rmse = fit_dantigny_to_germination_curve(germination[k, 2:end], times[2:end]) # skip 1st time sample
+            p_opt, rmse = fit_dantigny_to_germination_curve(germination[k, :], times[:]) # skip 1st time sample
             dantigny_summaries[:, k] = p_opt
             rmse_vals[k] = rmse
         end
@@ -4860,8 +4756,12 @@ __precompile__(false)
                 param_arr[start_idx:end_idx, idx] .= theta[i, :]
                 # Exponentiate if sigma parameter
                 mu_idx = sigma_param_map[i]
-                if mu_idx != -1
+                if mu_idx > 0
+                    # SD relative to magnitude of mean
                     param_arr[start_idx:end_idx, idx] .= theta[mu_idx, :] .* exp.(theta[i, :])
+                elseif mu_idx < 0
+                    # SD relative to difference of mean from 1 (X distribution)
+                    param_arr[start_idx:end_idx, idx] .= ((1 .- theta[-mu_idx, :]) ./ 3) .* exp.(theta[i, :])
                 end
             end
         end
@@ -4939,9 +4839,13 @@ __precompile__(false)
                     suffix = string(key)[11]  # Extract the suffix after "neg_delta"
                     mu_key = Symbol("mu_" * suffix)
                     mu_idx = findfirst(==(mu_key), all_var_param_keys)
-                    push!(sigma_param_map, mu_idx)
+                    if suffix == "X"
+                        push!(sigma_param_map, -mu_idx)
+                    else
+                        push!(sigma_param_map, mu_idx)
+                    end
                 else
-                    push!(sigma_param_map, -1)
+                    push!(sigma_param_map, 0)
                 end
             end
         end
