@@ -11,6 +11,9 @@ __precompile__(false)
     using Optim
     using NLopt
     using LsqFit
+    using NonlinearSolve
+    # using NLSolvers
+    # using StaticArrays
     using MeshGrid
     using Distributions
     using ArgCheck
@@ -25,6 +28,7 @@ __precompile__(false)
     using StatsBase
     using ProgressMeter
     using Base.Threads
+    # using Base.GC
     # using LogExpFunctions
     
     include("./conversions.jl")
@@ -1993,21 +1997,6 @@ __precompile__(false)
         if isnothing(p0)
             p0 = [0.5, times[round(Int, 0.5 * length(times))], 2.0]
         end
-        # if isnothing(p0)
-        #     # Get physical parameter guesses first
-        #     p_max_phys = max(maximum(germ_response) * 0.98, 1e-6)
-        #     p_norm = germ_response ./ p_max_phys
-        #     idx_half = min(searchsortedfirst(p_norm, 0.5), length(times))
-        #     τ_phys = idx_half > 1 ? times[idx_half] : times[round(Int, 0.5 * length(times))]
-        #     ν_phys = 2.0
-            
-        #     # Transform to unconstrained space
-        #     p0 = [
-        #         log(p_max_phys) - log1p(-p_max_phys),  # logit transform
-        #         log(τ_phys),
-        #         log(ν_phys)
-        #     ]
-        # end
 
         # Transform to strictly positive scales
         p0[1] = log(p0[1]) - log1p(-p0[1])
@@ -2034,6 +2023,87 @@ __precompile__(false)
         params[3] = exp(params[3])
 
         return params, rmse #, param_uncertainties
+    end
+
+    function fit_dantigny_to_germination_curve_reuse(germ_response, times, residual_buf, p_opt_buf)
+        n_pts = length(germ_response)
+        
+        # In-place residual function
+        function residuals!(res, p_trans)
+            p_max = 1 / (1 + exp(-p_trans[1]))
+            τ = exp(p_trans[2])
+            ν = exp(p_trans[3])
+            for i in eachindex(times)
+                res[i] = germ_response[i] - p_max * (1 - 1 / (1 + (times[i] / τ)^ν))
+            end
+            return res
+        end
+        
+        # Objective: sum of squared residuals (no allocations)
+        function objective(p_trans)
+            residuals!(residual_buf, p_trans)
+            return sum(abs2, residual_buf)
+        end
+        
+        # Initial guess
+        p0_trans = [0.5, log(times[div(length(times), 2)]), log(2.0)]
+        p0_trans[1] = log(p0_trans[1]) - log1p(-p0_trans[1])
+        
+        # Optimize with BFGS (gradient computed via autodiff)
+        result = Optim.optimize(
+            objective,
+            p0_trans,
+            BFGS(),
+            Optim.Options(iterations=100, g_tol=1e-6)
+        )
+        
+        p_trans_opt = result.minimizer
+        
+        # Transform back
+        p_opt_buf[1] = 1 / (1 + exp(-p_trans_opt[1]))
+        p_opt_buf[2] = exp(p_trans_opt[2])
+        p_opt_buf[3] = exp(p_trans_opt[3])
+        
+        # Compute RMSE
+        residuals!(residual_buf, p_trans_opt)
+        rmse = sqrt(mean(abs2, residual_buf))
+        
+        return p_opt_buf, rmse
+    end
+
+    function fit_dantigny_to_germination_curve_lm(germ_response, times, residual_buf, p_opt_buf)
+        n_pts = length(germ_response)
+        
+        # In-place residual function (matches NonlinearSolve API)
+        function residuals!(res, p_trans, _)
+            p_max = 1 / (1 + exp(-p_trans[1]))
+            τ = exp(p_trans[2])
+            ν = exp(p_trans[3])
+            for i in eachindex(times)
+                res[i] = germ_response[i] - p_max * (1 - 1 / (1 + (times[i] / τ)^ν))
+            end
+        end
+        
+        # Initial guess
+        p0_trans = [0.5, log(times[div(length(times), 2)]), log(2.0)]
+        p0_trans[1] = log(p0_trans[1]) - log1p(-p0_trans[1])
+        
+        # Build and solve least-squares problem
+        prob = NonlinearLeastSquaresProblem(residuals!, p0_trans)
+        sol = solve(prob, LevenbergMarquardt(), maxiters=100)
+        
+        p_trans_opt = sol.u
+        
+        # Transform back
+        p_opt_buf[1] = 1 / (1 + exp(-p_trans_opt[1]))
+        p_opt_buf[2] = exp(p_trans_opt[2])
+        p_opt_buf[3] = exp(p_trans_opt[3])
+        
+        # Compute RMSE
+        residuals!(residual_buf, p_trans_opt, nothing)
+        rmse = sqrt(mean(abs2, residual_buf))
+        
+        return p_opt_buf, rmse
     end
 
     """
@@ -4576,15 +4646,17 @@ __precompile__(false)
     Compute likelihoods based on Dantigny summary
     Mahalanobis distances.
     inputs:
-        alias (String)              : model alias
-        times (Vector)              : vector of time points (in hours)
-        densities (Vector)          : unique spore densities used in the data
-        sources (Vector)            : unique string identifiers of carbon sources
-        param_arr (Matrix{Float64}) : matrix of parameter samples ([n_dens x n_samples] x 22)
-        lab_means (Matrix{Float64}) : mean Dantigny values across the experimental settings (n_dens x n_src x 3)
-        lab_covs (Matrix{Float64})  : covariance matrices of lab Dantigny values across the experimental settings (n_dens x n_src x 3 x 3)
+        alias (String)                          : model alias
+        times (Vector)                          : vector of time points (in hours)
+        densities (Vector)                      : unique spore densities used in the data
+        sources (Vector)                        : unique string identifiers of carbon sources
+        param_arr (Matrix{Float64})             : matrix of parameter samples ([n_dens x n_samples] x 22)
+        lab_means (Matrix{Float64})             : mean Dantigny values across the experimental settings (n_dens x n_src x 3)
+        lab_covs (Matrix{Float64})              : covariance matrices of lab Dantigny values across the experimental settings (n_dens x n_src x 3 x 3)
+        dantigny_summaries (Matrix{Float64})    : preallocated matrix of Dantigny summaries (3 x n_samples_total)
+        rmse_vals                               : preallocated vector of RMSE values for the Dantigny summaries
     """
-    function likelihood_scores(alias, times, densities, sources, param_arr, lab_means, lab_covs)
+    function likelihood_scores!(alias, times, densities, sources, param_arr, lab_means, lab_covs, dantigny_summaries, rmse_vals)
 
         n_dens = length(densities)
         n_samples_total = size(param_arr, 1)
@@ -4596,17 +4668,38 @@ __precompile__(false)
         @time germination = model_wrapper(alias, param_arr, times)
 
         # Fit Dantigny to the model outputs
-        dantigny_summaries = zeros(Float64, 3, n_samples_total) # 3 parameters (p_max, tau_g, nu) X n_samples_total
-        rmse_vals = Vector{Float64}(undef, n_samples_total)
+        # GC.gc()
+        # dantigny_summaries = zeros(Float64, 3, n_samples_total) # 3 parameters (p_max, tau_g, nu) X n_samples_total
+        # rmse_vals = Vector{Float64}(undef, n_samples_total)
+        # @time Threads.@threads for k in 1:n_samples_total
+        #     p_opt, rmse = fit_dantigny_to_germination_curve(germination[k, :], times[:])
+        #     dantigny_summaries[:, k] .= p_opt
+        #     rmse_vals[k] = rmse
+        # end
+
+        # Preallocate per-thread buffers
+        num_threads = Threads.nthreads()
+        n_timepoints = length(times)
+        
+        residual_buffers = [Vector{Float64}(undef, n_timepoints) for _ in 1:num_threads]
+        p_opt_buffers = [Vector{Float64}(undef, 3) for _ in 1:num_threads]
+
         @time Threads.@threads for k in 1:n_samples_total
-            p_opt, rmse = fit_dantigny_to_germination_curve(germination[k, :], times[:]) # skip 1st time sample
-            dantigny_summaries[:, k] = p_opt
+            tid = Threads.threadid()
+            p_opt, rmse = fit_dantigny_to_germination_curve_lm(
+                germination[k, :], 
+                times,
+                residual_buffers[tid],
+                p_opt_buffers[tid]
+            )
+            dantigny_summaries[:, k] .= p_opt
             rmse_vals[k] = rmse
         end
 
         if any(rmse_vals .> 0.05)
             println("Warning: Some RMSE values are very large (>5%), indicating poor fits.")
-            # println(rmse_vals)
+            println("Maximum RMSE: $(maximum(rmse_vals))")
+            println("Number of large RMSE values: $(sum(rmse_vals .> 0.05))")
         end
 
         # Compare model output against lab data for each source and density
@@ -4634,53 +4727,6 @@ __precompile__(false)
             end
         end
 
-        # Run model for each density
-        # for (i, rho_s) in enumerate(densities)
-        #     println("  Density: $rho_s")
-
-        #     # Update current density
-        #     param_arr[:, 1] .= Float32.(rho_s)
-
-        #     # Compute germination
-        #     germination = model_wrapper(model_alias, param_arr, times)
-
-        #     # Fit Dantigny to the model outputs
-        #     dantigny_summaries = zeros(Float64, 3, n_samples) # 3 parameters (p_max, tau_g, nu) X n_samples
-        #     rmse_vals = Vector{Float64}(undef, n_samples)
-        #     for k in 1:n_samples
-        #         p_opt, rmse = fit_dantigny_to_germination_curve(germination[k, :], times)
-        #         dantigny_summaries[:, k] = p_opt
-        #         rmse_vals[k] = rmse
-        #     end
-
-        #     if any(rmse_vals .> 0.05)
-        #         println("Warning: Some RMSE values are very large (>5%), indicating poor fits.")
-        #     end
-
-        #     # println("    Dantigny summaries (p_max, tau_g, nu):")
-        #     # for k in 1:n_samples
-        #     #     println("    Sample $k: $(round.(dantigny_summaries[:, k], digits=4))")
-        #     # end
-
-        #     # Compare model output against lab data for each source
-        #     for (j, src) in enumerate(sources)
-        #         println("    Source: $src")
-
-        #         lab_mean = lab_means[i, j, :]
-        #         lab_cov = lab_covs[i, j, :, :]
-
-        #         # Compute Mahalanobis distance for each sample
-        #         z_scores = Vector{Float64}(undef, n_samples)
-        #         for k in 1:n_samples
-        #             diff = dantigny_summaries[:, k] .- lab_mean
-        #             z_scores[k] = min(dot(diff, lab_cov \ diff), 1e8)
-        #         end
-
-        #         # println("    z-scores vary between $(minimum(z_scores)) and $(maximum(z_scores))")
-        #         l_scores .+= z_scores
-        #     end
-        # end
-
         l_scores .= -0.5 .* l_scores # Convert to log-likelihoods
 
         return l_scores
@@ -4690,7 +4736,7 @@ __precompile__(false)
     Calculate Gelman-Rubin PSRF for MCMC convergence.
     
     Arguments:
-        chains (Matrix)         : MCMC chains of size (n_mc_steps, n_theta, n_samples)
+        chains (Matrix)         : MCMC chains of size (n_mc_steps, n_dims, n_samples)
         burn_in_frac (Float64)  : Fraction of samples to discard as burn-in
         threshold (Float54)     : Convergence threshold (default 1.1)
     
@@ -4711,25 +4757,28 @@ __precompile__(false)
         
         # Within-chain variance
         W = dropdims(mean(var(chains_burned, dims=1), dims=3), dims=(1, 3))
-        # W = zeros(n_params)
-        # for j in 1:n_params
-        #     # W[j] = mean(var(chains_burned[i][:, j]) for i in 1:n_chains)
-        #     W[j] = mean(var(chains_burned[:, j, i]) for i in 1:n_chains)
-        # end
         
         # Between-chain variance
         B = n_steps .* dropdims(var(mean(chains_burned, dims=1), dims=3), dims=(1,3))
-        # B = zeros(n_params)
-        # for j in 1:n_params
-        #     chain_means = [mean(chains_burned[i][:, j]) for i in 1:n_chains]
-        #     B[j] = n * var(chain_means)
-        # end
-        
+
         # Pooled variance
         V_hat = ((n_steps - 1) / n_steps) .* W .+ (1 / n_steps) .* B
         
         # PSRF
-        PSRF = sqrt.(V_hat ./ W)
+        # PSRF = sqrt.(V_hat ./ W)
+        PSRF = similar(W)
+
+        for i in eachindex(W)
+            if !isfinite(W[i]) || !isfinite(B[i])
+                PSRF[i] = NaN
+            elseif W[i] == 0
+                # All chains constant and equal → converged.
+                # Chains constant but different → not converged.
+                PSRF[i] = B[i] == 0 ? 1.0 : Inf
+            else
+                PSRF[i] = sqrt(V_hat[i] / W[i])
+            end
+        end
         
         # Convergence check
         converged = all(PSRF .< threshold)
@@ -4747,21 +4796,22 @@ __precompile__(false)
         param_mapping (Vector{Int})  : mapping of parameter indices to model input columns
         sigma_param_map (Vector{Int})  : mapping of sigma parameter indices to mu parameter indices
     """
-    function particle_to_input_params!(param_arr, theta, n_dens, param_map, sigma_param_map)
+    function particle_to_input_params!(param_arr, theta, densities, param_map, sigma_param_map)
         n_samples = size(theta, 2)
         for (i, idx) in enumerate(param_map)
-            for j in 1:n_dens
+            for (j, rho_s) in enumerate(densities)
                 start_idx = (j - 1) * n_samples + 1
                 end_idx = j * (n_samples)
-                param_arr[start_idx:end_idx, idx] .= theta[i, :]
+                param_arr[start_idx:end_idx, 1] .= rho_s # Density as first parameter
+                param_arr[start_idx:end_idx, idx] .= Float32.(theta[i, :])
                 # Exponentiate if sigma parameter
                 mu_idx = sigma_param_map[i]
                 if mu_idx > 0
                     # SD relative to magnitude of mean
-                    param_arr[start_idx:end_idx, idx] .= theta[mu_idx, :] .* exp.(theta[i, :])
+                    param_arr[start_idx:end_idx, idx] .= Float32.(theta[mu_idx, :] .* exp.(theta[i, :]))
                 elseif mu_idx < 0
                     # SD relative to difference of mean from 1 (X distribution)
-                    param_arr[start_idx:end_idx, idx] .= ((1 .- theta[-mu_idx, :]) ./ 3) .* exp.(theta[i, :])
+                    param_arr[start_idx:end_idx, idx] .= Float32.(((1 .- theta[-mu_idx, :]) ./ 3) .* exp.(theta[i, :]))
                 end
             end
         end
@@ -4782,6 +4832,8 @@ __precompile__(false)
     """
     function sequential_monte_carlo(alias, p0, priors, n_samples, n_smc_steps, n_mc_steps, t_max)
 
+        BLAS.set_num_threads(1)  # Force single-threaded BLAS
+
         times, sources, densities, lab_means, CIs, CI_widths, uncert_lab = unpack_ijadpanahsaravi_data()
         
         # Convert times and densities
@@ -4799,22 +4851,24 @@ __precompile__(false)
         end
 
         param_dict = Dict{Symbol, Vector{Float64}}()
-        param_key_mapping = [:rho_s,
-                            :mu_O, :neg_delta_O,
-                            :mu_R, :neg_delta_R,
-                            :mu_H, :neg_delta_H,
-                            :mu_X, :neg_delta_X,
-                            :mu_Y, :neg_delta_Y,
-                            :c_ex, :P_I, :P_C, :K_s,
-                            :lambda_I, :lambda_C,
-                            :k_gamma, :k_omega,
-                            :K_I, :n, :K_b] # mapping within param_dict_to_matrix()
+        param_key_mapping = [
+            :rho_s,
+            :mu_O, :neg_delta_O,
+            :mu_R, :sigma_R,
+            :mu_H, :sigma_H,
+            :mu_X, :neg_delta_X,
+            :mu_Y, :neg_delta_Y,
+            :c_ex, :P_I, :P_C, :K_s,
+            :lambda_I, :lambda_C,
+            :k_gamma, :k_omega,
+            :K_I, :n, :K_b
+        ] # mapping within param_dict_to_matrix()
 
         # Initialise parameter matrix with anchor values
         param_arr = zeros(Float32, n_samples * n_dens, 22)
         for (i, key) in enumerate(param_key_mapping)
             if haskey(p0, key)
-                param_arr[:, i] .= p0[key]
+                param_arr[:, i] .= Float32(p0[key])
             end
         end
 
@@ -4855,42 +4909,11 @@ __precompile__(false)
         sobol_pts = QuasiMonteCarlo.sample(n_samples, n_dims, SobolSample())
         sobol_pts = 0.025 .+ 0.95 .* sobol_pts # Shrink samples to 95%
 
-        # Sample priors and fill parameter-related collections
-        # relevant_param_keys = Symbol[]
-        # relevant_key_indices = Int[] # Indices of relevant parameters in param_key_mapping
-        # p_theta = Distribution[]
-        # # theta = Vector{Float64}[]
-        # theta_srch_sigma = Float64[]
-        # min_srch_sigma = eps(Float64)
-        # srch_sigma_fraction = 1e-2
-        # all_param_keys = collect(keys(p0))
-        # for key in keys(priors) # All variable parameters
-        #     if haskey(p0, key) # Parameters relevant for this specific model
-
-        #         sobol_idx = findfirst(==(key), all_param_keys)
-        #         param_dict[key] = quantile.(priors[key], sobol_pts[sobol_idx, :])
-
-        #         key_idx_in_mapping = findfirst(==(key), param_key_mapping)
-        #         # push!(relevant_param_keys, key)
-        #         push!(relevant_key_indices, key_idx_in_mapping)
-        #         push!(p_theta, priors[key])
-        #         # push!(theta, param_dict[key])
-        #         push!(theta_srch_sigma, max(srch_sigma_fraction * priors[key].σ, min_srch_sigma))
-
-        #         # Determine Gaussian search widths for each parameter
-        #         # based on fraction of prior standard deviation
-        #         # param_srch_sigma[key] = max(sigma_fraction * priors[key].σ, min_srch_sigma)
-        #     else
-        #         param_dict[key] = zeros(n_samples)  # or some default value
-        #     end
-        # end
-
         # Sort by relevant_key_indices to maintain consistent order
         sorted_indices = sortperm(relevant_key_indices)
         relevant_key_indices = relevant_key_indices[sorted_indices]
         p_theta = p_theta[sorted_indices]
         theta_srch_sigma = theta_srch_sigma[sorted_indices]
-        # n_theta = length(relevant_key_indices)
 
         isnormal = typeof.(p_theta) .== Normal{Float64}
         # println(relevant_param_keys)
@@ -4901,65 +4924,8 @@ __precompile__(false)
         println("Sorted keys: $(param_key_mapping[relevant_key_indices])")
         println("Normal: $isnormal")
 
-        # Convert parameter dictionary to vector
-        # theta = reduce(hcat, theta)'
-        # n_theta = size(theta, 1)
-
         # Construct particles from sampled priors
         theta = quantile.(p_theta, sobol_pts)
-
-        # Update input parameter matrix
-        particle_to_input_params!(param_arr, theta, n_dens, relevant_key_indices, sigma_param_map)
-
-        # Construct input parameter array
-        # param_arr = zeros(Float32, n_samples * n_dens, 22)
-        # for (i, idx) in enumerate(relevant_key_indices)
-        #     for j in n_dens
-        #         param_arr[:, idx + (j-1)*n_samples] .= theta[i, :]
-        #         # Exponentiate if sigma parameter
-        #         mu_idx = sigma_param_map[i]
-        #         if mu_idx != -1
-        #             param_arr[:, idx + (j-1)*n_samples] .= param_arr[:, mu_idx] .* exp.(theta[i, :])
-        #         end
-        #     end
-        # end
-
-        # Duplicate default anchors
-        # for (key, value) in p0
-        #     if !haskey(param_dict, key)
-        #         param_dict[key] = fill(value, n_samples)
-        #     end
-        # end
-
-        # Process exponents
-        # sigma_param_map = fill(0, n_theta) # for mapping sigma params to mu params
-        # p_ct = 1
-        # for (key, prior) in priors
-        #     if startswith(string(key), "neg_delta")
-        #         suffix = string(key)[11]  # Extract the suffix after "neg_delta"
-        #         param_dict[Symbol("sigma_" * suffix)] = param_dict[Symbol("mu_" * suffix)] .* exp.(param_dict[key])
-                
-        #         # Map sigma index to mu index for variable parameters (for later perturbation)
-        #         if key in relevant_param_keys
-        #             mu_idx = findfirst(==(Symbol("mu_" * suffix)), collect(keys(priors)))
-        #             sigma_param_map[mu_idx] = p_ct
-        #         end
-        #     end
-        #     if key in relevant_param_keys
-        #         p_ct += 1
-        #     end
-        # end
-
-        # Convert parameter dictionary with density values to matrix
-        # param_arr = zeros(Float32, n_samples * n_dens, 22) # 22 parameters in total
-        # for (i, rho_s) in enumerate(densities)
-        #     start_idx = (i - 1) * n_samples + 1
-        #     end_idx = i * n_samples
-        #     param_arr[start_idx:end_idx, :] .= param_dict_to_matrix(param_dict, rho_s)
-        # end
-        
-        # Parameter particles (independent of density)
-        # theta = param_arr[relevant_key_indices, :]'
 
         # Initialise weights
         weights = fill(1.0 / n_samples, n_samples)
@@ -4968,12 +4934,23 @@ __precompile__(false)
         temp = 0.0
         ess_threshold = 0.5 * n_samples
 
+        println("Threads: $(Threads.nthreads())")
+
+        # Placeholders
+        dantigny_summaries = zeros(Float64, 3, n_samples * n_dens) # 3 parameters (p_max, tau_g, nu) X n_samples_total
+        rmse_vals = Vector{Float64}(undef, n_samples * n_dens)
+
         # SMC
         for n in 1:n_smc_steps
             println("SMC step $n / $n_smc_steps")
 
+            # Update input parameter matrix
+            particle_to_input_params!(param_arr, theta, densities, relevant_key_indices, sigma_param_map)
+
             # --- LIKELIHOODS FOR TEMPERATURE UPDATE ---
-            l_scores = likelihood_scores(alias, times, densities, sources, param_arr, lab_means, lab_covs)
+            l_scores = likelihood_scores!(alias, times, densities, sources,
+                                            param_arr, lab_means, lab_covs,
+                                            dantigny_summaries, rmse_vals)
 
             # --- TEMPERATURE UPDATE ---
             # Update temperature with largest increase that
@@ -5005,18 +4982,13 @@ __precompile__(false)
             # Resample particles
             resample_indices = wsample(collect(1:n_samples), weights, n_samples)
             theta = theta[:, resample_indices]
-            # for (i, key) in enumerate(relevant_param_keys)
-            #     param_dict[key] .= param_dict[key][resample_indices]
-            # end
 
             # Evaluate priors
             l_prior = dropdims(sum(logpdf.(reshape(p_theta, :, 1), theta), dims=1), dims=1)
 
-            return
-
             # --- MUTATION ---
             converged_mask = fill(false, n_samples)
-            mcmc_chains = zeros(Float64, n_mc_steps, n_theta, n_samples)
+            mcmc_chains = zeros(Float64, n_mc_steps, n_dims, n_samples)
             for m in 1:n_mc_steps
 
                 println("        Running mutation step $m / $n_mc_steps")
@@ -5026,28 +4998,25 @@ __precompile__(false)
 
                 # Perturb (duplicate) parameter values
                 theta_candidates = copy(theta)
-                srch_sample = rand(Float64, n_theta, n_perturb)
-                perturb_means = ifelse.(isnormal, theta[:, perturb_mask], log.(theta[:, perturb_mask])) # Use log-means for LogNormal
+                srch_sample = rand(Float64, n_dims, n_perturb)
+                perturb_means = theta[:, perturb_mask]
+                perturb_means[.!isnormal, :] .= log.(perturb_means[.!isnormal, :]) # Use log-means for LogNormal
                 theta_candidates[:, perturb_mask] .= quantile.(Normal.(perturb_means, reshape(theta_srch_sigma, :, 1)), srch_sample)
                 theta_candidates[.!isnormal, perturb_mask] .= exp.(theta_candidates[.!isnormal, perturb_mask]) # Convert back to LogNormal
 
                 println(maximum(abs.(theta .- theta_candidates), dims=2))
+                
+                # Update input parameter matrix
+                particle_to_input_params!(param_arr, theta, densities, relevant_key_indices, sigma_param_map)
 
-                # Convert to dictionary for model input
-                for (i, key) in enumerate(relevant_param_keys)
-                    param_dict[key] .= theta_candidates[i, :]
-                    # Exponentiate sigmas
-                    if startswith(string(key), "neg_delta")
-                        suffix = string(key)[11]  # Extract the suffix after "neg_delta"
-                        # param_dict[Symbol("sigma_" * suffix)] = param_dict[Symbol("mu_" * suffix)] .* exp.(param_dict[key])
-                        param_dict[Symbol("sigma_" * suffix)] = theta_candidates[sigma_param_map[i], :] .* exp.(param_dict[key])
-                    end
-                end
-
-                # println(param_dict)
+                # Save parameters with JLD2
+                # param_save_path = "smc_params_$(alias)_step$(n)_mut$(m).jld2"
+                # jldsave(param_save_path; p=param_arr)
 
                 # Likelihoods for acceptance probability
-                @time l_scores_candidates = likelihood_scores(alias, times, densities, sources, param_arr, lab_means, lab_covs)
+                @time l_scores_candidates = likelihood_scores!(alias, times, densities, sources,
+                                                                param_arr, lab_means, lab_covs,
+                                                                dantigny_summaries, rmse_vals)
 
                 # Evaluate priors
                 l_prior_candidates = dropdims(sum(logpdf.(reshape(p_theta, :, 1), theta_candidates), dims=1), dims=1)
@@ -5057,12 +5026,8 @@ __precompile__(false)
                 alpha = min.(1, exp.(log_ratio))
                 accept_mask = rand(Float64, n_samples) .< alpha
                 theta[:, accept_mask] .= theta_candidates[:, accept_mask]
-                # println("$(sum(accept_mask)) candidates accepted.")
 
-                # if m > 10 && m % 10 == 0
-                #     PSRF, converged = gelman_rubin_PSRF(mcmc_chains, 0.5, 1.1)
-                #     println("PSRF = $PSRF, converged = $converged")
-                # end
+                println("        $(sum(accept_mask)) candidates accepted")
 
                 mcmc_chains[m, :, :] .= theta
             end

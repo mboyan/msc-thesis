@@ -220,47 +220,94 @@ __precompile__(false)
     end
 
     """
-    Threshold evaluation within an integrand function
+    GPU-optimized approximation of the normal CDF using the Wichura method.
+    This function computes the cumulative distribution function (CDF) of a normal distribution
+    with mean μ and standard deviation σ at a given point x. The implementation is based on
+    the Abramowitz and Stegun approximation (7.1.26) and is designed for efficient execution on GPUs.
+    inputs:
+        x (Float32) - the point at which to evaluate the CDF
+        μ (Float32) - the mean of the normal distribution
+        σ (Float32) - the standard deviation of the normal distribution
+    """
+    @inline function normal_cdf_wichura(x, μ, σ)
+        # Standardize: convert to standard normal (z-score)
+        z = (x - μ) / σ
+        
+        # Abramowitz and Stegun approximation (7.1.26)
+        # Maximum error: 2.5 × 10⁻⁵
+        b1 = Float32(0.319381530f0)
+        b2 = Float32(-0.356563782f0)
+        b3 = Float32(1.781477937f0)
+        b4 = Float32(-1.821255978f0)
+        b5 = Float32(1.330274429f0)
+        p  = Float32(0.2316419f0)
+        c  = Float32(0.39894228f0)
+        
+        abs_z = abs(z)
+        t = 1.0f0 / (1.0f0 + p * abs_z)
+        
+        # Compute the CDF value
+        cdf_val = 1.0f0 - c * exp(-0.5f0 * z * z) * t * 
+                (b1 + t * (b2 + t * (b3 + t * (b4 + t * b5))))
+        
+        # Handle the sign
+        return z < 0 ? 1.0f0 - cdf_val : cdf_val
+    end
+
+    """
+    Threshold evaluation for integrand function
     """
     @inline function eval_threshold_integrand(thresh_mode, beta, s, b, mu_X, sigma_X, mu_Y, sigma_Y, k_gamma, k_omega)
         
-        dist_X = Normal(mu_X, sigma_X)
-        dist_Y = Normal(mu_Y, sigma_Y)
+        # dist_X = Normal(mu_X, sigma_X)
+        # dist_Y = Normal(mu_Y, sigma_Y)
 
         cdf_X = 1.0f0
         cdf_Y = 0.0f0
         if thresh_mode == 0
             # Inhibitor-dependent germination triggering
-            cdf_X = cdf(dist_X, beta)
+            # cdf_X = cdf(dist_X, beta)
+            cdf_X = normal_cdf_wichura(beta, mu_X, sigma_X)
             cdf_Y = 1.0f0
         elseif thresh_mode == 1 || thresh_mode == 8 # s_mod supplied if thresh_mode == 8
             # Inducer-dependent germination triggering
             cdf_X = 0.0f0
-            cdf_Y = cdf(dist_Y, s)
+            # cdf_Y = cdf(dist_Y, s)
+            cdf_Y = normal_cdf_wichura(s, mu_Y, sigma_Y)
         elseif thresh_mode == 2 || thresh_mode == 9 # s_mod supplied if thresh_mode == 9
             # 2-factor germination triggering
-            cdf_X = cdf(dist_X, beta)
-            cdf_Y = cdf(dist_Y, s)
+            # cdf_X = cdf(dist_X, beta)
+            # cdf_Y = cdf(dist_Y, s)
+            cdf_X = normal_cdf_wichura(beta, mu_X, sigma_X)
+            cdf_Y = normal_cdf_wichura(s, mu_Y, sigma_Y)
         elseif thresh_mode == 3 || thresh_mode == 10 # s_mod supplied if thresh_mode == 10
             # Shifted inhibitor-dependent germination triggering
-            cdf_X = cdf(dist_X, beta - k_gamma * s)
+            # cdf_X = cdf(dist_X, beta - k_gamma * s)
+            cdf_X = normal_cdf_wichura(beta - k_gamma * s, mu_X, sigma_X)
             cdf_Y = 1.0f0
         elseif thresh_mode == 4 || thresh_mode == 11 # s_mod supplied if thresh_mode == 11
             # Shifted inducer-dependent germination triggering
             cdf_X = 0.0f0
-            cdf_Y = cdf(dist_Y, s - k_omega * b)
+            # cdf_Y = cdf(dist_Y, s - k_omega * b)
+            cdf_Y = normal_cdf_wichura(s - k_omega * b, mu_Y, sigma_Y)
         elseif thresh_mode == 5 || thresh_mode == 12 # s_mod supplied if thresh_mode == 12
             # 2-factor germination triggering with shifted gamma
-            cdf_X = cdf(dist_X, beta - k_gamma * s)
-            cdf_Y = cdf(dist_Y, s)
+            # cdf_X = cdf(dist_X, beta - k_gamma * s)
+            # cdf_Y = cdf(dist_Y, s)
+            cdf_X = normal_cdf_wichura(beta - k_gamma * s, mu_X, sigma_X)
+            cdf_Y = normal_cdf_wichura(s, mu_Y, sigma_Y)
         elseif thresh_mode == 6 || thresh_mode == 13 # s_mod supplied if thresh_mode == 13
             # 2-factor germination triggering with shifted omega
-            cdf_X = cdf(dist_X, beta)
-            cdf_Y = cdf(dist_Y, s - k_omega * b)
+            # cdf_X = cdf(dist_X, beta)
+            # cdf_Y = cdf(dist_Y, s - k_omega * b)
+            cdf_X = normal_cdf_wichura(beta, mu_X, sigma_X)
+            cdf_Y = normal_cdf_wichura(s - k_omega * b, mu_Y, sigma_Y)
         elseif thresh_mode == 7 || thresh_mode == 14 # s_mod supplied if thresh_mode == 14
             # 2-factor germination triggering with shifted gamma and omega
-            cdf_X = cdf(dist_X, beta - k_gamma * s)
-            cdf_Y = cdf(dist_Y, s - k_omega * b)
+            # cdf_X = cdf(dist_X, beta - k_gamma * s)
+            # cdf_Y = cdf(dist_Y, s - k_omega * b)
+            cdf_X = normal_cdf_wichura(beta - k_gamma * s, mu_X, sigma_X)
+            cdf_Y = normal_cdf_wichura(s - k_omega * b, mu_Y, sigma_Y)
         end
 
         return (1f0 - cdf_X) * cdf_Y
