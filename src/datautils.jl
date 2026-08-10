@@ -677,7 +677,7 @@ __precompile__(false)
         taus (Matrix): characteristic germination times (in hours)
         nus (Matrix): design parameters
     """
-    function generate_dantigny_dataset(df_germination, t_max, n_pts=1000)
+    function generate_dantigny_dataset(df_germination, t_max, n_pts=256)
         
         sources = unique(df_germination[!, :CarbonSource])
         densities = unique(df_germination[!, :Density])
@@ -2087,9 +2087,14 @@ __precompile__(false)
         # Initial guess
         p0_trans = [0.5, log(times[div(length(times), 2)]), log(2.0)]
         p0_trans[1] = log(p0_trans[1]) - log1p(-p0_trans[1])
+
+        residual_function = NonlinearFunction(
+            residuals!;
+            resid_prototype=zeros(Float64, n_pts)
+        )
         
         # Build and solve least-squares problem
-        prob = NonlinearLeastSquaresProblem(residuals!, p0_trans)
+        prob = NonlinearLeastSquaresProblem(residual_function, p0_trans)
         sol = solve(prob, LevenbergMarquardt(), maxiters=100)
         
         p_trans_opt = sol.u
@@ -4669,32 +4674,32 @@ __precompile__(false)
 
         # Fit Dantigny to the model outputs
         # GC.gc()
-        # dantigny_summaries = zeros(Float64, 3, n_samples_total) # 3 parameters (p_max, tau_g, nu) X n_samples_total
-        # rmse_vals = Vector{Float64}(undef, n_samples_total)
-        # @time Threads.@threads for k in 1:n_samples_total
-        #     p_opt, rmse = fit_dantigny_to_germination_curve(germination[k, :], times[:])
-        #     dantigny_summaries[:, k] .= p_opt
-        #     rmse_vals[k] = rmse
-        # end
-
-        # Preallocate per-thread buffers
-        num_threads = Threads.nthreads()
-        n_timepoints = length(times)
-        
-        residual_buffers = [Vector{Float64}(undef, n_timepoints) for _ in 1:num_threads]
-        p_opt_buffers = [Vector{Float64}(undef, 3) for _ in 1:num_threads]
-
+        dantigny_summaries = zeros(Float64, 3, n_samples_total) # 3 parameters (p_max, tau_g, nu) X n_samples_total
+        rmse_vals = Vector{Float64}(undef, n_samples_total)
         @time Threads.@threads for k in 1:n_samples_total
-            tid = Threads.threadid()
-            p_opt, rmse = fit_dantigny_to_germination_curve_lm(
-                germination[k, :], 
-                times,
-                residual_buffers[tid],
-                p_opt_buffers[tid]
-            )
+            p_opt, rmse = fit_dantigny_to_germination_curve(germination[k, :], times[:])
             dantigny_summaries[:, k] .= p_opt
             rmse_vals[k] = rmse
         end
+
+        # Preallocate per-thread buffers
+        # num_threads = Threads.nthreads()
+        # n_timepoints = length(times)
+        
+        # residual_buffers = [Vector{Float64}(undef, n_timepoints) for _ in 1:num_threads]
+        # p_opt_buffers = [Vector{Float64}(undef, 3) for _ in 1:num_threads]
+
+        # @time Threads.@threads for k in 1:n_samples_total
+        #     tid = Threads.threadid()
+        #     p_opt, rmse = fit_dantigny_to_germination_curve_lm(
+        #         germination[k, :], 
+        #         times,
+        #         residual_buffers[tid],
+        #         p_opt_buffers[tid]
+        #     )
+        #     dantigny_summaries[:, k] .= p_opt
+        #     rmse_vals[k] = rmse
+        # end
 
         if any(rmse_vals .> 0.05)
             println("Warning: Some RMSE values are very large (>5%), indicating poor fits.")
@@ -4704,10 +4709,10 @@ __precompile__(false)
 
         # Compare model output against lab data for each source and density
         @time for (i, rho_s) in enumerate(densities)
-            println("  Density: $rho_s")
+            # println("  Density: $rho_s")
             d_summaries_subset = dantigny_summaries[:, (i - 1) * n_samples + 1 : i * n_samples]
             for (j, src) in enumerate(sources)
-                println("    Source: $src")
+                # println("    Source: $src")
 
                 lab_mean = lab_means[i, j, :]
                 lab_cov = lab_covs[i, j, :, :]
@@ -5014,9 +5019,17 @@ __precompile__(false)
                 # jldsave(param_save_path; p=param_arr)
 
                 # Likelihoods for acceptance probability
-                @time l_scores_candidates = likelihood_scores!(alias, times, densities, sources,
-                                                                param_arr, lab_means, lab_covs,
-                                                                dantigny_summaries, rmse_vals)
+                l_scores_candidates = nothing
+                try
+                    @time l_scores_candidates = likelihood_scores!(alias, times, densities, sources,
+                                                                    param_arr, lab_means, lab_covs,
+                                                                    dantigny_summaries, rmse_vals)
+                catch
+                    # Save parameters with JLD2
+                    println("Premature termination. Saving last parameters.")
+                    param_save_path = "smc_params_$(alias)_step$(n)_mut$(m).jld2"
+                    jldsave(param_save_path; p=param_arr)
+                end
 
                 # Evaluate priors
                 l_prior_candidates = dropdims(sum(logpdf.(reshape(p_theta, :, 1), theta_candidates), dims=1), dims=1)
