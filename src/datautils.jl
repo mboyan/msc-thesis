@@ -29,6 +29,7 @@ __precompile__(false)
     using StatsBase
     using ProgressMeter
     using Base.Threads
+    using Dates
     # using Base.GC
     # using LogExpFunctions
     
@@ -53,6 +54,7 @@ __precompile__(false)
     export predict_with_uncertainty_mixed_precision
     export fit_dantigny_to_germination_curve
     export fit_dantigny_time_shifted_to_germination_curve
+    export fit_all_curves
     export fit_model_to_data
     export get_params_for_idx
     export fit_model_to_data_equilibrium
@@ -2125,14 +2127,16 @@ __precompile__(false)
         dpdb (Float): partial derivative of p w.r.t. b (transformed τ)
         dpdc (Float): partial derivative of p w.r.t. c (transformed ν)
     """
-    @inline function dantigny_val_grad(t, p_max, τ, ν)
+    @inline function dantigny_val_grad(t::T, p_max::T, τ::T, ν::T) where {T<:AbstractFloat}
         # value + analytic partials w.r.t. (a,b,c) where p_max=σ(a), τ=exp(b), ν=exp(c)
-        t <= 0 && return zero(t), zero(t), zero(t), zero(t)   # exact: p and all partials are 0 here
+        if t <= zero(T)
+            return zero(T), zero(T), zero(T), zero(T)   # exact: p and all partials are 0 here
+        end
         x   = (t / τ)^ν
-        den = 1 + x
+        den = one(T) + x
         p    = p_max * x / den
-        dpda = (x / den) * p_max * (1 - p_max)
-        g    = p_max * ν * x / den^2
+        dpda = (x / den) * p_max * (one(T) - p_max)
+        g    = p_max * ν * x / (den * den)
         return p, dpda, -g, g * log(t / τ)                     # p, dp/da, dp/db, dp/dc
     end
 
@@ -2164,9 +2168,23 @@ __precompile__(false)
                 g1  += da*r;  g2  += db*r;  g3  += dc*r
                 cost += r*r
             end
-            JtJ = SMatrix{3,3,T}(J11*(1+λ), J12, J13, J12, J22*(1+λ), J23, J13, J23, J33*(1+λ))
-            Δ = JtJ \ SVector(-g1, -g2, -g3)                    # allocation-free 3x3 solve
-            a2, b2, c2 = a+Δ[1], b+Δ[2], c+Δ[3]
+            # Scalar Cholesky solve keeps this path compilable for CUDA.
+            a11 = J11 * (one(T) + λ)
+            a22 = J22 * (one(T) + λ)
+            a33 = J33 * (one(T) + λ)
+            l11 = sqrt(max(a11, eps(T)))
+            l21 = J12 / l11
+            l31 = J13 / l11
+            l22 = sqrt(max(a22 - l21 * l21, eps(T)))
+            l32 = (J23 - l31 * l21) / l22
+            l33 = sqrt(max(a33 - l31 * l31 - l32 * l32, eps(T)))
+            y1 = -g1 / l11
+            y2 = (-g2 - l21 * y1) / l22
+            y3 = (-g3 - l31 * y1 - l32 * y2) / l33
+            Δ3 = y3 / l33
+            Δ2 = (y2 - l32 * Δ3) / l22
+            Δ1 = (y1 - l21 * Δ2 - l31 * Δ3) / l11
+            a2, b2, c2 = a + Δ1, b + Δ2, c + Δ3
 
             p_max2 = 1/(1+exp(-a2)); τ2 = exp(b2); ν2 = exp(c2)
             trialcost = zero(T)
@@ -2183,7 +2201,11 @@ __precompile__(false)
             end
         end
         p_max = 1/(1+exp(-a)); τ = exp(b); ν = exp(c)
-        finalcost = sum(i -> (dantigny_val_grad(times[i], p_max, τ, ν)[1] - pobs[i])^2, 1:N)
+        finalcost = zero(T)
+        for i in 1:N
+            p, _, _, _ = dantigny_val_grad(times[i], p_max, τ, ν)
+            finalcost += (p - pobs[i])^2
+        end
         return SVector(p_max, τ, ν), sqrt(finalcost / N)
     end
 
@@ -4775,58 +4797,45 @@ __precompile__(false)
         l_scores = zeros(Float64, n_samples) # Log-likelihood scores for each sample
 
         # Run model for all densities
-        germination = model_wrapper(alias, param_arr, times)
-
-        # Fit Dantigny to the model outputs
-        # GC.gc()
-        # dantigny_summaries = zeros(Float64, 3, n_samples_total) # 3 parameters (p_max, tau_g, nu) X n_samples_total
-        # rmse_vals = Vector{Float64}(undef, n_samples_total)
-
-        # @time Threads.@threads for k in 1:n_samples_total
-        #     p_opt, rmse = fit_dantigny_to_germination_curve(germination[k, :], times[:])
-        #     dantigny_summaries[:, k] .= p_opt
-        #     rmse_vals[k] = rmse
-        # end
+        times_sec = times .* 3600
+        germination = model_wrapper(alias, param_arr, times_sec)
 
         N = length(times)
         times_s = SVector{N,Float32}(times)
         pobs_all = [SVector{N,Float32}(@view germination[k, :]) for k in 1:n_samples_total]
         u0_all = [SVector{3,Float32}(0f0, log(times[N÷2+1]), log(2f0)) for _ in 1:n_samples_total]  # a0=logit(0.5)=0
 
-        results, rmses = fit_all_curves(times_s, pobs_all, u0_all)   # CPU backend by 
-        # results, rmses = fit_all_curves(times_s, CUDA.cu(pobs_all), CUDA.cu(u0_all); backend=CUDA.CUDABackend())
-        dantigny_summaries = reduce(hcat, results)                    # 3 × n_samples_total, same layout as before
-        rmse_vals = rmses
-
-        println(maximum(rmse_vals))
-
-        # Preallocate per-thread buffers
-        # num_threads = Threads.nthreads()
-        # n_timepoints = length(times)
+        # results, rmses = fit_all_curves(times_s, pobs_all, u0_all)   # CPU backend by 
+        results, rmses = fit_all_curves(times_s, CUDA.cu(pobs_all), CUDA.cu(u0_all); backend=CUDA.CUDABackend())
+        results_host = Array(results)
+        dantigny_summaries = reduce(hcat, results_host)                # 3 × n_samples_total, same layout as before
+        rmse_vals = Array(rmses)
         
-        # residual_buffers = [Vector{Float64}(undef, n_timepoints) for _ in 1:num_threads]
-        # p_opt_buffers = [Vector{Float64}(undef, 3) for _ in 1:num_threads]
+        high_rmse_mask = rmse_vals .> 0.05
+        if any(high_rmse_mask)
 
-        # @time Threads.@threads for k in 1:n_samples_total
-        #     tid = Threads.threadid()
-        #     p_opt, rmse = fit_dantigny_to_germination_curve_lm(
-        #         germination[k, :], 
-        #         times,
-        #         residual_buffers[tid],
-        #         p_opt_buffers[tid]
-        #     )
-        #     dantigny_summaries[:, k] .= p_opt
-        #     rmse_vals[k] = rmse
-        # end
+            n_refit = sum(high_rmse_mask)
+            germination_refit = @view germination[high_rmse_mask, :]
+            dantigny_summaries_refit = @view dantigny_summaries[:, high_rmse_mask]
+            rmse_vals_refit = @view rmse_vals[high_rmse_mask]
 
-        if any(rmse_vals .> 0.05)
-            println("Warning: Some RMSE values are very large (>5%), indicating poor fits.")
-            println("Maximum RMSE: $(maximum(rmse_vals))")
-            println("Number of large RMSE values: $(sum(rmse_vals .> 0.05))")
-            # Save problematic parameters for inspection
-            large_rmse_indices = findall(rmse_vals .> 0.05)
-            unique_id = string(alias, "_large_rmse_indices_", Dates.format(Dates.now(), "yyyy-mm-dd_HHMMSS"), ".jld2")
-            jldsave(unique_id; problematic_params = param_arr[large_rmse_indices, :])
+            # println("        $n_refit high RMSE values found, attempting multi-thread refit.")
+
+            Threads.@threads for k in 1:n_refit
+                p_opt, rmse = fit_dantigny_to_germination_curve(germination_refit[k, :], times[:])
+                dantigny_summaries_refit[:, k] .= p_opt
+                rmse_vals_refit[k] = rmse
+            end
+
+            if any(rmse_vals .> 0.05)
+                # println("\n           Warning: Some RMSE values are still very large (>5%), indicating poor fits.")
+                # println("           Maximum RMSE: $(maximum(rmse_vals))")
+                # println("           Number of large RMSE values: $(sum(rmse_vals .> 0.05))")
+                # Save problematic parameters for inspection
+                large_rmse_indices = findall(rmse_vals .> 0.05)
+                unique_id = string(alias, "_large_rmse_indices_", Dates.format(Dates.now(), "yyyy-mm-dd_HHMMSS"), ".jld2")
+                jldsave(unique_id; problematic_params = param_arr[large_rmse_indices, :])
+            end
         end
 
         # Compare model output against lab data for each source and density
@@ -4935,10 +4944,12 @@ __precompile__(false)
                 mu_idx = sigma_param_map[i]
                 if mu_idx > 0
                     # SD relative to magnitude of mean
-                    param_arr[start_idx:end_idx, idx] .= Float32.(theta[mu_idx, :] .* exp.(theta[i, :]))
+                    sd = theta[mu_idx, :] .* exp.(theta[i, :])
+                    param_arr[start_idx:end_idx, idx] .= Float32.(sd)
                 elseif mu_idx < 0
                     # SD relative to difference of mean from 1 (X distribution)
-                    param_arr[start_idx:end_idx, idx] .= Float32.(((1 .- theta[-mu_idx, :]) ./ 3) .* exp.(theta[i, :]))
+                    sd = max.((1 .- theta[-mu_idx, :]) ./ 3 .* exp.(theta[i, :]), 1e-10)
+                    param_arr[start_idx:end_idx, idx] .= Float32.(sd)
                 end
             end
         end
@@ -4955,13 +4966,13 @@ __precompile__(false)
         n_samples (Int)     : number of particles
         n_smc_steps (Int)   : number of SMC steps
         n_mc_steps (Int)    : number of MCMC steps (mutation)
-        t_max (Float64)     : maximum time span for germination
+        t_max (Float64)     : maximum time span for germination (in hours)
     """
     function sequential_monte_carlo(alias, p0, priors, n_samples, n_smc_steps, n_mc_steps, t_max)
 
-        BLAS.set_num_threads(1)  # Force single-threaded BLAS
+        # BLAS.set_num_threads(1)  # Force single-threaded BLAS
 
-        times, sources, densities, lab_means, CIs, CI_widths, uncert_lab = unpack_ijadpanahsaravi_data()
+        times, sources, densities, lab_means, CIs, CI_widths, uncert_lab = unpack_ijadpanahsaravi_data(t_max)
         
         # Convert times and densities
         times = Float32.(times) # Convert to Float32 for model input
@@ -5004,7 +5015,7 @@ __precompile__(false)
         p_theta = Distribution[]        # Relevant parameter priors
         theta_srch_sigma = Float64[]    # Relevant parameter search sd's
         min_srch_sigma = eps(Float64)
-        srch_sigma_fraction = 1e-2
+        srch_sigma_fraction = 0.02
         sigma_param_map = Int[] # Index mapping of sigma to mu parameters (and -1 if not applicable)
         all_var_param_keys = collect(keys(priors))
         for key in keys(priors) # All variable parameters
@@ -5017,10 +5028,10 @@ __precompile__(false)
 
                 # Relate neg_delta param to mu param by index
                 if startswith(string(key), "neg_delta")
-                    suffix = string(key)[11]  # Extract the suffix after "neg_delta"
+                    suffix = string(key)[end]  # Extract the suffix after "neg_delta"
                     mu_key = Symbol("mu_" * suffix)
-                    mu_idx = findfirst(==(mu_key), all_var_param_keys)
-                    if suffix == "X"
+                    mu_idx = findfirst(==(mu_key), param_key_mapping)
+                    if suffix == 'X'
                         push!(sigma_param_map, -mu_idx)
                     else
                         push!(sigma_param_map, mu_idx)
@@ -5041,15 +5052,18 @@ __precompile__(false)
         relevant_key_indices = relevant_key_indices[sorted_indices]
         p_theta = p_theta[sorted_indices]
         theta_srch_sigma = theta_srch_sigma[sorted_indices]
+        sigma_param_map = sigma_param_map[sorted_indices]
+
+        # Refer sigma map to theta indices
+        sigma_param_map .= ifelse.(sigma_param_map .!= 0, sign.(sigma_param_map) .* (collect(1:n_dims) .- 1), 0)
 
         isnormal = typeof.(p_theta) .== Normal{Float64}
-        # println(relevant_param_keys)
-        # println(theta_srch_sigma)
-        # println(isnormal)
 
         # println("Sorted indices: $sorted_indices")
         println("Sorted keys: $(param_key_mapping[relevant_key_indices])")
         println("Normal: $isnormal")
+        println("Sigma map: $sigma_param_map")
+        println("Search sigmas: $theta_srch_sigma")
 
         # Construct particles from sampled priors
         theta = quantile.(p_theta, sobol_pts)
@@ -5063,10 +5077,6 @@ __precompile__(false)
 
         println("Threads: $(Threads.nthreads())")
 
-        # Placeholders
-        # dantigny_summaries = zeros(Float64, 3, n_samples * n_dens) # 3 parameters (p_max, tau_g, nu) X n_samples_total
-        # rmse_vals = Vector{Float64}(undef, n_samples * n_dens)
-
         # SMC
         for n in 1:n_smc_steps
             println("SMC step $n / $n_smc_steps")
@@ -5075,13 +5085,15 @@ __precompile__(false)
             particle_to_input_params(param_arr, theta, densities, relevant_key_indices, sigma_param_map)
 
             # --- LIKELIHOODS FOR TEMPERATURE UPDATE ---
+            l_scores = nothing
             try
                 l_scores = likelihood_scores(alias, times, densities, sources, param_arr, lab_means, lab_covs)
-            catch
+            catch e
                 # Save parameters with JLD2
                 println("Premature termination. Saving last parameters.")
                 param_save_path = "smc_params_$(alias)_step$(n).jld2"
                 jldsave(param_save_path; p=param_arr)
+                error("Likelihood evaluation failed: $e")
             end
 
             # --- TEMPERATURE UPDATE ---
@@ -5111,6 +5123,14 @@ __precompile__(false)
             weights = weights_candidate
             println("    Updated temperature: $temp, ESS: $(round(1.0 / sum(weights .^ 2), digits=2))")
 
+            if any(isinf.(weights)) || any(isnan.(weights))
+                println("Warning: Weights contain Inf or NaN values. Check likelihood calculations.")
+                println("Weights: $weights")
+                # Save parameters with JLD2
+                param_save_path = "smc_params_$(alias)_step$(n)_weights_issue.jld2"
+                jldsave(param_save_path; p=param_arr, weights=weights)
+            end
+
             # Resample particles
             resample_indices = wsample(collect(1:n_samples), weights, n_samples)
             theta = theta[:, resample_indices]
@@ -5123,7 +5143,7 @@ __precompile__(false)
             mcmc_chains = zeros(Float64, n_mc_steps, n_dims, n_samples)
             for m in 1:n_mc_steps
 
-                println("        Running mutation step $m / $n_mc_steps")
+                print("\r        Running mutation step $m / $n_mc_steps")
                 
                 perturb_mask = .!converged_mask
                 n_perturb = sum(perturb_mask)
@@ -5148,12 +5168,13 @@ __precompile__(false)
                 # Likelihoods for acceptance probability
                 l_scores_candidates = nothing
                 try
-                    @time l_scores_candidates = likelihood_scores(alias, times, densities, sources, param_arr, lab_means, lab_covs)
-                catch
+                    l_scores_candidates = likelihood_scores(alias, times, densities, sources, param_arr, lab_means, lab_covs)
+                catch e
                     # Save parameters with JLD2
                     println("Premature termination. Saving last parameters.")
                     param_save_path = "smc_params_$(alias)_step$(n)_mut$(m).jld2"
                     jldsave(param_save_path; p=param_arr)
+                    error("Likelihood evaluation failed: $e")
                 end
 
                 # Evaluate priors
@@ -5165,7 +5186,7 @@ __precompile__(false)
                 accept_mask = rand(Float64, n_samples) .< alpha
                 theta[:, accept_mask] .= theta_candidates[:, accept_mask]
 
-                println("        $(sum(accept_mask)) candidates accepted")
+                # println("        $(sum(accept_mask)) candidates accepted")
 
                 mcmc_chains[m, :, :] .= theta
             end
