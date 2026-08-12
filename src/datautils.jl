@@ -5047,6 +5047,9 @@ __precompile__(false)
         sobol_pts = QuasiMonteCarlo.sample(n_samples, n_dims, SobolSample())
         sobol_pts = 0.025 .+ 0.95 .* sobol_pts # Shrink samples to 95%
 
+        # Mutation variance scale
+        srch_sigma_scale = (2.38^2 / n_dims)^2
+
         # Sort by relevant_key_indices to maintain consistent order
         sorted_indices = sortperm(relevant_key_indices)
         relevant_key_indices = relevant_key_indices[sorted_indices]
@@ -5055,7 +5058,9 @@ __precompile__(false)
         sigma_param_map = sigma_param_map[sorted_indices]
 
         # Refer sigma map to theta indices
-        sigma_param_map .= ifelse.(sigma_param_map .!= 0, sign.(sigma_param_map) .* (collect(1:n_dims) .- 1), 0)
+        # sigma_param_map .= ifelse.(sigma_param_map .!= 0, sign.(sigma_param_map) .* (collect(1:n_dims) .- 1), 0)
+        mu_positions = Dict(idx => pos for (pos, idx) in enumerate(relevant_key_indices))
+        sigma_param_map = [v == 0 ? 0 : sign(v) * mu_positions[abs(v)] for v in sigma_param_map]
 
         isnormal = typeof.(p_theta) .== Normal{Float64}
 
@@ -5131,6 +5136,12 @@ __precompile__(false)
                 jldsave(param_save_path; p=param_arr, weights=weights)
             end
 
+            # Compute mutation covariance base
+            perturb_centre = copy(theta)
+            perturb_centre[.!isnormal, :] .= log.(theta[.!isnormal, :])
+            diff_mean = perturb_centre .- sum(perturb_centre .* reshape(weights, 1, n_samples), dims=2)
+            sigma_t_matrix = diff_mean * Diagonal(weights) * diff_mean'
+
             # Resample particles
             resample_indices = wsample(collect(1:n_samples), weights, n_samples)
             theta = theta[:, resample_indices]
@@ -5139,22 +5150,30 @@ __precompile__(false)
             l_prior = dropdims(sum(logpdf.(reshape(p_theta, :, 1), theta), dims=1), dims=1)
 
             # --- MUTATION ---
-            converged_mask = fill(false, n_samples)
+            # converged_mask = fill(false, n_samples)
             mcmc_chains = zeros(Float64, n_mc_steps, n_dims, n_samples)
             for m in 1:n_mc_steps
 
                 print("\r        Running mutation step $m / $n_mc_steps")
                 
-                perturb_mask = .!converged_mask
-                n_perturb = sum(perturb_mask)
+                # perturb_mask = .!converged_mask
+                # n_perturb = sum(perturb_mask)
 
                 # Perturb (duplicate) parameter values
-                theta_candidates = copy(theta)
-                srch_sample = rand(Float64, n_dims, n_perturb)
-                perturb_means = theta[:, perturb_mask]
-                perturb_means[.!isnormal, :] .= log.(perturb_means[.!isnormal, :]) # Use log-means for LogNormal
-                theta_candidates[:, perturb_mask] .= quantile.(Normal.(perturb_means, reshape(theta_srch_sigma, :, 1)), srch_sample)
-                theta_candidates[.!isnormal, perturb_mask] .= exp.(theta_candidates[.!isnormal, perturb_mask]) # Convert back to LogNormal
+                # theta_candidates = copy(theta)
+                # srch_sample = rand(Float64, n_dims, n_perturb)
+                # perturb_means = theta[:, perturb_mask]
+                # perturb_means[.!isnormal, :] .= log.(perturb_means[.!isnormal, :]) # Use log-means for LogNormal
+                # theta_candidates[:, perturb_mask] .= quantile.(Normal.(perturb_means, reshape(theta_srch_sigma, :, 1)), srch_sample)
+                # theta_candidates[.!isnormal, perturb_mask] .= exp.(theta_candidates[.!isnormal, perturb_mask]) # Convert back to LogNormal
+                
+                perturb_centre = copy(theta)
+                perturb_centre[.!isnormal, :] .= log.(theta[.!isnormal, :])
+                sigma_prop_matrix = srch_sigma_scale * (sigma_t_matrix + 1e-8 * I(n_dims))
+                sigma_prop_matrix = 0.5 * (sigma_prop_matrix + sigma_prop_matrix') # symmetrify
+                mv = MvNormal(zeros(n_dims), sigma_prop_matrix)
+                theta_candidates = perturb_centre .+ rand(mv, n_samples)
+                theta_candidates[.!isnormal, :] .= exp.(theta_candidates[.!isnormal, :])
 
                 # println(maximum(abs.(theta .- theta_candidates), dims=2))
                 
@@ -5187,6 +5206,15 @@ __precompile__(false)
                 theta[:, accept_mask] .= theta_candidates[:, accept_mask]
 
                 # println("        $(sum(accept_mask)) candidates accepted")
+
+                # Update srch_sigma_scale
+                # accept_rate = sum(accept_mask) / n_samples
+                # if accept_rate > 0.5
+                #     srch_sigma_scale *= 1.1
+                # elseif accept_rate < 0.2
+                #     srch_sigma_scale *= 0.9
+                # end
+                # println(srch_sigma_scale)
 
                 mcmc_chains[m, :, :] .= theta
             end
