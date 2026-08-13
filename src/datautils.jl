@@ -4800,18 +4800,29 @@ __precompile__(false)
         times_sec = times .* 3600
         germination = model_wrapper(alias, param_arr, times_sec)
 
-        N = length(times)
-        times_s = SVector{N,Float32}(times)
-        pobs_all = [SVector{N,Float32}(@view germination[k, :]) for k in 1:n_samples_total]
-        u0_all = [SVector{3,Float32}(0f0, log(times[N÷2+1]), log(2f0)) for _ in 1:n_samples_total]  # a0=logit(0.5)=0
+        dantigny_summaries = nothing
+        rmse_vals = nothing
+        high_rmse_mask = nothing
 
-        # results, rmses = fit_all_curves(times_s, pobs_all, u0_all)   # CPU backend by 
-        results, rmses = fit_all_curves(times_s, CUDA.cu(pobs_all), CUDA.cu(u0_all); backend=CUDA.CUDABackend())
-        results_host = Array(results)
-        dantigny_summaries = reduce(hcat, results_host)                # 3 × n_samples_total, same layout as before
-        rmse_vals = Array(rmses)
+        try
+            N = length(times)
+            times_s = SVector{N,Float32}(times)
+            pobs_all = [SVector{N,Float32}(@view germination[k, :]) for k in 1:n_samples_total]
+            u0_all = [SVector{3,Float32}(0f0, log(times[N÷2+1]), log(2f0)) for _ in 1:n_samples_total]  # a0=logit(0.5)=0
+            
+            # results, rmses = fit_all_curves(times_s, pobs_all, u0_all)   # CPU backend by 
+            results, rmses = fit_all_curves(times_s, CUDA.cu(pobs_all), CUDA.cu(u0_all); backend=CUDA.CUDABackend())
+            results_host = Array(results)
+            dantigny_summaries = reduce(hcat, results_host)                # 3 × n_samples_total, same layout as before
+            rmse_vals = Array(rmses)
+
+            high_rmse_mask = (rmse_vals .> 0.05) .|| isnan.(rmse_vals)
+        catch
+            dantigny_summaries = zeros(Float64, 3, n_samples_total)
+            rmse_vals = fill(NaN, n_samples_total)
+            high_rmse_mask = trues(n_samples_total)
+        end
         
-        high_rmse_mask = rmse_vals .> 0.05
         if any(high_rmse_mask)
 
             n_refit = sum(high_rmse_mask)
@@ -4822,19 +4833,24 @@ __precompile__(false)
             # println("        $n_refit high RMSE values found, attempting multi-thread refit.")
 
             Threads.@threads for k in 1:n_refit
-                p_opt, rmse = fit_dantigny_to_germination_curve(germination_refit[k, :], times[:])
-                dantigny_summaries_refit[:, k] .= p_opt
-                rmse_vals_refit[k] = rmse
+                try
+                    p_opt, rmse = fit_dantigny_to_germination_curve(germination_refit[k, :], times[:])
+                    dantigny_summaries_refit[:, k] .= p_opt
+                    rmse_vals_refit[k] = rmse
+                catch
+                    dantigny_summaries_refit[:, k] .= Inf
+                    rmse_vals_refit[k] = Inf
+                end
             end
 
-            if any(rmse_vals .> 0.05)
-                # println("\n           Warning: Some RMSE values are still very large (>5%), indicating poor fits.")
-                # println("           Maximum RMSE: $(maximum(rmse_vals))")
-                # println("           Number of large RMSE values: $(sum(rmse_vals .> 0.05))")
+            if any((rmse_vals .> 0.05) .|| isnan.(rmse_vals))
+                println("\n           Warning: Some RMSE values are still very large (>5%) or NaN, indicating poor fits.")
+                println("           Maximum RMSE: $(maximum(rmse_vals))")
+                println("           Number of large/NaN RMSE values: $(sum((rmse_vals .> 0.05) .|| isnan.(rmse_vals)))")
                 # Save problematic parameters for inspection
-                large_rmse_indices = findall(rmse_vals .> 0.05)
-                unique_id = string(alias, "_large_rmse_indices_", Dates.format(Dates.now(), "yyyy-mm-dd_HHMMSS"), ".jld2")
-                jldsave(unique_id; problematic_params = param_arr[large_rmse_indices, :])
+                # large_rmse_indices = findall((rmse_vals .> 0.05) .|| isnan.(rmse_vals))
+                # unique_id = string(alias, "_large_rmse_indices_", Dates.format(Dates.now(), "yyyy-mm-dd_HHMMSS"), ".jld2")
+                # jldsave(unique_id; problematic_params = param_arr[large_rmse_indices, :])
             end
         end
 
@@ -4849,11 +4865,6 @@ __precompile__(false)
                 lab_cov = lab_covs[i, j, :, :]
 
                 # Compute Mahalanobis distance for each sample
-                # z_scores = Vector{Float64}(undef, n_samples)
-                # for k in 1:n_samples
-                #     diff = d_summaries_subset[:, k] .- lab_mean
-                #     z_scores[k] = min(dot(diff, lab_cov \ diff), 1e8)
-                # end
                 D = d_summaries_subset .- lab_mean
                 X = lab_cov \ D
                 z_scores = min.(vec(sum(D .* X, dims=1)), 1e8)
@@ -4901,7 +4912,6 @@ __precompile__(false)
         V_hat = ((n_steps - 1) / n_steps) .* W .+ (1 / n_steps) .* B
         
         # PSRF
-        # PSRF = sqrt.(V_hat ./ W)
         PSRF = similar(W)
 
         for i in eachindex(W)
@@ -5025,6 +5035,7 @@ __precompile__(false)
                 push!(relevant_key_indices, key_idx_in_mapping)
                 push!(p_theta, priors[key])
                 push!(theta_srch_sigma, max(srch_sigma_fraction * priors[key].σ, min_srch_sigma))
+                # push!(theta_srch_sigma, priors[key].σ)
 
                 # Relate neg_delta param to mu param by index
                 if startswith(string(key), "neg_delta")
@@ -5048,7 +5059,7 @@ __precompile__(false)
         sobol_pts = 0.025 .+ 0.95 .* sobol_pts # Shrink samples to 95%
 
         # Mutation variance scale
-        srch_sigma_scale = (2.38^2 / n_dims)^2
+        srch_sigma_scale = 0.5 * (2.38^2 / n_dims)^2
 
         # Sort by relevant_key_indices to maintain consistent order
         sorted_indices = sortperm(relevant_key_indices)
@@ -5058,7 +5069,6 @@ __precompile__(false)
         sigma_param_map = sigma_param_map[sorted_indices]
 
         # Refer sigma map to theta indices
-        # sigma_param_map .= ifelse.(sigma_param_map .!= 0, sign.(sigma_param_map) .* (collect(1:n_dims) .- 1), 0)
         mu_positions = Dict(idx => pos for (pos, idx) in enumerate(relevant_key_indices))
         sigma_param_map = [v == 0 ? 0 : sign(v) * mu_positions[abs(v)] for v in sigma_param_map]
 
@@ -5068,7 +5078,7 @@ __precompile__(false)
         println("Sorted keys: $(param_key_mapping[relevant_key_indices])")
         println("Normal: $isnormal")
         println("Sigma map: $sigma_param_map")
-        println("Search sigmas: $theta_srch_sigma")
+        # println("Search sigmas: $theta_srch_sigma")
 
         # Construct particles from sampled priors
         theta = quantile.(p_theta, sobol_pts)
@@ -5081,6 +5091,8 @@ __precompile__(false)
         ess_threshold = 0.5 * n_samples
 
         println("Threads: $(Threads.nthreads())")
+
+        mcmc_chains_all = zeros(Float64, n_smc_steps, n_mc_steps, n_dims, n_samples) # Store all MCMC chains for convergence check
 
         # SMC
         for n in 1:n_smc_steps
@@ -5142,6 +5154,10 @@ __precompile__(false)
             diff_mean = perturb_centre .- sum(perturb_centre .* reshape(weights, 1, n_samples), dims=2)
             sigma_t_matrix = diff_mean * Diagonal(weights) * diff_mean'
 
+            # Regularize covariane matrix
+            # lambda_reg = 0.25
+            # sigma_t_matrix = (1 - lambda_reg) * sigma_t_matrix + lambda_reg * diagm(diag(sigma_t_matrix))
+
             # Resample particles
             resample_indices = wsample(collect(1:n_samples), weights, n_samples)
             theta = theta[:, resample_indices]
@@ -5149,31 +5165,55 @@ __precompile__(false)
             # Evaluate priors
             l_prior = dropdims(sum(logpdf.(reshape(p_theta, :, 1), theta), dims=1), dims=1)
 
+            # Mutation strategy mixing threshold
+            mix_thresh = 0.5
+
             # --- MUTATION ---
-            # converged_mask = fill(false, n_samples)
+            converged_mask = fill(false, n_samples)
             mcmc_chains = zeros(Float64, n_mc_steps, n_dims, n_samples)
             for m in 1:n_mc_steps
 
                 print("\r        Running mutation step $m / $n_mc_steps")
                 
-                # perturb_mask = .!converged_mask
-                # n_perturb = sum(perturb_mask)
+                # Mixing mask for two perturbation strategies
+                mix_mask = rand(Float64, n_samples) .> mix_thresh
+                n_mix = sum(mix_mask)
 
                 # Perturb (duplicate) parameter values
-                # theta_candidates = copy(theta)
-                # srch_sample = rand(Float64, n_dims, n_perturb)
-                # perturb_means = theta[:, perturb_mask]
-                # perturb_means[.!isnormal, :] .= log.(perturb_means[.!isnormal, :]) # Use log-means for LogNormal
-                # theta_candidates[:, perturb_mask] .= quantile.(Normal.(perturb_means, reshape(theta_srch_sigma, :, 1)), srch_sample)
-                # theta_candidates[.!isnormal, perturb_mask] .= exp.(theta_candidates[.!isnormal, perturb_mask]) # Convert back to LogNormal
+                theta_candidates = copy(theta)
+                srch_sample = rand(Float64, n_dims, n_mix)
+                perturb_centre = theta[:, mix_mask]
+                perturb_centre[.!isnormal, :] .= log.(perturb_centre[.!isnormal, :]) # Use log-means for LogNormal
+                theta_candidates[:, mix_mask] .= quantile.(Normal.(perturb_centre, reshape(theta_srch_sigma, :, 1)), srch_sample)
+                theta_candidates[.!isnormal, mix_mask] .= exp.(theta_candidates[.!isnormal, mix_mask]) # Convert back to LogNormal
                 
-                perturb_centre = copy(theta)
-                perturb_centre[.!isnormal, :] .= log.(theta[.!isnormal, :])
+                perturb_centre = theta[:, .!mix_mask]
+                perturb_centre[.!isnormal, :] .= log.(perturb_centre[.!isnormal, :]) # Use log-means for LogNormal
                 sigma_prop_matrix = srch_sigma_scale * (sigma_t_matrix + 1e-8 * I(n_dims))
                 sigma_prop_matrix = 0.5 * (sigma_prop_matrix + sigma_prop_matrix') # symmetrify
                 mv = MvNormal(zeros(n_dims), sigma_prop_matrix)
-                theta_candidates = perturb_centre .+ rand(mv, n_samples)
-                theta_candidates[.!isnormal, :] .= exp.(theta_candidates[.!isnormal, :])
+                theta_candidates[:, .!mix_mask] = perturb_centre .+ rand(mv, n_samples - n_mix)
+                theta_candidates[.!isnormal, .!mix_mask] .= exp.(theta_candidates[.!isnormal, .!mix_mask]) # Convert back to LogNormal
+
+                # theta_candidates[.!isnormal, :] .= max.(theta_candidates[.!isnormal, :], 1e-12)
+
+                # perturb_centre = copy(theta)
+                # perturb_centre[.!isnormal, :] .= log.(theta[.!isnormal, :])
+                # sigma_prop_matrix = srch_sigma_scale * (sigma_t_matrix + 1e-8 * I(n_dims))
+                # sigma_prop_matrix = 0.5 * (sigma_prop_matrix + sigma_prop_matrix') # symmetrify
+                # mv = MvNormal(zeros(n_dims), sigma_prop_matrix)
+                # theta_candidates = perturb_centre .+ rand(mv, n_samples)
+                # theta_candidates[.!isnormal, :] .= exp.(theta_candidates[.!isnormal, :])
+
+                # theta_candidates = max.(perturb_centre .+ rand(mv, n_samples), -12)
+                # theta_candidates[.!isnormal, :] .= max.(exp.(theta_candidates[.!isnormal, :]), 1e-12)
+
+                # perturb_centre = log.(theta)
+                # sigma_prop_matrix = srch_sigma_scale * (sigma_t_matrix + 1e-8 * I(n_dims))
+                # sigma_prop_matrix = 0.5 * (sigma_prop_matrix + sigma_prop_matrix') # symmetrify
+                # mv = MvNormal(zeros(n_dims), sigma_prop_matrix)
+                # theta_candidates = max.(perturb_centre .+ rand(mv, n_samples), -12)
+                # theta_candidates .= max.(exp.(theta_candidates), 1e-12)
 
                 # println(maximum(abs.(theta .- theta_candidates), dims=2))
                 
@@ -5205,24 +5245,32 @@ __precompile__(false)
                 accept_mask = rand(Float64, n_samples) .< alpha
                 theta[:, accept_mask] .= theta_candidates[:, accept_mask]
 
-                # println("        $(sum(accept_mask)) candidates accepted")
+                if m % 100 == 0
+                    println("        $(sum(accept_mask)) candidates accepted (mix rate: $mix_thresh)")
+                end
 
                 # Update srch_sigma_scale
                 # accept_rate = sum(accept_mask) / n_samples
-                # if accept_rate > 0.5
+                # if accept_rate < 0.2
                 #     srch_sigma_scale *= 1.1
-                # elseif accept_rate < 0.2
+                # elseif accept_rate > 0.5
                 #     srch_sigma_scale *= 0.9
                 # end
                 # println(srch_sigma_scale)
+                
+                accept_rate = sum(accept_mask) / n_samples
+                mix_thresh = accept_rate^2
 
                 mcmc_chains[m, :, :] .= theta
             end
             PSRF, converged = gelman_rubin_PSRF(mcmc_chains, 0.5, 1.1)
             println("PSRF = $PSRF, converged = $converged")
+
+            mcmc_chains_all[n, :, :, :] = mcmc_chains
         end
 
         # return dantigny_summaries, rmse_vals
+        return mcmc_chains_all
     end
 
 end
