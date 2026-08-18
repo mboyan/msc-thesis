@@ -5093,6 +5093,7 @@ __precompile__(false)
         println("Threads: $(Threads.nthreads())")
 
         mcmc_chains_all = zeros(Float64, n_smc_steps, n_mc_steps, n_dims, n_samples) # Store all MCMC chains for convergence check
+        PSRF_all = zeros(Float64, n_smc_steps, n_dims)
 
         # SMC
         for n in 1:n_smc_steps
@@ -5267,10 +5268,11 @@ __precompile__(false)
             println("PSRF = $PSRF, converged = $converged")
 
             mcmc_chains_all[n, :, :, :] = mcmc_chains
+            PSRF_all[n, :] = PSRF
         end
 
         # return dantigny_summaries, rmse_vals
-        return mcmc_chains_all
+        return mcmc_chains_all, PSRF_all
     end
 
 end
