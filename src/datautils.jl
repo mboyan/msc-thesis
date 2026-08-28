@@ -4884,14 +4884,15 @@ __precompile__(false)
     
     Arguments:
         chains (Matrix)         : MCMC chains of size (n_mc_steps, n_dims, n_samples)
-        burn_in_frac (Float64)  : Fraction of samples to discard as burn-in
-        threshold (Float54)     : Convergence threshold (default 1.1)
+        isnormal (Vector{Bool}) : booleans indicating whether the parameter is Normal-distributed
+        burn_in_frac (Float64)  : fraction of samples to discard as burn-in
+        threshold (Float54)     : convergence threshold (default 1.1)
     
     Returns:
         PSRF: Vector of R̂ values for each parameter
         converged: Boolean indicating overall convergence
     """
-    function gelman_rubin_PSRF(chains, burn_in_frac=0.5, threshold=1.1)
+    function gelman_rubin_PSRF(chains, isnormal, burn_in_frac=0.5, threshold=1.1)
         
         n_steps_total = size(chains, 1)
         n_params = size(chains, 2)
@@ -4901,6 +4902,9 @@ __precompile__(false)
         burn_in = Int(floor(n_steps_total * burn_in_frac))
         chains_burned = chains[burn_in+1:end, :, :]
         n_steps = size(chains_burned, 1)
+
+        # Convert all LogNormal-parameter chains to log-space
+        chains_burned[:, .!isnormal, :] .= log.(chains_burned[:, .!isnormal, :])
         
         # Within-chain variance
         W = dropdims(mean(var(chains_burned, dims=1), dims=3), dims=(1, 3))
@@ -5170,7 +5174,7 @@ __precompile__(false)
             mix_thresh = 0.5
 
             # --- MUTATION ---
-            converged_mask = fill(false, n_samples)
+            # converged_mask = fill(false, n_samples)
             mcmc_chains = zeros(Float64, n_mc_steps, n_dims, n_samples)
             for m in 1:n_mc_steps
 
@@ -5180,7 +5184,8 @@ __precompile__(false)
                 mix_mask = rand(Float64, n_samples) .> mix_thresh
                 n_mix = sum(mix_mask)
 
-                # Perturb (duplicate) parameter values
+                # Perturb (duplicate) parameter values in log-space
+                # Perturbation Type 1 - individual (Log)Normals around current param values
                 theta_candidates = copy(theta)
                 srch_sample = rand(Float64, n_dims, n_mix)
                 perturb_centre = theta[:, mix_mask]
@@ -5188,6 +5193,7 @@ __precompile__(false)
                 theta_candidates[:, mix_mask] .= quantile.(Normal.(perturb_centre, reshape(theta_srch_sigma, :, 1)), srch_sample)
                 theta_candidates[.!isnormal, mix_mask] .= exp.(theta_candidates[.!isnormal, mix_mask]) # Convert back to LogNormal
                 
+                # Perturbation Type 2 - multivariate Normal resampling using general covariance
                 perturb_centre = theta[:, .!mix_mask]
                 perturb_centre[.!isnormal, :] .= log.(perturb_centre[.!isnormal, :]) # Use log-means for LogNormal
                 sigma_prop_matrix = srch_sigma_scale * (sigma_t_matrix + 1e-8 * I(n_dims))
@@ -5264,7 +5270,7 @@ __precompile__(false)
 
                 mcmc_chains[m, :, :] .= theta
             end
-            PSRF, converged = gelman_rubin_PSRF(mcmc_chains, 0.5, 1.1)
+            PSRF, converged = gelman_rubin_PSRF(mcmc_chains, isnormal, 0.5, 1.1)
             println("PSRF = $PSRF, converged = $converged")
 
             mcmc_chains_all[n, :, :, :] = mcmc_chains
