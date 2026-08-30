@@ -5029,7 +5029,7 @@ __precompile__(false)
         p_theta = Distribution[]        # Relevant parameter priors
         theta_srch_sigma = Float64[]    # Relevant parameter search sd's
         min_srch_sigma = eps(Float64)
-        srch_sigma_fraction = 0.02
+        srch_sigma_fraction = 0.01#2
         sigma_param_map = Int[] # Index mapping of sigma to mu parameters (and -1 if not applicable)
         all_var_param_keys = collect(keys(priors))
         for key in keys(priors) # All variable parameters
@@ -5063,7 +5063,7 @@ __precompile__(false)
         sobol_pts = 0.025 .+ 0.95 .* sobol_pts # Shrink samples to 95%
 
         # Mutation variance scale
-        srch_sigma_scale = 0.5 * (2.38^2 / n_dims)^2
+        srch_sigma_scale = 0.005 * (2.38^2 / n_dims)^2
 
         # Sort by relevant_key_indices to maintain consistent order
         sorted_indices = sortperm(relevant_key_indices)
