@@ -5063,7 +5063,7 @@ __precompile__(false)
         sobol_pts = 0.025 .+ 0.95 .* sobol_pts # Shrink samples to 95%
 
         # Mutation variance scale
-        srch_sigma_scale = 0.005 * (2.38^2 / n_dims)^2
+        srch_sigma_scale = 0.01 * (2.38^2 / n_dims)^2
 
         # Sort by relevant_key_indices to maintain consistent order
         sorted_indices = sortperm(relevant_key_indices)
