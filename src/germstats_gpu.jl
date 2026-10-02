@@ -1028,7 +1028,7 @@ __precompile__(false)
         println("Constructing problem...")
         
         prob = ODEProblem{false}(ode_system, u0_dummy, times[end], p_dummy)
-        monteprob = EnsembleProblem(prob, prob_func=prob_func, safetycopy=false)
+        # monteprob = EnsembleProblem(prob, prob_func=prob_func, safetycopy=false)
 
         dt = Float32(min(maximum(diff(times)), 10.0))
 
@@ -1044,14 +1044,14 @@ __precompile__(false)
 
         # Building different problems for different parameters
         batch = 1:n_samples_flat
-        probs = map(batch) do i
+        @time probs = map(batch) do i
             DiffEqGPU.make_prob_compatible(remake(prob, u0=u0_vec[i], p=p_vec[i]))
         end
-        gpu_probs = adapt(CUDA.CUDABackend(), probs)
+        @time gpu_probs = adapt(CUDA.CUDABackend(), probs)
 
         println("Starting solver...")
 
-        sols_gpu = DiffEqGPU.vectorized_solve(
+        CUDA.@time sols_gpu = DiffEqGPU.vectorized_solve(
             gpu_probs,
             prob,
             GPURosenbrock23(),
@@ -1070,7 +1070,7 @@ __precompile__(false)
         germinated_gpu = CuArray(germinated)
         n_threads = 256
         n_blocks = cld(n_samples_flat * T, n_threads)
-        @cuda threads=n_threads blocks=n_blocks eval_thresholds_gpu(germinated_gpu, thresh_mode, params_gpu, sols_gpu[2], n_samples_flat, T)
+        CUDA.@time @cuda threads=n_threads blocks=n_blocks eval_thresholds_gpu(germinated_gpu, thresh_mode, params_gpu, sols_gpu[2], n_samples_flat, T)
         germinated = Array(germinated_gpu)
 
         germinated = reshape(germinated, (T, n_samples, P))

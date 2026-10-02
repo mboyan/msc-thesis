@@ -5097,7 +5097,8 @@ __precompile__(false)
         println("Threads: $(Threads.nthreads())")
 
         mcmc_chains_all = zeros(Float64, n_smc_steps, n_mc_steps, n_dims, n_samples) # Store all MCMC chains for convergence check
-        PSRF_all = zeros(Float64, n_smc_steps, n_dims)
+        # PSRF_all = zeros(Float64, n_smc_steps, n_dims)
+        PSRF_all = zeros(Float64, n_smc_steps, n_mc_steps - 10, n_dims)
 
         # SMC
         for n in 1:n_smc_steps
@@ -5105,6 +5106,8 @@ __precompile__(false)
 
             # Update input parameter matrix
             particle_to_input_params(param_arr, theta, densities, relevant_key_indices, sigma_param_map)
+            param_save_path = "smc_params_$(alias)_step$(n).jld2"
+            jldsave(param_save_path; p=param_arr)
 
             # --- LIKELIHOODS FOR TEMPERATURE UPDATE ---
             l_scores = nothing
@@ -5113,7 +5116,7 @@ __precompile__(false)
             catch e
                 # Save parameters with JLD2
                 println("Premature termination. Saving last parameters.")
-                param_save_path = "smc_params_$(alias)_step$(n).jld2"
+                param_save_path = "smc_params_$(alias)_step$(n)_error.jld2"
                 jldsave(param_save_path; p=param_arr)
                 error("Likelihood evaluation failed: $e")
             end
@@ -5202,34 +5205,14 @@ __precompile__(false)
                 theta_candidates[:, .!mix_mask] = perturb_centre .+ rand(mv, n_samples - n_mix)
                 theta_candidates[.!isnormal, .!mix_mask] .= exp.(theta_candidates[.!isnormal, .!mix_mask]) # Convert back to LogNormal
 
-                # theta_candidates[.!isnormal, :] .= max.(theta_candidates[.!isnormal, :], 1e-12)
-
-                # perturb_centre = copy(theta)
-                # perturb_centre[.!isnormal, :] .= log.(theta[.!isnormal, :])
-                # sigma_prop_matrix = srch_sigma_scale * (sigma_t_matrix + 1e-8 * I(n_dims))
-                # sigma_prop_matrix = 0.5 * (sigma_prop_matrix + sigma_prop_matrix') # symmetrify
-                # mv = MvNormal(zeros(n_dims), sigma_prop_matrix)
-                # theta_candidates = perturb_centre .+ rand(mv, n_samples)
-                # theta_candidates[.!isnormal, :] .= exp.(theta_candidates[.!isnormal, :])
-
-                # theta_candidates = max.(perturb_centre .+ rand(mv, n_samples), -12)
-                # theta_candidates[.!isnormal, :] .= max.(exp.(theta_candidates[.!isnormal, :]), 1e-12)
-
-                # perturb_centre = log.(theta)
-                # sigma_prop_matrix = srch_sigma_scale * (sigma_t_matrix + 1e-8 * I(n_dims))
-                # sigma_prop_matrix = 0.5 * (sigma_prop_matrix + sigma_prop_matrix') # symmetrify
-                # mv = MvNormal(zeros(n_dims), sigma_prop_matrix)
-                # theta_candidates = max.(perturb_centre .+ rand(mv, n_samples), -12)
-                # theta_candidates .= max.(exp.(theta_candidates), 1e-12)
-
                 # println(maximum(abs.(theta .- theta_candidates), dims=2))
                 
                 # Update input parameter matrix
                 particle_to_input_params(param_arr, theta, densities, relevant_key_indices, sigma_param_map)
 
                 # Save parameters with JLD2
-                # param_save_path = "smc_params_$(alias)_step$(n)_mut$(m).jld2"
-                # jldsave(param_save_path; p=param_arr)
+                param_save_path = "mcmc_params_$(alias)_step$(n)_mut$(m).jld2"
+                jldsave(param_save_path; p=param_arr)
 
                 # Likelihoods for acceptance probability
                 l_scores_candidates = nothing
@@ -5257,24 +5240,22 @@ __precompile__(false)
                 end
 
                 # Update srch_sigma_scale
-                # accept_rate = sum(accept_mask) / n_samples
-                # if accept_rate < 0.2
-                #     srch_sigma_scale *= 1.1
-                # elseif accept_rate > 0.5
-                #     srch_sigma_scale *= 0.9
-                # end
-                # println(srch_sigma_scale)
-                
                 accept_rate = sum(accept_mask) / n_samples
                 mix_thresh = accept_rate^2
 
                 mcmc_chains[m, :, :] .= theta
+
+                if m > 10
+                    PSRF, converged = gelman_rubin_PSRF(mcmc_chains[1:m, :, :], isnormal, 0.5, 1.1)
+                    PSRF_all[n, m-10, :] = PSRF
+                end
+                
             end
-            PSRF, converged = gelman_rubin_PSRF(mcmc_chains, isnormal, 0.5, 1.1)
-            println("PSRF = $PSRF, converged = $converged")
+            # PSRF, converged = gelman_rubin_PSRF(mcmc_chains, isnormal, 0.5, 1.1)
+            # println("PSRF = $PSRF, converged = $converged")
 
             mcmc_chains_all[n, :, :, :] = mcmc_chains
-            PSRF_all[n, :] = PSRF
+            # PSRF_all[n, :] = PSRF
         end
 
         # return dantigny_summaries, rmse_vals
