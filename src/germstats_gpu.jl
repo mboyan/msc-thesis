@@ -1058,6 +1058,15 @@ __precompile__(false)
             dt=dt,
             saveat=times
         )
+        # CUDA.@time sols_gpu = DiffEqGPU.vectorized_solve(
+        #     gpu_probs,
+        #     prob,
+        #     GPUTsit5(),
+        #     dt=dt,
+        #     saveat=times,
+        #     abstol=1.0f-4,
+        #     reltol=1.0f-2
+        # )
 
         println("Solutions complete.")
 

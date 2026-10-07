@@ -680,12 +680,13 @@ __precompile__(false)
         taus (Matrix): characteristic germination times (in hours)
         nus (Matrix): design parameters
     """
-    function generate_dantigny_dataset(df_germination, t_max, n_pts=256)
+    function generate_dantigny_dataset(df_germination, t_max, n_pts=128)
         
         sources = unique(df_germination[!, :CarbonSource])
         densities = unique(df_germination[!, :Density])
         
-        times = collect(LinRange(0, t_max, n_pts))
+        # times = collect(LinRange(0, t_max, n_pts))
+        times = exp.(collect(LinRange(-6.0f0, log(t_max), 128))) # exponentially distributed times
         dantigny_data = zeros(length(sources), length(densities), n_pts)
         errs = zeros(length(sources), length(densities), 2)
         p_maxs = zeros(length(sources), length(densities))
@@ -5106,8 +5107,8 @@ __precompile__(false)
 
             # Update input parameter matrix
             particle_to_input_params(param_arr, theta, densities, relevant_key_indices, sigma_param_map)
-            param_save_path = "smc_params_$(alias)_step$(n).jld2"
-            jldsave(param_save_path; p=param_arr)
+            # param_save_path = "smc_params_$(alias)_step$(n).jld2"
+            # jldsave(param_save_path; p=param_arr)
 
             # --- LIKELIHOODS FOR TEMPERATURE UPDATE ---
             l_scores = nothing
@@ -5211,8 +5212,8 @@ __precompile__(false)
                 particle_to_input_params(param_arr, theta, densities, relevant_key_indices, sigma_param_map)
 
                 # Save parameters with JLD2
-                param_save_path = "mcmc_params_$(alias)_step$(n)_mut$(m).jld2"
-                jldsave(param_save_path; p=param_arr)
+                # param_save_path = "mcmc_params_$(alias)_step$(n)_mut$(m).jld2"
+                # jldsave(param_save_path; p=param_arr)
 
                 # Likelihoods for acceptance probability
                 l_scores_candidates = nothing
