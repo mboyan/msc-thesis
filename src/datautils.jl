@@ -686,7 +686,8 @@ __precompile__(false)
         densities = unique(df_germination[!, :Density])
         
         # times = collect(LinRange(0, t_max, n_pts))
-        times = exp.(collect(LinRange(-6.0f0, log(t_max), 128))) # exponentially distributed times
+        times = exp.(collect(LinRange(-6.0f0, log(t_max), n_pts))) # exponentially distributed times
+        times[1] = 0.0 # ensure first time point is exactly zero
         dantigny_data = zeros(length(sources), length(densities), n_pts)
         errs = zeros(length(sources), length(densities), 2)
         p_maxs = zeros(length(sources), length(densities))
